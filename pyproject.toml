@@ -10,10 +10,12 @@ dependencies = []
 server = [
     "bless==0.3.0",
     "dbus-next",
+    "rich",
 ]
 client = [
     "bleak",
     "inquirerpy",
+    "rich",
 ]
 
 [tool.uv]
