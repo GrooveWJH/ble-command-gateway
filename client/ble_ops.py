@@ -1,9 +1,18 @@
 import asyncio
 import json
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 
+from client.ble_gatt import (
+    WriteConfig,
+    WriteState,
+    describe_service_shape_error,
+    resolve_services,
+    verify_service_shape,
+    write_with_strategy,
+)
+from client.ble_scan import filter_devices_by_name, scan_devices
 from config import (
     CHAR_READ_UUID,
     CHAR_WRITE_UUID,
@@ -27,74 +36,43 @@ def extract_final_result(status: str) -> RunResult | None:
     return None
 
 
-def _filter_devices_by_name(devices: list[Any], target_name: str) -> list[Any]:
-    if target_name:
-        filtered = [d for d in devices if d.name and target_name in d.name]
-    else:
-        filtered = list(devices)
-    filtered.sort(key=lambda d: (d.name or "", d.address))
-    return filtered
-
-
 async def discover_devices_with_progress(
     target_name: str,
     timeout: int,
     on_progress: Callable[[float, float, int, int], None] | None = None,
     refresh_interval: float = 0.1,
 ) -> tuple[list[Any], int]:
-    seen: dict[str, Any] = {}
-
-    def _on_detect(device: Any, _adv: Any) -> None:
-        seen[device.address] = device
-
-    scanner = BleakScanner(detection_callback=_on_detect)
-    loop = asyncio.get_running_loop()
-    start = loop.time()
-    await scanner.start()
-    try:
-        while True:
-            elapsed = loop.time() - start
-            devices_now = list(seen.values())
-            matched_now = _filter_devices_by_name(devices_now, target_name)
-            if on_progress:
-                on_progress(elapsed, float(timeout), len(devices_now), len(matched_now))
-            if elapsed >= timeout:
-                break
-            await asyncio.sleep(refresh_interval)
-    finally:
-        await scanner.stop()
-
-    devices = list(seen.values())
-    filtered = _filter_devices_by_name(devices, target_name)
-    return filtered, len(devices)
+    result = await scan_devices(
+        target_name=target_name,
+        timeout=float(timeout),
+        match_all=not target_name,
+        refresh_interval=refresh_interval,
+        stop_on_first_match=False,
+        on_progress=on_progress,
+    )
+    filtered = filter_devices_by_name(result.devices, target_name, match_all=not target_name)
+    return filtered, len(result.devices)
 
 
 async def verify_target_service(client: BleakClient) -> str | None:
-    services = client.services
+    services = await resolve_services(client)
     if services is None:
-        get_services = getattr(client, "get_services", None)
-        if callable(get_services):
-            services = await cast(Any, get_services)()
-        else:
-            return "无法读取设备服务列表"
+        return "无法读取设备服务列表"
 
-    service_uuids = {svc.uuid.lower() for svc in services}
-    if SERVICE_UUID.lower() not in service_uuids:
-        return f"未发现目标服务 UUID: {SERVICE_UUID}"
+    error = verify_service_shape(services, SERVICE_UUID, [CHAR_WRITE_UUID, CHAR_READ_UUID])
+    if error is None:
+        return None
+    return describe_service_shape_error(error, zh_cn=True)
 
-    service = services.get_service(SERVICE_UUID)
-    if service is None:
-        return f"无法读取目标服务: {SERVICE_UUID}"
-
-    characteristic_uuids = {ch.uuid.lower() for ch in service.characteristics}
-    missing = [
-        uuid
-        for uuid in (CHAR_WRITE_UUID, CHAR_READ_UUID)
-        if uuid.lower() not in characteristic_uuids
-    ]
-    if missing:
-        return f"目标设备缺少特征: {', '.join(missing)}"
-    return None
+async def write_with_fallback(client: BleakClient, char_uuid: str, payload: bytes) -> str:
+    outcome = await write_with_strategy(
+        client,
+        char_uuid,
+        payload,
+        config=WriteConfig(allow_no_response=True),
+        state=WriteState(False),
+    )
+    return outcome.mode.value
 
 
 async def wait_status(client: BleakClient, timeout: int, verbose: bool = False) -> RunResult:
@@ -134,8 +112,8 @@ async def provision_device(
             if verify_error:
                 return RunResult(ResultCode.FAILED, verify_error)
 
-            await client.write_gatt_char(CHAR_WRITE_UUID, payload, response=True)
-            print("[发送] 配网参数已发送，等待终态...")
+            write_mode = await write_with_fallback(client, CHAR_WRITE_UUID, payload)
+            print(f"[发送] 配网参数已发送（{write_mode}），等待终态...")
             return await wait_status(client, wait_timeout, verbose)
     except Exception as exc:  # noqa: BLE001
         return RunResult(ResultCode.FAILED, f"BLE 交互异常: {exc}")
