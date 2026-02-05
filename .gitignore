@@ -1,0 +1,70 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter / AI workflow artifacts
+.ipynb_checkpoints/
+*.ipynb
+mlruns/
+wandb/
+lightning_logs/
+tensorboard/
+runs/
+checkpoints/
+
+# Logs / local runtime
+*.log
+logs/
+*.pid
+*.sqlite3
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editors / IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+
+# Git
+.git/

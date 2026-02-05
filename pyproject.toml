@@ -1,0 +1,26 @@
+[project]
+name = "ble-wifi-provisioning"
+version = "0.1.0"
+description = "Provision a Linux server's Wi-Fi over BLE from a cross-platform client, with immediate status feedback"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = []
+
+[dependency-groups]
+server = [
+    "bless==0.3.0",
+    "dbus-next",
+]
+client = [
+    "bleak",
+    "inquirerpy",
+]
+
+[tool.uv]
+prerelease = "allow"
+default-groups = ["server", "client"]
+environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'darwin'",
+    "sys_platform == 'win32' and python_full_version < '3.12'",
+]
