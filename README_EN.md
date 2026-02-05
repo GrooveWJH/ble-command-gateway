@@ -76,13 +76,20 @@ uv sync --only-group server
 uv sync --only-group client
 ```
 
+After syncing, run scripts directly with the Python inside `.venv` (no `uv run` needed):
+
+```bash
+# Optional: activate the virtual environment
+source .venv/bin/activate
+```
+
 ## Quick Start
 
 ### 1) Start server on Linux target
 
 ```bash
 uv sync --only-group server
-sudo uv run --no-sync python server/wifi_ble_service.py \
+sudo -E "$(pwd)/.venv/bin/python" server/wifi_ble_service.py \
   --device-name Orin_Drone_01 \
   --ifname wlan0
 ```
@@ -91,7 +98,7 @@ sudo uv run --no-sync python server/wifi_ble_service.py \
 
 ```bash
 uv sync --only-group client
-uv run --no-sync python client/client_config_tool.py --target-name Orin_Drone_01
+"$(pwd)/.venv/bin/python" client/client_config_tool.py --target-name Orin_Drone_01
 ```
 
 ## Client Interactive Menu
@@ -105,6 +112,48 @@ The client stays alive and lets users repeat operations:
 - One-shot flow (scan -> input -> provision)
 - Show session state
 - Exit
+
+## HelloWorld Link Test
+
+`tests/helloworld/*.py` are now thin entrypoints, while implementation lives in:
+
+- Server implementation: `server/link_test_server.py`
+- Client implementation: `client/link_test_client.py`
+
+Run:
+
+```bash
+# 1) Start link-test server on Linux target
+#    Keep sudo for real BLE advertising/GATT operations
+sudo -E "$(pwd)/.venv/bin/python" tests/helloworld/server_link_test.py --adapter hci0
+
+# 2) Run link-test client (default 10 exchanges, sequential/parallel supported)
+"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+  --target-name BLE_Hello_Server \
+  --exchange-count 10 \
+  --exchange-interval 1.0 \
+  --exchange-mode sequential
+
+# Recommended stable settings (retry + longer connect timeout)
+"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+  --target-name BLE_Hello_Server \
+  --scan-timeout 30 \
+  --connect-retries 6 \
+  --connect-timeout 45 \
+  --refresh-timeout 1.5 \
+  --exchange-count 10 \
+  --exchange-interval 1.0 \
+  --exchange-mode sequential
+
+# Enable only when full stack traces are needed
+# --full-traceback
+```
+
+If BLE state is stale after interruption:
+
+```bash
+sudo -E "$(pwd)/.venv/bin/python" scripts/server_reset.py --adapter hci0
+```
 
 ## Client Exit Codes
 
@@ -158,7 +207,7 @@ Default target: `orin-Mocap5G:~/work/ble-wifi-provisioning/`
 
 Validated locally:
 
-- `uv run ruff check .`
+- `.venv/bin/ruff check .`
 - `python3 -m py_compile config.py server/wifi_ble_service.py client/client_config_tool.py`
 
 BLE hardware end-to-end behavior still requires real-device validation.

@@ -79,13 +79,20 @@ uv sync --only-group server
 uv sync --only-group client
 ```
 
+安装完成后，直接使用 `.venv` 里的 Python 执行脚本（不需要 `uv run`）：
+
+```bash
+# 可选：激活虚拟环境
+source .venv/bin/activate
+```
+
 ## 快速开始
 
 ### 1) Linux 服务端启动
 
 ```bash
 uv sync --only-group server
-sudo uv run --no-sync python server/wifi_ble_service.py \
+sudo -E "$(pwd)/.venv/bin/python" server/wifi_ble_service.py \
   --device-name Orin_Drone_01 \
   --ifname wlan0
 ```
@@ -94,7 +101,7 @@ sudo uv run --no-sync python server/wifi_ble_service.py \
 
 ```bash
 uv sync --only-group client
-uv run --no-sync python client/client_config_tool.py --target-name Orin_Drone_01
+"$(pwd)/.venv/bin/python" client/client_config_tool.py --target-name Orin_Drone_01
 ```
 
 ## 客户端交互菜单
@@ -108,6 +115,47 @@ uv run --no-sync python client/client_config_tool.py --target-name Orin_Drone_01
 - 一键流程（扫描 -> 输入 -> 配网）
 - 查看当前会话状态
 - 退出
+
+## HelloWorld 链路测试
+
+`tests/helloworld/*.py` 现在是薄入口，核心实现在项目代码中：
+
+- 服务端实现：`server/link_test_server.py`
+- 客户端实现：`client/link_test_client.py`
+
+运行方式：
+
+```bash
+# 1) Linux 端启动链路测试服务端
+sudo -E "$(pwd)/.venv/bin/python" tests/helloworld/server_link_test.py --adapter hci0
+
+# 2) 客户端执行链路测试（默认 10 次，支持 sequential/parallel）
+"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+  --target-name BLE_Hello_Server \
+  --exchange-count 10 \
+  --exchange-interval 1.0 \
+  --exchange-mode sequential
+
+# 推荐：更稳的链路测试参数（连接重试 + 较长连接超时）
+"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+  --target-name BLE_Hello_Server \
+  --scan-timeout 30 \
+  --connect-retries 6 \
+  --connect-timeout 45 \
+  --refresh-timeout 1.5 \
+  --exchange-count 10 \
+  --exchange-interval 1.0 \
+  --exchange-mode sequential
+
+# 仅在需要完整堆栈时再打开
+# --full-traceback
+```
+
+如果服务端被中断后出现残留状态，可执行：
+
+```bash
+sudo -E "$(pwd)/.venv/bin/python" scripts/server_reset.py --adapter hci0
+```
 
 ## 客户端退出码
 
@@ -161,7 +209,7 @@ sudo systemctl status drone-ble.service
 
 已验证：
 
-- `uv run ruff check .`
+- `.venv/bin/ruff check .`
 - `python3 -m py_compile config.py server/wifi_ble_service.py client/client_config_tool.py`
 
 BLE 真机链路仍需在你的设备上做端到端测试。
