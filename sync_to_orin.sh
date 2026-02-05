@@ -4,6 +4,7 @@ set -euo pipefail
 # Sync current repository to remote Orin machine using rsync.
 # - Uses .gitignore rules automatically when .gitignore exists.
 # - Always excludes .git metadata.
+# - Protects remote .venv/ from deletion.
 
 TARGET_DEFAULT="orin-Mocap5G:~/work/ble-wifi-provisioning/"
 TARGET="${1:-$TARGET_DEFAULT}"
@@ -16,6 +17,7 @@ RSYNC_OPTS=(
   --delete
   --human-readable
   --exclude=.git/
+  --filter='P .venv/'
 )
 
 if [[ -f .gitignore ]]; then
@@ -26,6 +28,7 @@ fi
 
 echo "[INFO] Source : ${SCRIPT_DIR}/"
 echo "[INFO] Target : ${TARGET}"
+echo "[INFO] Protect: remote .venv/ will not be deleted"
 
 echo "[INFO] Running: rsync ${RSYNC_OPTS[*]} \"${SCRIPT_DIR}/\" \"${TARGET}\""
 rsync "${RSYNC_OPTS[@]}" "${SCRIPT_DIR}/" "$TARGET"
