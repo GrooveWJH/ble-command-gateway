@@ -16,7 +16,7 @@ SystemRunner = Callable[[str, str | None, float], Awaitable[tuple[bool, str]]]
 @dataclass(frozen=True)
 class DispatchContext:
     read_status_text: Callable[[], str]
-    start_provision: Callable[[str, str, str], Awaitable[None]]
+    start_provision: Callable[[str, str, str], Awaitable[bool]]
     start_shutdown: Callable[[str], Awaitable[None]]
     run_system_command: SystemRunner
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
-from typing import Any, Awaitable, cast
+from typing import Any, Awaitable, Callable, cast
 
 
 def load_bless_symbols() -> tuple[type[Any], Any, Any]:
@@ -32,3 +32,38 @@ async def stop_bless_server(server: Any, timeout: float = 5.0) -> None:
     result = stop_fn()
     if inspect.isawaitable(result):
         await asyncio.wait_for(cast(Awaitable[Any], result), timeout=timeout)
+
+
+def try_patch_bluez_advertising_interval(
+    app: Any,
+    *,
+    min_interval_ms: int,
+    max_interval_ms: int,
+) -> Callable[[], None] | None:
+    """Patch BlueZ advertisement start to apply Min/MaxInterval (experimental)."""
+    try:
+        from bless.backends.bluezdbus.dbus.advertisement import BlueZLEAdvertisement, Type  # type: ignore
+    except Exception:
+        return None
+
+    original = getattr(app, "start_advertising", None)
+    if not callable(original):
+        return None
+
+    async def _start_advertising(adapter: Any) -> None:
+        await app.set_name(adapter, app.app_name)
+        advertisement = BlueZLEAdvertisement(Type.PERIPHERAL, len(app.advertisements) + 1, app)
+        advertisement.MinInterval = int(min_interval_ms)
+        advertisement.MaxInterval = int(max_interval_ms)
+        app.advertisements.append(advertisement)
+        advertisement._service_uuids.append(app.services[0].UUID)
+        app.bus.export(advertisement.path, advertisement)
+        iface = adapter.get_interface("org.bluez.LEAdvertisingManager1")
+        await iface.call_register_advertisement(advertisement.path, {})  # type: ignore
+
+    app.start_advertising = _start_advertising
+
+    def _restore() -> None:
+        app.start_advertising = original
+
+    return _restore

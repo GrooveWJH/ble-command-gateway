@@ -28,6 +28,9 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main() -> None:
+    if not sys.platform.startswith("linux"):
+        raise SystemExit("Server supports Linux only (requires BlueZ + nmcli).")
+
     args = parse_args()
     logging.basicConfig(
         level=getattr(logging, args.log_level),
