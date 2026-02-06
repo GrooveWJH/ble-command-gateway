@@ -39,11 +39,12 @@ Request JSON example:
 
 - `help`
 - `ping`
-- `status`
+- `status` (Wi-Fi/SSID, user, hostname, SSH, system)
 - `provision`
 - `shutdown`
 - `sys.whoami`
 - `net.ifconfig`
+- `wifi.scan`
 
 `help` returns a short command list. Use `help` with `args.cmd` for detailed usage.
 

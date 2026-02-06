@@ -39,11 +39,12 @@
 
 - `help`
 - `ping`
-- `status`
+- `status`（Wi-Fi/SSID、user、hostname、SSH、system）
 - `provision`
 - `shutdown`
 - `sys.whoami`
 - `net.ifconfig`
+- `wifi.scan`
 
 提示：`help` 默认返回命令列表；详细用法请使用 `help` + `args.cmd`。
 
