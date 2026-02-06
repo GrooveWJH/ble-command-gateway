@@ -68,3 +68,5 @@ logs/
 
 # Git
 .git/
+
+/tmp/

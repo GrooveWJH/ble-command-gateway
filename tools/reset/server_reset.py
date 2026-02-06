@@ -10,15 +10,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from server.preflight import format_preflight_report, run_preflight_checks  # noqa: E402
+from server.preflight import detect_default_adapter, format_preflight_report, run_preflight_checks  # noqa: E402
 
 DEFAULT_PATTERNS = [
-    "tests/helloworld/server_link_test.py",
-    "server/wifi_ble_service.py",
+    "tests/integration/server_link_test.py",
+    "app/server_main.py",
 ]
 
 
@@ -81,7 +81,7 @@ def _show_status(adapter: str, dry_run: bool) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Reset BLE server runtime state")
-    parser.add_argument("--adapter", default="hci0", help="Bluetooth adapter name, e.g. hci0")
+    parser.add_argument("--adapter", default="auto", help="Bluetooth adapter name (auto, hci0, hci1)")
     parser.add_argument(
         "--pattern",
         action="append",
@@ -96,6 +96,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    adapter = args.adapter
+    if adapter in {"", "auto"}:
+        detected = detect_default_adapter()
+        if detected is None:
+            print("[reset] unable to detect bluetooth adapter (no hci* found)")
+            return 2
+        adapter = detected
+        print(f"[reset] using adapter: {adapter} (auto)")
 
     if os.geteuid() != 0 and not args.dry_run:
         print("[reset] warning: run with sudo for full effect")
@@ -103,15 +111,15 @@ def main() -> int:
     patterns = [*DEFAULT_PATTERNS, *args.pattern]
     if not args.skip_kill:
         _kill_residual_processes(patterns, args.dry_run)
-    _reset_bluetooth(args.adapter, args.dry_run)
+    _reset_bluetooth(adapter, args.dry_run)
     if not args.skip_status:
-        _show_status(args.adapter, args.dry_run)
+        _show_status(adapter, args.dry_run)
 
     if args.dry_run:
         return 0
 
     print("[reset] post-reset preflight")
-    report = run_preflight_checks(args.adapter)
+    report = run_preflight_checks(adapter)
     print(format_preflight_report(report))
     return 0 if report.ok else 2
 
