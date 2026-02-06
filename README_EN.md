@@ -1,33 +1,40 @@
-# BLE Wi-Fi Provisioning
+# BLE Command Gateway
 
-[![中文](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-red)](./README.md)
+BLE provisioning and device diagnostics gateway: send Wi‑Fi commands to a Linux device over BLE and get observable status back.
 
-Provision a **Linux server's Wi-Fi over BLE** from a **cross-platform client** (macOS / Linux / Windows), with real-time status feedback (`Connecting` / `Success_IP` / `Fail`).
+- 中文说明: `README.md`
+- Roadmap: `TODO.md`
 
-## Current Architecture (Refactored)
+## Overview
+
+This project targets first-time provisioning, on-site Wi‑Fi switching, and headless diagnostics. It provides a scriptable BLE command channel plus an interactive client.
+
+## Key Features
+
+- Interactive client: scan, select device, reuse a long-lived session, Rich UI output
+- Provisioning: send SSID/password (open networks supported), server executes via `nmcli` and returns final status + IP
+- Diagnostics: `status / sys.whoami / net.ifconfig / wifi.scan` for on-site troubleshooting
+- Observability: server logs and in-progress updates during provisioning; client-side wait/chunk receive visualization
+- Extensibility: clear layering across protocol, command registry, system services, and BLE gateway
+
+## Architecture
 
 ```text
-.
-├── app/                    # application entrypoints
-│   ├── server_main.py
-│   └── client_main.py
-├── ble/                    # BLE gateway/runtime/publisher
-├── protocol/               # envelope / codes / command ids
-├── commands/               # registry/loader/builtin commands
-├── services/               # provisioning + system command services
-├── client/                 # interactive flow + command client
-├── config/                 # UUID and default settings
-├── server/                 # retained modules (preflight, link test)
-├── scripts/                # legacy launcher
-├── tools/                  # operations + legacy scripts
-└── tests/                  # unit/integration/e2e
+app/        entrypoints (server_main.py / client_main.py)
+ble/        BLE gateway/runtime/response publisher (chunking)
+protocol/   protocol models/codec/status codes
+commands/   command registry + built-in commands
+services/   system execution + Wi‑Fi provisioning services
+client/     scanning/session/interactive flow/rendering
+config/     defaults and UUIDs
+tests/      unit/integration tests
 ```
 
 ## BLE Protocol
 
 - Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
-- RX Characteristic (client -> server write): `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
-- TX Characteristic (server -> client read/notify): `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
+- Client Write Char: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
+- Server Read/Notify Char: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
 
 Request JSON example:
 
@@ -35,40 +42,31 @@ Request JSON example:
 {"id":"req-1","cmd":"provision","args":{"ssid":"LabWiFi","pwd":"secret"}}
 ```
 
-## Built-in Commands
+## Commands
 
 - `help`
 - `ping`
-- `status` (Wi-Fi/SSID, user, hostname, SSH, system)
+- `status`
 - `provision`
 - `shutdown`
 - `sys.whoami`
 - `net.ifconfig`
 - `wifi.scan`
 
-`help` returns a short command list. Use `help` with `args.cmd` for detailed usage.
-
 ## Requirements
 
-### Server (Linux)
+- Python: `3.10 - 3.13`
+- Dependency manager: `uv`
+- Server: Linux only (BlueZ + NetworkManager `nmcli`)
 
-- Ubuntu / Debian
-- BlueZ
-- NetworkManager (`nmcli`)
-- Python `3.10-3.13`
+System deps (Debian/Ubuntu):
 
 ```bash
 sudo apt update
 sudo apt install -y network-manager bluez
 ```
 
-### Client (Cross-platform)
-
-- macOS / Linux / Windows
-- BLE hardware available
-- Python `3.10-3.13`
-
-## Dependency Management (uv)
+Python deps:
 
 ```bash
 uv sync --only-group server
@@ -77,73 +75,48 @@ uv sync --only-group client
 
 ## Quick Start
 
-### 1) Start server (new entrypoint)
+Server (Linux):
 
 ```bash
-uv sync --only-group server
 sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
-  --device-name Orin_Drone_01 \
+  --device-name Yundrone_UAV \
   --ifname wlan0 \
-  --adapter hci0
+  --adapter hci0 \
+  --log-level INFO
 ```
 
-### 2) Start client (new entrypoint)
+Client (macOS/Linux/Windows):
 
 ```bash
-uv sync --only-group client
-"$(pwd)/.venv/bin/python" app/client_main.py --target-name Orin_Drone_01
+"$(pwd)/.venv/bin/python" app/client_main.py --target-name Yundrone_UAV
 ```
 
-## Phone Direct Debug
+## Suggested Flow
 
-Write to RX characteristic from LightBlue / nRF Connect:
+- Minimal link check: `help` -> `status` -> `wifi.scan` -> `provision`
+- `status`: verify current SSID and IP
+- `wifi.scan`: verify target SSID visibility and signal strength
 
-```json
-{"id":"req-help-1","cmd":"help","args":{}}
-```
-
-Detailed help:
-
-```json
-{"id":"req-help-2","cmd":"help","args":{"cmd":"provision"}}
-```
-
-## Link Test
+## Tests
 
 ```bash
-# server
-sudo -E "$(pwd)/.venv/bin/python" tests/integration/server_link_test.py --adapter hci0
-
-# client
-"$(pwd)/.venv/bin/python" tests/integration/client_link_test.py \
-  --target-name BLE_Hello_Server \
-  --exchange-count 10 \
-  --exchange-mode sequential
-```
-
-## Operations
-
-Reset BLE runtime state:
-
-```bash
-sudo -E "$(pwd)/.venv/bin/python" tools/reset/server_reset.py --adapter hci0
-```
-
-`scripts/bless_uart.py` is a legacy demo launcher and refuses to run unless `--run-legacy` is explicitly provided.
-
-## systemd
-
-Use the new entrypoint in `ExecStart`:
-
-```ini
-ExecStart=/home/nvidia/ble-wifi-provisioning/.venv/bin/python /home/nvidia/ble-wifi-provisioning/app/server_main.py --device-name Orin_Drone_01 --ifname wlan0
-```
-
-## Validation
-
-```bash
-python3 -m py_compile app/server_main.py app/client_main.py ble/server_gateway.py
+python3 -m py_compile app/server_main.py app/client_main.py
 python3 -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
-Real BLE hardware E2E validation is still required on your target device.
+## Deployment
+
+- Use `app/server_main.py` as systemd `ExecStart`
+- Server is often run with `sudo`; `status/whoami` prefers the operator account (e.g. `SUDO_USER`)
+
+Example:
+
+```ini
+ExecStart=/path/to/.venv/bin/python /path/to/app/server_main.py --device-name Yundrone_UAV --ifname wlan0 --adapter hci0
+```
+
+## Roadmap
+
+- Link heartbeat and disconnect detection (see `TODO.md`)
+- Finer-grained provisioning progress model
+- More complete e2e automation and stress testing
