@@ -39,8 +39,9 @@ class CommandDispatcherTests(unittest.IsolatedAsyncioTestCase):
 
         load_builtin_commands(self.dispatcher)
 
-    async def _start_provision(self, request_id: str, ssid: str, pwd: str) -> None:
+    async def _start_provision(self, request_id: str, ssid: str, pwd: str) -> bool:
         self.provision_calls.append((request_id, ssid, pwd))
+        return True
 
     async def _start_shutdown(self, request_id: str) -> None:
         self.shutdown_calls.append(request_id)
@@ -74,6 +75,12 @@ class CommandDispatcherTests(unittest.IsolatedAsyncioTestCase):
         resp = await self.dispatcher.dispatch(command_request(CMD_PROVISION, {"pwd": "x"}, "req-provision"))
         self.assertFalse(resp.ok)
         self.assertEqual(resp.code, CODE_BAD_REQUEST)
+
+    async def test_invalid_short_password(self) -> None:
+        resp = await self.dispatcher.dispatch(command_request(CMD_PROVISION, {"ssid": "LabWiFi", "pwd": "1234567"}, "req-provision-pwd"))
+        self.assertFalse(resp.ok)
+        self.assertEqual(resp.code, CODE_BAD_REQUEST)
+        self.assertIn("Invalid Wi-Fi password", resp.text)
 
     async def test_shutdown_allowed(self) -> None:
         resp = await self.dispatcher.dispatch(command_request(CMD_SHUTDOWN, {}, "req-shutdown"))
