@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,12 +45,17 @@ def _parse_hex_or_int(value: str) -> int | None:
 def _parse_advertising_instances(show_output: str) -> tuple[int | None, int | None]:
     active: int | None = None
     supported: int | None = None
+    active_re = re.compile(r"ActiveInstances:\s*([^\s]+)")
+    supported_re = re.compile(r"SupportedInstances:\s*([^\s]+)")
     for raw in show_output.splitlines():
         line = raw.strip()
-        if line.startswith("ActiveInstances:"):
-            active = _parse_hex_or_int(line.split(":", 1)[1])
-        elif line.startswith("SupportedInstances:"):
-            supported = _parse_hex_or_int(line.split(":", 1)[1])
+        match = active_re.search(line)
+        if match:
+            active = _parse_hex_or_int(match.group(1))
+            continue
+        match = supported_re.search(line)
+        if match:
+            supported = _parse_hex_or_int(match.group(1))
     return active, supported
 
 
@@ -117,8 +123,8 @@ def _check_residual_processes(exclude_pids: set[int] | None = None) -> CheckResu
 
     ignored = exclude_pids or set()
     markers = (
-        "server/wifi_ble_service.py",
-        "tests/helloworld/server_link_test.py",
+        "app/server_main.py",
+        "tests/integration/server_link_test.py",
     )
     hits: list[str] = []
     for line in out.splitlines():
@@ -153,17 +159,79 @@ def _check_residual_processes(exclude_pids: set[int] | None = None) -> CheckResu
     )
 
 
+def _ancestor_pids(pid: int) -> set[int]:
+    ancestors: set[int] = set()
+    current = pid
+    while True:
+        stat_path = Path("/proc") / str(current) / "stat"
+        if not stat_path.exists():
+            break
+        try:
+            content = stat_path.read_text().strip()
+        except Exception:
+            break
+        parts = content.split()
+        if len(parts) < 4:
+            break
+        try:
+            ppid = int(parts[3])
+        except ValueError:
+            break
+        if ppid <= 1 or ppid in ancestors:
+            break
+        ancestors.add(ppid)
+        current = ppid
+    return ancestors
+
+
 def run_preflight_checks(adapter: str) -> PreflightReport:
     current_pid = os.getpid()
     parent_pid = os.getppid()
+    ancestors = _ancestor_pids(current_pid)
     checks = [
         _check_adapter_exists(adapter),
         _check_adapter_state(adapter),
         _check_bluez_active(),
         _check_advertising_capacity(),
-        _check_residual_processes(exclude_pids={current_pid, parent_pid}),
+        _check_residual_processes(exclude_pids={current_pid, parent_pid, *ancestors}),
     ]
     return PreflightReport(checks=checks)
+
+
+def detect_default_adapter() -> str | None:
+    rc, out, _ = _run(["btmgmt", "info"])
+    if rc == 0:
+        for line in out.splitlines():
+            match = re.match(r"^(hci\\d+):", line.strip())
+            if match:
+                return match.group(1)
+
+    adapters = sorted(p.name for p in Path("/sys/class/bluetooth").glob("hci*") if p.is_dir())
+    if not adapters:
+        return None
+    if len(adapters) == 1:
+        return adapters[0]
+
+    def _adapter_score(name: str) -> tuple[int, int]:
+        rc, out, _ = _run(["hciconfig", "-a", name])
+        if rc != 0 or not out:
+            return (0, 0)
+        up_running = 1 if "UP RUNNING" in out else 0
+        addr_line = next((line for line in out.splitlines() if "BD Address:" in line), "")
+        non_zero_addr = 0
+        if "BD Address:" in addr_line:
+            addr = addr_line.split("BD Address:", 1)[1].strip().split()[0]
+            if addr != "00:00:00:00:00:00":
+                non_zero_addr = 1
+        return (up_running, non_zero_addr)
+
+    scored = sorted(((name, _adapter_score(name)) for name in adapters), key=lambda item: item[1], reverse=True)
+    if scored:
+        return scored[0][0]
+
+    if "hci0" in adapters:
+        return "hci0"
+    return adapters[0]
 
 
 def format_preflight_report(report: PreflightReport) -> str:

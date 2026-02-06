@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
+import json
 from typing import Final
+
+from protocol.command_ids import CMD_PING
 
 CLIENT_HELLO_PREFIX: Final = "hello from client_link_test.py"
 SERVER_HELLO_PREFIX: Final = "hello from server_link_test.py"
-
-_SEQ_RE = re.compile(r"\bseq=(\d{1,4})/(\d{1,4})\b")
 
 
 def build_seq_token(seq: int, total: int) -> str:
@@ -21,21 +21,39 @@ def build_seq_token(seq: int, total: int) -> str:
 
 
 def build_client_payload(seq: int, total: int, prefix: str = CLIENT_HELLO_PREFIX) -> str:
-    return f"{prefix} | {build_seq_token(seq, total)}"
+    token = build_seq_token(seq, total)
+    body = {
+        "cmd": CMD_PING,
+        "token": token,
+        "text": f"{prefix} | {token}",
+    }
+    return json.dumps(body, ensure_ascii=False)
 
 
 def build_server_reply(received_text: str, prefix: str = SERVER_HELLO_PREFIX) -> str:
-    return f"{prefix} | got: {received_text}"
+    token = extract_seq_token(received_text)
+    body = {
+        "cmd": "pong",
+        "token": token,
+        "text": f"{prefix} | got: {received_text}",
+    }
+    return json.dumps(body, ensure_ascii=False)
 
 
 def extract_seq_token(text: str) -> str | None:
-    match = _SEQ_RE.search(text)
-    if match is None:
+    try:
+        payload = json.loads(text)
+    except Exception:
         return None
-    seq = int(match.group(1))
-    total = int(match.group(2))
-    return build_seq_token(seq, total)
+    token = payload.get("token")
+    if not isinstance(token, str) or token.strip() == "":
+        return None
+    return token
 
 
 def is_server_reply(text: str) -> bool:
-    return SERVER_HELLO_PREFIX in text
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return False
+    return payload.get("cmd") == "pong"

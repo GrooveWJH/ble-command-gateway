@@ -9,11 +9,11 @@ import logging
 from collections import OrderedDict
 from typing import Any, Callable
 
-from config import CHAR_READ_UUID, CHAR_WRITE_UUID, SERVICE_UUID
-from protocols.link import build_server_reply, extract_seq_token
+from config.ble_uuid import CHAR_READ_UUID, CHAR_WRITE_UUID, SERVICE_UUID
+from protocol.link import build_server_reply, extract_seq_token
 from common.reporting import make_reporter, show_panel, show_table
-from server.ble_runtime import load_bless_symbols, stop_bless_server, write_properties
-from server.preflight import run_preflight_checks
+from ble.runtime import load_bless_symbols, stop_bless_server, write_properties
+from server.preflight import detect_default_adapter, run_preflight_checks
 
 Reporter = Callable[[str], None]
 
@@ -24,7 +24,7 @@ def _hint_advertise_failure(exc: Exception, adapter: str | None) -> RuntimeError
     detail = [
         f"Failed to register BLE advertisement on adapter {adapter_name}: {message}",
         "Actionable checks:",
-        "1) Run with privileges: sudo -E $(pwd)/.venv/bin/python tests/helloworld/server_link_test.py --adapter hci0",
+        "1) Run with privileges: sudo -E $(pwd)/.venv/bin/python tests/integration/server_link_test.py --adapter hci0",
         "2) Ensure adapter is up: sudo hciconfig hci0 up",
         "3) Check LE advertising support: bluetoothctl show",
         "4) Restart bluetooth service if stale adv exists: sudo systemctl restart bluetooth",
@@ -184,7 +184,7 @@ class HelloLinkServer:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="BLE hello-world link server")
     parser.add_argument("--device-name", default="BLE_Hello_Server", help="BLE advertised name")
-    parser.add_argument("--adapter", default="hci0", help="Bluetooth adapter (e.g. hci0). Use '' for auto")
+    parser.add_argument("--adapter", default="auto", help="Bluetooth adapter (auto, hci0, hci1)")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -204,7 +204,12 @@ async def run() -> None:
     reporter, paneler, table_builder = make_reporter()
     show_panel(paneler, "BLE link test server", "BLE Link Test", "cyan")
 
-    adapter = args.adapter.strip() or "hci0"
+    adapter = args.adapter.strip()
+    if adapter in {"", "auto"}:
+        detected = detect_default_adapter()
+        if detected is None:
+            raise SystemExit("No bluetooth adapter detected (no hci* found)")
+        adapter = detected
     preflight = run_preflight_checks(adapter)
     rows = [[("PASS" if item.ok else "FAIL"), item.name, item.detail] for item in preflight.checks]
     show_table(

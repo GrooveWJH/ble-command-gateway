@@ -1,8 +1,4 @@
-"""Shared project configuration and protocol constants."""
-
-SERVICE_UUID = "A07498CA-AD5B-474E-940D-16F1FBE7E8CD"
-CHAR_WRITE_UUID = "51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B"
-CHAR_READ_UUID = "51FF12BB-3ED8-46E5-B4F9-D64E2FEC021C"
+"""Project defaults and payload key constants."""
 
 SSID_KEY = "ssid"
 PASSWORD_KEY = "pwd"

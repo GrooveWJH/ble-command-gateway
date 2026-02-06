@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Callable, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence, TypeAlias, cast
 
 Reporter = Callable[[str], None]
+Renderable: TypeAlias = Any
 
 
 class PanelPrinter(Protocol):
-    def __call__(self, message: object, title: str | None = None, style: str | None = None) -> None: ...
+    def __call__(self, message: Renderable, title: str | None = None, style: str | None = None) -> None: ...
 
 
 class TableBuilder(Protocol):
@@ -21,7 +22,7 @@ class TableBuilder(Protocol):
     ) -> object: ...
 
 
-def show_panel(paneler: PanelPrinter | None, message: object, title: str | None = None, style: str | None = None) -> None:
+def show_panel(paneler: PanelPrinter | None, message: Renderable, title: str | None = None, style: str | None = None) -> None:
     if paneler is None:
         return
     paneler(message, title, style)
@@ -68,7 +69,7 @@ def _plain_panel(_message: str, _title: str | None = None, _style: str | None = 
     return
 
 
-def _has_markup(message: object) -> bool:
+def _has_markup(message: Renderable) -> bool:
     if not isinstance(message, str):
         return False
     return "[/" in message
@@ -91,7 +92,7 @@ def make_reporter(use_rich: bool | None = None) -> tuple[Reporter, PanelPrinter 
 
     def reporter(message: str) -> None:
         if not isinstance(message, str):
-            console.print(message)
+            console.print(cast(Renderable, message))
             return
         if message.startswith("\r"):
             text = message if _has_markup(message) else escape(message)
@@ -100,11 +101,11 @@ def make_reporter(use_rich: bool | None = None) -> tuple[Reporter, PanelPrinter 
         text = message if _has_markup(message) else escape(message)
         console.print(text)
 
-    def panel(message: object, title: str | None = None, style: str | None = None) -> None:
+    def panel(message: Renderable, title: str | None = None, style: str | None = None) -> None:
         if isinstance(message, str):
             content = message if _has_markup(message) else escape(message)
         else:
-            content = message
+            content = cast(Renderable, message)
         if style is None:
             console.print(Panel(content, title=title, box=box.ROUNDED))
         else:

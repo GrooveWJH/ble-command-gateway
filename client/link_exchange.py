@@ -11,7 +11,7 @@ from bleak import BleakClient
 
 from client.ble_gatt import WriteConfig, WriteOutcome, WriteState, write_with_strategy
 from common.reporting import PanelPrinter, TableBuilder, show_table
-from protocols.link import build_client_payload, build_seq_token, extract_seq_token, is_server_reply
+from protocol.link import build_client_payload, build_seq_token, extract_seq_token, is_server_reply
 
 T = TypeVar("T")
 StepRunner = Callable[[str, float, Awaitable[T]], Awaitable[T]]

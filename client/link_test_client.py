@@ -19,7 +19,7 @@ from client.ble_gatt import (
     supports_write_without_response,
     verify_service_shape,
 )
-from client.ble_transport import (
+from ble.scan_transport import (
     Reporter,
     RuntimeState,
     find_target_device,
@@ -29,7 +29,7 @@ from client.ble_transport import (
 )
 from client.link_exchange import NotifyInbox, WriteSession, run_exchanges
 from common.reporting import make_reporter, show_panel, show_table
-from config import CHAR_READ_UUID, CHAR_WRITE_UUID, SERVICE_UUID
+from config.ble_uuid import CHAR_READ_UUID, CHAR_WRITE_UUID, SERVICE_UUID
 
 T = TypeVar("T")
 

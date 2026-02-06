@@ -1,8 +1,9 @@
 import argparse
 import asyncio
 
-from config import DEFAULT_DEVICE_NAME, DEFAULT_SCAN_TIMEOUT, DEFAULT_WAIT_TIMEOUT
-from client.ble_ops import discover_devices_with_progress, provision_device
+from protocol.command_ids import CMD_HELP, CMD_NET_IFCONFIG, CMD_SHUTDOWN, CMD_STATUS, CMD_SYS_WHOAMI
+from config.defaults import DEFAULT_DEVICE_NAME, DEFAULT_SCAN_TIMEOUT, DEFAULT_WAIT_TIMEOUT
+from client.command_client import discover_devices_with_progress, provision_device, run_command
 from client.models import ResultCode, RunResult, SessionState
 from client.prompting import ask_list, ask_secret, ask_text
 from client.render import (
@@ -34,6 +35,11 @@ def choose_action() -> str:
             {"value": "set_target", "name": "修改设备名过滤条件"},
             {"value": "set_wifi", "name": "设置 Wi-Fi 凭据"},
             {"value": "provision", "name": "执行配网（当前选中设备）"},
+            {"value": "device_help", "name": "查看设备 help"},
+            {"value": "device_status", "name": "查看设备 status"},
+            {"value": "device_whoami", "name": "查看设备 whoami"},
+            {"value": "device_ifconfig", "name": "查看设备 ifconfig"},
+            {"value": "device_shutdown", "name": "执行设备 shutdown"},
             {"value": "one_shot", "name": "一键流程（扫描 -> 输入 -> 配网）"},
             {"value": "show", "name": "查看当前会话状态"},
             {"value": "exit", "name": "退出"},
@@ -148,6 +154,30 @@ def run_interactive(args: argparse.Namespace) -> int:
                     state.password or "",
                     state.wait_timeout,
                     state.verbose,
+                )
+            )
+            print_final(state.last_result)
+            continue
+
+        if action in {"device_help", "device_status", "device_whoami", "device_ifconfig", "device_shutdown"}:
+            if state.selected_device is None:
+                state.last_result = RunResult(ResultCode.NOT_FOUND, "请先扫描并选择设备")
+                print_final(state.last_result)
+                continue
+
+            cmd = {
+                "device_help": CMD_HELP,
+                "device_status": CMD_STATUS,
+                "device_whoami": CMD_SYS_WHOAMI,
+                "device_ifconfig": CMD_NET_IFCONFIG,
+                "device_shutdown": CMD_SHUTDOWN,
+            }[action]
+            state.last_result = asyncio.run(
+                run_command(
+                    state.selected_device,
+                    command=cmd,
+                    args={},
+                    wait_timeout=state.wait_timeout,
                 )
             )
             print_final(state.last_result)
