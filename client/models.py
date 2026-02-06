@@ -16,6 +16,7 @@ class RunResult:
     code: ResultCode
     message: str
     ip: str | None = None
+    ssh_user: str | None = None
 
 
 @dataclass
@@ -25,6 +26,7 @@ class SessionState:
     wait_timeout: int
     verbose: bool
     selected_device: Any | None = None
+    ble_client: Any | None = None
     ssid: str | None = None
     password: str | None = None
     last_result: RunResult | None = None

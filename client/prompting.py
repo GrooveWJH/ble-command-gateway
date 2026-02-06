@@ -1,6 +1,6 @@
 from typing import Any
 
-from InquirerPy.resolver import prompt
+from InquirerPy.resolver import prompt, question_mapping
 
 
 def ask_list(message: str, choices: list[Any], default: Any | None = None) -> Any:
@@ -31,11 +31,12 @@ def ask_text(message: str, default: str = "") -> str:
 
 
 def ask_secret(message: str, default: str = "") -> str:
+    question_type = "password" if "password" in question_mapping else "secret"
     return str(
         prompt(
             [
                 {
-                    "type": "secret",
+                    "type": question_type,
                     "name": "value",
                     "message": message,
                     "default": default,

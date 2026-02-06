@@ -21,10 +21,19 @@ class ScanResult:
     stopped_early: bool
 
 
+def _resolve_device_name(device: Any) -> str | None:
+    adv_name = getattr(device, "adv_name", None)
+    if adv_name:
+        return str(adv_name)
+    name = getattr(device, "name", None)
+    return None if not name else str(name)
+
+
 def device_name_matches(device: Any, target_name: str, *, match_all: bool) -> bool:
     if match_all:
         return True
-    return bool(device.name and target_name in device.name)
+    name = _resolve_device_name(device)
+    return bool(name and target_name in name)
 
 
 def filter_devices_by_name(devices: list[Any], target_name: str, *, match_all: bool) -> list[Any]:
@@ -49,7 +58,7 @@ async def scan_devices(
     matched: dict[str, Any] = {}
     matched_event = asyncio.Event()
 
-    def _on_detect(device: Any, _adv: Any) -> None:
+    def _on_detect(device: Any, adv: Any) -> None:
         addr = getattr(device, "address", "")
         if not addr:
             return
@@ -57,6 +66,19 @@ async def scan_devices(
             seen[addr] = device
             if on_detect:
                 on_detect(device)
+
+        local_name = getattr(adv, "local_name", None)
+        if local_name:
+            try:
+                setattr(seen[addr], "adv_name", local_name)
+            except Exception:
+                pass
+        service_uuids = getattr(adv, "service_uuids", None)
+        if service_uuids:
+            try:
+                setattr(seen[addr], "adv_uuids", list(service_uuids))
+            except Exception:
+                pass
 
         if device_name_matches(device, target_name, match_all=match_all) and addr not in matched:
             matched[addr] = seen[addr]
