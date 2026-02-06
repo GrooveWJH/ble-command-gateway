@@ -18,11 +18,12 @@ from typing import Any
 
 from bleak import BleakScanner
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config import DEFAULT_DEVICE_NAME, SERVICE_UUID  # noqa: E402
+from config.ble_uuid import SERVICE_UUID  # noqa: E402
+from config.defaults import DEFAULT_DEVICE_NAME  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
