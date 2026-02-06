@@ -1,5 +1,7 @@
 # BLE Command Gateway
 
+[![中文](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-red)](./README.md)
+
 BLE provisioning and device diagnostics gateway: send Wi‑Fi commands to a Linux device over BLE and get observable status back.
 
 - 中文说明: `README.md`

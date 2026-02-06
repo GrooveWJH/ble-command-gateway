@@ -1,5 +1,7 @@
 # BLE Command Gateway
 
+[![English](https://img.shields.io/badge/README-English-blue)](./README_EN.md)
+
 BLE 配网与设备诊断网关：通过 BLE 将 Wi‑Fi 指令从客户端下发到 Linux 设备端，并返回可观测状态与系统信息。
 
 - English README: `README_EN.md`
