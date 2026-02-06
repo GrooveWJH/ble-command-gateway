@@ -1,5 +1,5 @@
 [project]
-name = "ble-wifi-provisioning"
+name = "ble-command-gateway"
 version = "0.1.0"
 description = "Provision a Linux server's Wi-Fi over BLE from a cross-platform client, with immediate status feedback"
 readme = "README.md"

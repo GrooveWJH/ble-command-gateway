@@ -25,7 +25,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ble-wifi-provisioning"
+name = "ble-command-gateway"
 version = "0.1.0"
 source = { virtual = "." }
 
