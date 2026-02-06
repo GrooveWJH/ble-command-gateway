@@ -12,18 +12,33 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from ble.server_gateway import BLEProvisioningServer
-from config.defaults import DEFAULT_CONNECT_TIMEOUT, DEFAULT_DEVICE_NAME
-from server.preflight import format_preflight_report, run_preflight_checks
+from ble.server_gateway import BLEProvisioningServer  # noqa: E402
+from config.defaults import DEFAULT_CONNECT_TIMEOUT, DEFAULT_DEVICE_NAME  # noqa: E402
+from server.preflight import format_preflight_report, run_preflight_checks  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="BLE-based Wi-Fi provisioning server")
-    parser.add_argument("--device-name", default=DEFAULT_DEVICE_NAME, help="BLE advertised name")
-    parser.add_argument("--ifname", default=None, help="Wi-Fi interface name, e.g. wlan0")
-    parser.add_argument("--adapter", default="hci0", help="Bluetooth adapter, e.g. hci0 (empty for auto)")
-    parser.add_argument("--connect-timeout", type=int, default=DEFAULT_CONNECT_TIMEOUT, help="nmcli connect timeout seconds")
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--device-name", default=DEFAULT_DEVICE_NAME, help="BLE advertised name"
+    )
+    parser.add_argument(
+        "--ifname", default=None, help="Wi-Fi interface name, e.g. wlan0"
+    )
+    parser.add_argument(
+        "--adapter",
+        default="hci0",
+        help="Bluetooth adapter, e.g. hci0 (empty for auto)",
+    )
+    parser.add_argument(
+        "--connect-timeout",
+        type=int,
+        default=DEFAULT_CONNECT_TIMEOUT,
+        help="nmcli connect timeout seconds",
+    )
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
     return parser.parse_args()
 
 
@@ -41,7 +56,9 @@ async def main() -> None:
     preflight = run_preflight_checks(adapter)
     print(format_preflight_report(preflight))
     if not preflight.ok:
-        raise SystemExit("Preflight failed. Resolve the checks above before starting BLE advertising.")
+        raise SystemExit(
+            "Preflight failed. Resolve the checks above before starting BLE advertising."
+        )
 
     server = BLEProvisioningServer(
         device_name=args.device_name,

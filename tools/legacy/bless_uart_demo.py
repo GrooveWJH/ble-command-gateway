@@ -222,7 +222,7 @@ if __name__ == "__main__":
             if linux_adapter is None:
                 raise SystemExit("No bluetooth adapter detected (no hci* found)")
         adapter = linux_adapter
-        _set_pairable_off(adapter)
+        _set_pairable_off(linux_adapter)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:

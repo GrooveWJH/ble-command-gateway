@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import unittest
 
 from protocol.command_ids import (
@@ -16,6 +15,9 @@ from protocol.envelope import (
     CODE_UNKNOWN_COMMAND,
     command_request,
     parse_response,
+    response_ok,
+    CommandRequest,
+    CommandResponse,
 )
 from ble.server_gateway import BLEProvisioningServer
 from commands.registry import CommandDispatcher, DispatchContext
@@ -46,7 +48,9 @@ class CommandDispatcherTests(unittest.IsolatedAsyncioTestCase):
     async def _start_shutdown(self, request_id: str) -> None:
         self.shutdown_calls.append(request_id)
 
-    async def _run_system_command(self, command_name: str, ifname: str | None, timeout_sec: float) -> tuple[bool, str]:
+    async def _run_system_command(
+        self, command_name: str, ifname: str | None, timeout_sec: float
+    ) -> tuple[bool, str]:
         self.system_calls.append((command_name, ifname, timeout_sec))
         return True, "ok"
 
@@ -58,7 +62,9 @@ class CommandDispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('{"cmd":"provision"}', resp.text)
 
     async def test_help_command_details(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request(CMD_HELP, {"cmd": CMD_PROVISION}, "req-help-detail"))
+        resp = await self.dispatcher.dispatch(
+            command_request(CMD_HELP, {"cmd": CMD_PROVISION}, "req-help-detail")
+        )
         self.assertTrue(resp.ok)
         self.assertIn(f"Command: {CMD_PROVISION}", resp.text)
         self.assertIn("Usage:", resp.text)
@@ -67,34 +73,55 @@ class CommandDispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Timeout:", resp.text)
 
     async def test_unknown_command(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request("nope", {}, "req-unknown"))
+        resp = await self.dispatcher.dispatch(
+            command_request("nope", {}, "req-unknown")
+        )
         self.assertFalse(resp.ok)
         self.assertEqual(resp.code, CODE_UNKNOWN_COMMAND)
 
     async def test_missing_ssid(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request(CMD_PROVISION, {"pwd": "x"}, "req-provision"))
+        resp = await self.dispatcher.dispatch(
+            command_request(CMD_PROVISION, {"pwd": "x"}, "req-provision")
+        )
         self.assertFalse(resp.ok)
         self.assertEqual(resp.code, CODE_BAD_REQUEST)
 
     async def test_invalid_short_password(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request(CMD_PROVISION, {"ssid": "LabWiFi", "pwd": "1234567"}, "req-provision-pwd"))
+        resp = await self.dispatcher.dispatch(
+            command_request(
+                CMD_PROVISION,
+                {"ssid": "LabWiFi", "pwd": "1234567"},
+                "req-provision-pwd",
+            )
+        )
         self.assertFalse(resp.ok)
         self.assertEqual(resp.code, CODE_BAD_REQUEST)
         self.assertIn("Invalid Wi-Fi password", resp.text)
 
     async def test_shutdown_allowed(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request(CMD_SHUTDOWN, {}, "req-shutdown"))
+        resp = await self.dispatcher.dispatch(
+            command_request(CMD_SHUTDOWN, {}, "req-shutdown")
+        )
         self.assertTrue(resp.ok)
         self.assertEqual(self.shutdown_calls, ["req-shutdown"])
 
     async def test_net_ifconfig_is_unified_name(self) -> None:
-        resp = await self.dispatcher.dispatch(command_request(CMD_NET_IFCONFIG, {}, "req-ifconfig"))
+        resp = await self.dispatcher.dispatch(
+            command_request(CMD_NET_IFCONFIG, {}, "req-ifconfig")
+        )
         self.assertTrue(resp.ok)
         self.assertEqual(self.system_calls[0][0], CMD_NET_IFCONFIG)
 
     async def test_duplicate_registration_is_rejected(self) -> None:
+        async def _noop_handler(
+            _ctx: DispatchContext, req: CommandRequest
+        ) -> CommandResponse:
+            return response_ok(req.request_id, "ok")
+
         with self.assertRaises(ValueError):
-            self.dispatcher.register(CommandSpec(name=CMD_PING, summary="x", usage="x"), lambda *_: asyncio.sleep(0))
+            self.dispatcher.register(
+                CommandSpec(name=CMD_PING, summary="x", usage="x"), _noop_handler
+            )
 
 
 class ProvisionBusyBehaviorTests(unittest.IsolatedAsyncioTestCase):
