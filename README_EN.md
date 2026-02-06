@@ -4,40 +4,48 @@
 
 Provision a **Linux server's Wi-Fi over BLE** from a **cross-platform client** (macOS / Linux / Windows), with real-time status feedback (`Connecting` / `Success_IP` / `Fail`).
 
-## Features
-
-- Cross-platform client (`bleak` + `InquirerPy`)
-- Linux-only server (`bless` + BlueZ + `nmcli`)
-- Persistent interactive client session (menu loop)
-- Clear terminal states and exit codes
-- `systemd` deployment support
-
-## Repository Layout
+## Current Architecture (Refactored)
 
 ```text
 .
-├── client/
-│   └── client_config_tool.py
-├── server/
-│   └── wifi_ble_service.py
-├── config.py
-├── sync_to_orin.sh
-├── pyproject.toml
-├── README.md
-└── README_EN.md
+├── app/                    # application entrypoints
+│   ├── server_main.py
+│   └── client_main.py
+├── ble/                    # BLE gateway/runtime/publisher
+├── protocol/               # envelope / codes / command ids
+├── commands/               # registry/loader/builtin commands
+├── services/               # provisioning + system command services
+├── client/                 # interactive flow + command client
+├── config/                 # UUID and default settings
+├── server/                 # retained modules (preflight, link test)
+├── scripts/                # legacy launcher
+├── tools/                  # operations + legacy scripts
+└── tests/                  # unit/integration/e2e
 ```
 
 ## BLE Protocol
 
-- Service UUID: `A07498CA-AD5B-474E-940D-16F1FBE7E8CD`
-- Write Characteristic (client -> server): `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B`
-- Read/Notify Characteristic (server -> client): `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021C`
+- Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
+- RX Characteristic (client -> server write): `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
+- TX Characteristic (server -> client read/notify): `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
 
-Write payload:
+Request JSON example:
 
 ```json
-{"ssid": "LabWiFi", "pwd": "secret"}
+{"id":"req-1","cmd":"provision","args":{"ssid":"LabWiFi","pwd":"secret"}}
 ```
+
+## Built-in Commands
+
+- `help`
+- `ping`
+- `status`
+- `provision`
+- `shutdown`
+- `sys.whoami`
+- `net.ifconfig`
+
+`help` returns a short command list. Use `help` with `args.cmd` for detailed usage.
 
 ## Requirements
 
@@ -47,8 +55,6 @@ Write payload:
 - BlueZ
 - NetworkManager (`nmcli`)
 - Python `3.10-3.13`
-
-System packages:
 
 ```bash
 sudo apt update
@@ -63,151 +69,80 @@ sudo apt install -y network-manager bluez
 
 ## Dependency Management (uv)
 
-Groups:
-
-- `server`: `bless`, `dbus-next`
-- `client`: `bleak`, `inquirerpy`
-- Compatibility note: server is pinned to `bless==0.3.0`, while client `bleak` is resolved by `uv` (currently can resolve to 2.x).
-
-Install:
-
 ```bash
 uv sync --only-group server
 uv sync --only-group client
-```
-
-After syncing, run scripts directly with the Python inside `.venv` (no `uv run` needed):
-
-```bash
-# Optional: activate the virtual environment
-source .venv/bin/activate
 ```
 
 ## Quick Start
 
-### 1) Start server on Linux target
+### 1) Start server (new entrypoint)
 
 ```bash
 uv sync --only-group server
-sudo -E "$(pwd)/.venv/bin/python" server/wifi_ble_service.py \
+sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
   --device-name Orin_Drone_01 \
-  --ifname wlan0
+  --ifname wlan0 \
+  --adapter hci0
 ```
 
-### 2) Start interactive client menu
+### 2) Start client (new entrypoint)
 
 ```bash
 uv sync --only-group client
-"$(pwd)/.venv/bin/python" client/client_config_tool.py --target-name Orin_Drone_01
+"$(pwd)/.venv/bin/python" app/client_main.py --target-name Orin_Drone_01
 ```
 
-## Client Interactive Menu
+## Phone Direct Debug
 
-The client stays alive and lets users repeat operations:
+Write to RX characteristic from LightBlue / nRF Connect:
 
-- Scan and select device
-- Update device-name filter
-- Set Wi-Fi credentials
-- Provision selected device
-- One-shot flow (scan -> input -> provision)
-- Show session state
-- Exit
+```json
+{"id":"req-help-1","cmd":"help","args":{}}
+```
 
-## HelloWorld Link Test
+Detailed help:
 
-`tests/helloworld/*.py` are now thin entrypoints, while implementation lives in:
+```json
+{"id":"req-help-2","cmd":"help","args":{"cmd":"provision"}}
+```
 
-- Server implementation: `server/link_test_server.py`
-- Client implementation: `client/link_test_client.py`
-
-Run:
+## Link Test
 
 ```bash
-# 1) Start link-test server on Linux target
-#    Keep sudo for real BLE advertising/GATT operations
-sudo -E "$(pwd)/.venv/bin/python" tests/helloworld/server_link_test.py --adapter hci0
+# server
+sudo -E "$(pwd)/.venv/bin/python" tests/integration/server_link_test.py --adapter hci0
 
-# 2) Run link-test client (default 10 exchanges, sequential/parallel supported)
-"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+# client
+"$(pwd)/.venv/bin/python" tests/integration/client_link_test.py \
   --target-name BLE_Hello_Server \
   --exchange-count 10 \
-  --exchange-interval 1.0 \
   --exchange-mode sequential
-
-# Recommended stable settings (retry + longer connect timeout)
-"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
-  --target-name BLE_Hello_Server \
-  --scan-timeout 30 \
-  --connect-retries 6 \
-  --connect-timeout 45 \
-  --refresh-timeout 1.5 \
-  --exchange-count 10 \
-  --exchange-interval 1.0 \
-  --exchange-mode sequential
-
-# Enable only when full stack traces are needed
-# --full-traceback
 ```
 
-If BLE state is stale after interruption:
+## Operations
+
+Reset BLE runtime state:
 
 ```bash
-sudo -E "$(pwd)/.venv/bin/python" scripts/server_reset.py --adapter hci0
+sudo -E "$(pwd)/.venv/bin/python" tools/reset/server_reset.py --adapter hci0
 ```
 
-## Client Exit Codes
+`scripts/bless_uart.py` is a legacy demo launcher and refuses to run unless `--run-legacy` is explicitly provided.
 
-- `0`: success
-- `2`: device not found
-- `3`: provisioning failed / BLE interaction error
-- `4`: timeout waiting terminal state
-- `5`: input error
+## systemd
 
-## systemd Deployment (Server)
-
-Create `/etc/systemd/system/drone-ble.service`:
+Use the new entrypoint in `ExecStart`:
 
 ```ini
-[Unit]
-Description=Drone BLE Provisioning Service
-After=bluetooth.target network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/nvidia/ble-wifi-provisioning
-ExecStart=/home/nvidia/ble-wifi-provisioning/.venv/bin/python /home/nvidia/ble-wifi-provisioning/server/wifi_ble_service.py --device-name Orin_Drone_01 --ifname wlan0
-User=root
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+ExecStart=/home/nvidia/ble-wifi-provisioning/.venv/bin/python /home/nvidia/ble-wifi-provisioning/app/server_main.py --device-name Orin_Drone_01 --ifname wlan0
 ```
 
-Enable:
+## Validation
 
 ```bash
-cd /home/nvidia/ble-wifi-provisioning
-uv sync --only-group server
-sudo systemctl daemon-reload
-sudo systemctl enable drone-ble.service
-sudo systemctl start drone-ble.service
-sudo systemctl status drone-ble.service
+python3 -m py_compile app/server_main.py app/client_main.py ble/server_gateway.py
+python3 -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
-## Sync to Remote
-
-```bash
-./sync_to_orin.sh
-```
-
-Default target: `orin-Mocap5G:~/work/ble-wifi-provisioning/`
-
-## Validation Status
-
-Validated locally:
-
-- `.venv/bin/ruff check .`
-- `python3 -m py_compile config.py server/wifi_ble_service.py client/client_config_tool.py`
-
-BLE hardware end-to-end behavior still requires real-device validation.
+Real BLE hardware E2E validation is still required on your target device.

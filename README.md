@@ -4,40 +4,48 @@
 
 通过 **跨平台客户端**（macOS / Linux / Windows）使用 BLE，为 **Linux 服务端** 下发 Wi-Fi 配置，并实时回传状态（`Connecting` / `Success_IP` / `Fail`）。
 
-## 功能特性
-
-- 客户端跨平台（`bleak` + `InquirerPy`）
-- 服务端 Linux 专用（`bless` + BlueZ + `nmcli`）
-- 客户端为常驻交互模式（菜单循环）
-- 明确终态与退出码
-- 支持 `systemd` 部署
-
-## 项目结构
+## 当前架构（重构后）
 
 ```text
 .
-├── client/
-│   └── client_config_tool.py
-├── server/
-│   └── wifi_ble_service.py
-├── config.py
-├── sync_to_orin.sh
-├── pyproject.toml
-├── README.md
-└── README_EN.md
+├── app/                    # 应用入口
+│   ├── server_main.py
+│   └── client_main.py
+├── ble/                    # BLE 网关/运行时/发布器
+├── protocol/               # 协议 envelope / code / command id
+├── commands/               # 指令注册、加载、内置指令
+├── services/               # 配网服务、系统命令服务
+├── client/                 # 交互流程与命令调用
+├── config/                 # UUID 与默认参数
+├── server/                 # 仅保留 preflight、link_test 等专项模块
+├── scripts/                # legacy 启动器
+├── tools/                  # 运维/legacy 实际脚本
+└── tests/                  # unit/integration/e2e
 ```
 
 ## BLE 协议
 
-- Service UUID: `A07498CA-AD5B-474E-940D-16F1FBE7E8CD`
-- Write Characteristic（client -> server）: `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021B`
-- Read/Notify Characteristic（server -> client）: `51FF12BB-3ED8-46E5-B4F9-D64E2FEC021C`
+- Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
+- RX Characteristic（client -> server write）: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
+- TX Characteristic（server -> client read/notify）: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
 
-写入 JSON：
+请求 JSON 示例：
 
 ```json
-{"ssid": "LabWiFi", "pwd": "secret"}
+{"id":"req-1","cmd":"provision","args":{"ssid":"LabWiFi","pwd":"secret"}}
 ```
+
+## 内置命令
+
+- `help`
+- `ping`
+- `status`
+- `provision`
+- `shutdown`
+- `sys.whoami`
+- `net.ifconfig`
+
+提示：`help` 默认返回命令列表；详细用法请使用 `help` + `args.cmd`。
 
 ## 环境要求
 
@@ -47,8 +55,6 @@
 - BlueZ
 - NetworkManager（`nmcli`）
 - Python `3.10-3.13`
-
-安装系统依赖：
 
 ```bash
 sudo apt update
@@ -63,153 +69,83 @@ sudo apt install -y network-manager bluez
 
 ## 依赖管理（uv）
 
-项目分组：
-
-- `server`: `bless`, `dbus-next`
-- `client`: `bleak`, `inquirerpy`
-- 兼容性说明：服务端固定 `bless==0.3.0`，客户端 `bleak` 由 `uv` 自动解析（当前可解析到 2.x）。
-
-安装：
-
 ```bash
-# 服务端环境
+# 服务端
 uv sync --only-group server
 
-# 客户端环境
+# 客户端
 uv sync --only-group client
-```
-
-安装完成后，直接使用 `.venv` 里的 Python 执行脚本（不需要 `uv run`）：
-
-```bash
-# 可选：激活虚拟环境
-source .venv/bin/activate
 ```
 
 ## 快速开始
 
-### 1) Linux 服务端启动
+### 1) 启动服务端（新入口）
 
 ```bash
 uv sync --only-group server
-sudo -E "$(pwd)/.venv/bin/python" server/wifi_ble_service.py \
+sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
   --device-name Orin_Drone_01 \
-  --ifname wlan0
+  --ifname wlan0 \
+  --adapter hci0
 ```
 
-### 2) 客户端启动交互菜单
+### 2) 启动客户端（新入口）
 
 ```bash
 uv sync --only-group client
-"$(pwd)/.venv/bin/python" client/client_config_tool.py --target-name Orin_Drone_01
+"$(pwd)/.venv/bin/python" app/client_main.py --target-name Orin_Drone_01
 ```
 
-## 客户端交互菜单
+## 手机直连调试
 
-启动后为常驻会话，可循环执行：
+可用 LightBlue / nRF Connect 直接写 RX 特征：
 
-- 扫描并选择设备
-- 修改设备名过滤条件
-- 设置 Wi-Fi 凭据
-- 执行配网（当前选中设备）
-- 一键流程（扫描 -> 输入 -> 配网）
-- 查看当前会话状态
-- 退出
+```json
+{"id":"req-help-1","cmd":"help","args":{}}
+```
 
-## HelloWorld 链路测试
+如需详细命令说明：
 
-`tests/helloworld/*.py` 现在是薄入口，核心实现在项目代码中：
+```json
+{"id":"req-help-2","cmd":"help","args":{"cmd":"provision"}}
+```
 
-- 服务端实现：`server/link_test_server.py`
-- 客户端实现：`client/link_test_client.py`
-
-运行方式：
+## 链路测试
 
 ```bash
-# 1) Linux 端启动链路测试服务端
-sudo -E "$(pwd)/.venv/bin/python" tests/helloworld/server_link_test.py --adapter hci0
+# 服务端
+sudo -E "$(pwd)/.venv/bin/python" tests/integration/server_link_test.py --adapter hci0
 
-# 2) 客户端执行链路测试（默认 10 次，支持 sequential/parallel）
-"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
+# 客户端
+"$(pwd)/.venv/bin/python" tests/integration/client_link_test.py \
   --target-name BLE_Hello_Server \
   --exchange-count 10 \
-  --exchange-interval 1.0 \
   --exchange-mode sequential
-
-# 推荐：更稳的链路测试参数（连接重试 + 较长连接超时）
-"$(pwd)/.venv/bin/python" tests/helloworld/client_link_test.py \
-  --target-name BLE_Hello_Server \
-  --scan-timeout 30 \
-  --connect-retries 6 \
-  --connect-timeout 45 \
-  --refresh-timeout 1.5 \
-  --exchange-count 10 \
-  --exchange-interval 1.0 \
-  --exchange-mode sequential
-
-# 仅在需要完整堆栈时再打开
-# --full-traceback
 ```
 
-如果服务端被中断后出现残留状态，可执行：
+## 运维脚本
+
+- 重置蓝牙状态：
 
 ```bash
-sudo -E "$(pwd)/.venv/bin/python" scripts/server_reset.py --adapter hci0
+sudo -E "$(pwd)/.venv/bin/python" tools/reset/server_reset.py --adapter hci0
 ```
 
-## 客户端退出码
+- `scripts/bless_uart.py` 为 legacy demo 启动器，默认拒绝执行；仅在显式 `--run-legacy` 时运行。
 
-- `0`: 成功
-- `2`: 未发现设备
-- `3`: 配网失败或 BLE 交互异常
-- `4`: 等待终态超时
-- `5`: 输入错误
+## systemd 部署
 
-## systemd 部署（服务端）
-
-创建 `/etc/systemd/system/drone-ble.service`：
+`ExecStart` 请使用新入口：
 
 ```ini
-[Unit]
-Description=Drone BLE Provisioning Service
-After=bluetooth.target network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/nvidia/ble-wifi-provisioning
-ExecStart=/home/nvidia/ble-wifi-provisioning/.venv/bin/python /home/nvidia/ble-wifi-provisioning/server/wifi_ble_service.py --device-name Orin_Drone_01 --ifname wlan0
-User=root
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+ExecStart=/home/nvidia/ble-wifi-provisioning/.venv/bin/python /home/nvidia/ble-wifi-provisioning/app/server_main.py --device-name Orin_Drone_01 --ifname wlan0
 ```
 
-启用：
+## 验证
 
 ```bash
-cd /home/nvidia/ble-wifi-provisioning
-uv sync --only-group server
-sudo systemctl daemon-reload
-sudo systemctl enable drone-ble.service
-sudo systemctl start drone-ble.service
-sudo systemctl status drone-ble.service
+python3 -m py_compile app/server_main.py app/client_main.py ble/server_gateway.py
+python3 -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
-## 同步代码到远端
-
-```bash
-./sync_to_orin.sh
-```
-
-默认目标：`orin-Mocap5G:~/work/ble-wifi-provisioning/`
-
-## 验证状态
-
-已验证：
-
-- `.venv/bin/ruff check .`
-- `python3 -m py_compile config.py server/wifi_ble_service.py client/client_config_tool.py`
-
-BLE 真机链路仍需在你的设备上做端到端测试。
+BLE 真机链路仍需在你的设备上做端到端验证。
