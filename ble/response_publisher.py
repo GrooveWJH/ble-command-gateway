@@ -120,8 +120,12 @@ class ResponsePublisher:
         base = response.text
         data = dict(response.data or {})
 
-        def _build(text: str, index: int, total: int) -> CommandResponse:
-            chunk_data = dict(data)
+        def _build(text: str, index: int, total: int, *, include_final_data: bool) -> CommandResponse:
+            # Keep chunk metadata on every fragment, but attach heavy response data
+            # only on the final chunk when requested.
+            chunk_data: dict[str, Any] = {}
+            if include_final_data and index == total:
+                chunk_data.update(data)
             chunk_data["chunk"] = {"index": index, "total": total}
             return CommandResponse(
                 request_id=response.request_id,
@@ -131,7 +135,31 @@ class ResponsePublisher:
                 data=chunk_data,
             )
 
-        def _split_with_total_hint(total_hint: int) -> list[str]:
+        def _final_data_fits_without_text() -> bool:
+            if not data:
+                return True
+            probe = _build("", 1, 1, include_final_data=True)
+            return len(encode_response(probe)) <= max_bytes
+
+        if base == "":
+            include_final_data = _final_data_fits_without_text()
+            encoded = bytearray(
+                encode_response(
+                    _build(
+                        "",
+                        1,
+                        1,
+                        include_final_data=include_final_data,
+                    )
+                )
+            )
+            if len(encoded) > max_bytes:
+                encoded = bytearray(encode_response(_build("", 1, 1, include_final_data=False)))
+            if len(encoded) <= max_bytes:
+                yield encoded
+            return
+
+        def _split_with_total_hint(total_hint: int, *, include_final_data: bool) -> list[str]:
             chunks_local: list[str] = []
             start = 0
             while start < len(base):
@@ -141,8 +169,14 @@ class ResponsePublisher:
                 while low <= high:
                     mid = (low + high) // 2
                     candidate = base[start:mid]
+                    is_final_piece = mid == len(base)
                     # Use worst-case digits for chunk index/total under this hint.
-                    test = _build(candidate, total_hint, total_hint)
+                    test = _build(
+                        candidate,
+                        total_hint,
+                        total_hint,
+                        include_final_data=include_final_data and is_final_piece,
+                    )
                     if len(encode_response(test)) <= max_bytes:
                         best = mid
                         low = mid + 1
@@ -155,19 +189,49 @@ class ResponsePublisher:
                 start = best
             return chunks_local
 
-        chunks = _split_with_total_hint(1)
-        # Re-split until total count is stable with real chunk-count digits.
-        for _ in range(8):
-            total_hint = len(chunks)
-            refined = _split_with_total_hint(total_hint)
-            if len(refined) == len(chunks):
+        def _encode_chunks(include_final_data: bool) -> list[bytearray]:
+            chunks = _split_with_total_hint(1, include_final_data=include_final_data)
+            # Re-split until total count is stable with real chunk-count digits.
+            for _ in range(8):
+                total_hint = len(chunks)
+                refined = _split_with_total_hint(total_hint, include_final_data=include_final_data)
+                if len(refined) == len(chunks):
+                    chunks = refined
+                    break
                 chunks = refined
-                break
-            chunks = refined
+            total = len(chunks)
+            encoded_chunks: list[bytearray] = []
+            for idx, text in enumerate(chunks, start=1):
+                encoded = bytearray(
+                    encode_response(
+                        _build(
+                            text,
+                            idx,
+                            total,
+                            include_final_data=include_final_data,
+                        )
+                    )
+                )
+                encoded_chunks.append(encoded)
+            return encoded_chunks
 
-        total = len(chunks)
-        for idx, text in enumerate(chunks, start=1):
-            yield bytearray(encode_response(_build(text, idx, total)))
+        include_final_data = _final_data_fits_without_text()
+        encoded_chunks = _encode_chunks(include_final_data=include_final_data)
+        if any(len(chunk) > max_bytes for chunk in encoded_chunks):
+            # If data makes chunks overflow, degrade to text-only chunks.
+            encoded_chunks = _encode_chunks(include_final_data=False)
+        if any(len(chunk) > max_bytes for chunk in encoded_chunks):
+            # Final safety net: one-char chunks without data.
+            encoded_chunks = []
+            total = len(base)
+            for idx, char in enumerate(base, start=1):
+                encoded = bytearray(encode_response(_build(char, idx, total, include_final_data=False)))
+                if len(encoded) > max_bytes:
+                    raise ValueError("unable to fit response chunk into max_bytes")
+                encoded_chunks.append(encoded)
+
+        for chunk in encoded_chunks:
+            yield chunk
 
     @staticmethod
     def _should_update_status(code: str) -> bool:
