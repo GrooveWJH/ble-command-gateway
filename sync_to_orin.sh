@@ -6,7 +6,7 @@ set -euo pipefail
 # - Always excludes .git metadata.
 # - Protects remote .venv/ from deletion.
 
-# TARGET_DEFAULT="orin-Mocap5G:~/ble-command-gateway/"
+# TARGET_DEFAULT="orin-Mocap5G:~/work/ble-command-gateway/"
 TARGET_DEFAULT="orangepi:~/work/ble-command-gateway/"
 TARGET="${1:-$TARGET_DEFAULT}"
 

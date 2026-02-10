@@ -1,0 +1,15 @@
+[Unit]
+Description=BLE Command Gateway Server
+After=bluetooth.service NetworkManager.service
+Wants=bluetooth.service NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ble-command-gateway
+ExecStart=/opt/ble-command-gateway/.venv/bin/python app/server_main.py --device-name Yundrone_UAV --ifname wlan0 --adapter hci0 --log-level INFO
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

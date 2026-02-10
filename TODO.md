@@ -1,35 +1,34 @@
 # TODO
 
-## Heartbeat (Client <-> Server)
+## Library-First (Current Milestone)
 
-- [ ] Add a dedicated low-level heartbeat channel that does not interfere with command traffic.
-- [ ] Add heartbeat GATT characteristics (separate from command read/write): client sends heartbeat, server replies ack.
-- [ ] Heartbeat cadence: client sends every 1s.
-- [ ] Timeout rule: single heartbeat >3s without ack counts as timeout.
-- [ ] Disconnect rule: 5 consecutive heartbeat timeouts => mark link disconnected.
-- [ ] Keep heartbeat fully isolated from command protocol parsing/queues.
-- [ ] Add server-side lightweight heartbeat logs (recv/ack/last seen).
-- [ ] Add client-side session health monitor and reconnect hint on disconnect.
-- [ ] Refactor interactive client runtime to support true background heartbeat task (async session loop).
-- [ ] Wire menu connection lamp to heartbeat session status (green=alive, red=disconnected).
+- [x] Expose high-level client API:
+  - `BleGatewayClient.scan/scan_snapshot/connect`
+  - `SessionHandle.run_command/provision/status/close`
+- [x] Expose sync facade for GUI integration:
+  - `SyncBleGatewayClient`
+  - `SyncSessionHandle`
+- [x] Keep CLI as a shell over library APIs (interactive flow remains).
+- [x] Introduce unified library-facing models:
+  - `DeviceInfo`, `CommandResult`, `ProvisionResult`, `StatusResult`
+  - `GatewayError` + `GatewayErrorCode`
+- [ ] Add more unit tests for library APIs:
+  - disconnected session and reconnect semantics
+  - sync facade lifecycle edge cases
+  - command timeout / invalid argument coverage
 
 ## systemd Deployment (Server)
 
-- [ ] Define a systemd unit for `app/server_main.py` (e.g. `ble-command-gateway.service`).
-- [ ] Decide unit location and ownership:
-  - Prefer installing to `/etc/systemd/system/` for production (package-less deployment).
-  - Keep the unit template in-repo under `deploy/systemd/` (or `docs/systemd/`) for versioning.
-- [ ] Startup strategy:
-  - Start on boot with a delay (e.g. `ExecStartPre=/bin/sleep 30`) to avoid early-boot BLE/DBus instability.
-  - Ensure NetworkManager and Bluetooth are ready: `After=bluetooth.service NetworkManager.service` and `Wants=` accordingly.
-- [ ] Runtime requirements:
-  - Run as root (or via capabilities) because BlueZ advertising + nmcli typically need elevated privileges.
-  - Set working directory and venv python path explicitly.
-  - Configure `--device-name`, `--ifname`, `--adapter`, `--log-level`.
-- [ ] Logging:
-  - Use journald; ensure logs include device name and timestamps.
-  - Document how to inspect: `journalctl -u ble-command-gateway -f`.
-- [ ] Provide an install/uninstall helper script (non-interactive):
-  - Install: copy unit file, `systemctl daemon-reload`, `enable`, `restart`.
-  - Uninstall: `disable`, stop, remove unit, reload.
-  - Decide script location: `scripts/install_systemd.sh` (and `scripts/uninstall_systemd.sh`) or `tools/systemd/`.
+- [x] Provide a minimal unit template in-repo (`deploy/systemd/ble-command-gateway.service`).
+- [x] Document manual install/start/inspect flow in `docs/systemd.md`.
+- [ ] Add optional install/uninstall helper scripts later (not in current milestone).
+
+## Future / Optional: Heartbeat (Not Scheduled)
+
+Do not implement now. Re-open only if one of these triggers occurs:
+
+- [ ] Long-lived session instability is observed in field logs (frequent stale-link operations).
+- [ ] BLE stack shows silent disconnects without actionable signal from current command flow.
+- [ ] GUI introduces persistent background sessions where explicit health state is required.
+
+If triggered, heartbeat design must remain isolated from command protocol and queues.
