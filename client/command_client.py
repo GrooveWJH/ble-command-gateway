@@ -28,6 +28,14 @@ from protocol.envelope import (
     parse_response,
 )
 
+Reporter = Callable[..., None] | None
+StopSignal = Any
+
+
+def _report(reporter: Reporter, message: str) -> None:
+    if reporter is not None:
+        reporter(message)
+
 
 class _ChunkProgress:
     def __init__(self) -> None:
@@ -60,14 +68,9 @@ class _ChunkProgress:
     def rich_enabled(self) -> bool:
         return self._rich_ready
 
-    def update(self, received: int, total: int, elapsed_sec: int, reporter: Callable[..., None] | None) -> None:
+    def update(self, received: int, total: int, elapsed_sec: int, reporter: Reporter) -> None:
         if not self._rich_ready or self._progress is None:
-            if reporter:
-                reporter(
-                    f"\r[green][等待][/green] {elapsed_sec}s | 接收分片 {received}/{total}    ",
-                    end="",
-                    flush=True,
-                )
+            _report(reporter, f"\r[green][等待][/green] {elapsed_sec}s | 接收分片 {received}/{total}    ")
             return
 
         if self._task_id is None or self._total != total:
@@ -104,12 +107,14 @@ async def discover_devices_with_progress(
     timeout: int,
     on_progress: Callable[[float, float, int, int], None] | None = None,
     on_detect: Callable[[Any], None] | None = None,
+    stop_event: StopSignal | None = None,
     refresh_interval: float = 0.1,
 ) -> tuple[list[Any], list[Any], int]:
     result = await scan_devices(
         target_name=target_name,
         timeout=float(timeout),
         match_all=not target_name,
+        stop_event=stop_event,
         refresh_interval=refresh_interval,
         stop_on_first_match=True,
         on_progress=on_progress,
@@ -147,7 +152,7 @@ async def wait_response(
     timeout: int,
     *,
     read_timeout: float = 5.0,
-    reporter: Callable[..., None] | None = None,
+    reporter: Reporter = None,
 ) -> CommandResponse | None:
     chunks: dict[int, str] = {}
     total_chunks: int | None = None
@@ -170,11 +175,7 @@ async def wait_response(
         if elapsed_sec == last_wait_note_second:
             return
         last_wait_note_second = elapsed_sec
-        reporter(
-            f"\r[{color}][等待][/{color}] {elapsed_sec}s | {note}    ",
-            end="",
-            flush=True,
-        )
+        reporter(f"\r[{color}][等待][/{color}] {elapsed_sec}s | {note}    ")
         emitted_inline = True
 
     while True:
@@ -239,7 +240,13 @@ async def wait_response(
         return response
 
 
-async def wait_status(client: BleakClient, request_id: str, timeout: int, verbose: bool = False) -> RunResult:
+async def wait_status(
+    client: BleakClient,
+    request_id: str,
+    timeout: int,
+    verbose: bool = False,
+    reporter: Reporter = None,
+) -> RunResult:
     read_errors = 0
     max_read_errors = 5
     idle_timeout = max(int(timeout), 1)
@@ -260,10 +267,8 @@ async def wait_status(client: BleakClient, request_id: str, timeout: int, verbos
         elapsed = int(now - start)
         idle_elapsed = int(now - last_progress)
         if elapsed >= hard_timeout:
-            print()
             return RunResult(ResultCode.TIMEOUT, f"等待超时，未收到成功/失败终态（总时长>{hard_timeout}s）")
         if idle_elapsed >= idle_timeout:
-            print()
             return RunResult(
                 ResultCode.TIMEOUT,
                 f"等待超时，连续 {idle_timeout}s 未收到新状态（最后状态: {_compact_status(last_status, 90)}）",
@@ -273,23 +278,16 @@ async def wait_status(client: BleakClient, request_id: str, timeout: int, verbos
         try:
             raw = await asyncio.wait_for(client.read_gatt_char(CHAR_READ_UUID), timeout=5.0)
         except asyncio.TimeoutError:
-            print(
-                f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 读取超时，继续等待...",
-                end="",
-                flush=True,
-            )
+            _report(reporter, f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 读取超时，继续等待...")
             continue
         except Exception as exc:  # noqa: BLE001
             read_errors += 1
             err_text = f"{type(exc).__name__}: {exc}"
-            print(
-                f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | "
-                f"读取失败({read_errors}/{max_read_errors}): {err_text[:60]}",
-                end="",
-                flush=True,
+            _report(
+                reporter,
+                f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 读取失败({read_errors}/{max_read_errors}): {err_text[:60]}",
             )
             if read_errors >= max_read_errors:
-                print()
                 return RunResult(ResultCode.FAILED, f"BLE 读取失败过多: {err_text}")
             continue
         else:
@@ -299,16 +297,12 @@ async def wait_status(client: BleakClient, request_id: str, timeout: int, verbos
             response = parse_response(raw)
         except CommandParseError as exc:
             status = f"<invalid response: {exc.message}>"
-            print(f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 响应异常: {_compact_status(status)}", end="", flush=True)
+            _report(reporter, f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 响应异常: {_compact_status(status)}")
             continue
 
         status = response.text.strip() or "<empty>"
         if response.request_id != request_id:
-            print(
-                f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 等待目标请求响应...",
-                end="",
-                flush=True,
-            )
+            _report(reporter, f"\r[等待] {elapsed}s | 距上次更新 {idle_elapsed}s | 等待目标请求响应...")
             continue
 
         final = bool((response.data or {}).get("final", False))
@@ -318,21 +312,16 @@ async def wait_status(client: BleakClient, request_id: str, timeout: int, verbos
             last_signature = signature
             last_progress = time.monotonic()
             last_status = status
-            print(f"\r[等待] {elapsed}s | 状态更新: {_compact_status(status)}", end="", flush=True)
+            _report(reporter, f"\r[等待] {elapsed}s | 状态更新: {_compact_status(status)}")
         else:
             idle_elapsed = int(time.monotonic() - last_progress)
-            print(
-                f"\r[等待] {elapsed}s | 等待终态，距上次更新 {idle_elapsed}s | {_compact_status(status)}",
-                end="",
-                flush=True,
-            )
+            _report(reporter, f"\r[等待] {elapsed}s | 等待终态，距上次更新 {idle_elapsed}s | {_compact_status(status)}")
 
         if verbose and is_new_update:
-            print(f"\n[RESP] id={response.request_id} code={response.code} ok={response.ok} text={response.text}")
+            _report(reporter, f"[RESP] id={response.request_id} code={response.code} ok={response.ok} text={response.text}")
 
         final_result = extract_final_result(response.code, status, response.data)
         if final and final_result is not None:
-            print()
             return final_result
 
 
@@ -341,70 +330,49 @@ async def run_command(
     command: str,
     args: dict[str, Any] | None,
     wait_timeout: int,
-    reporter: Callable[..., None] | None = None,
+    reporter: Reporter = None,
     client: BleakClient | None = None,
 ) -> RunResult:
     request = command_request(command, args or {})
     payload = encode_request(request)
 
     try:
-        if reporter:
-            reporter(f"[cyan][开始][/cyan] 执行命令 {command} ...")
-        else:
-            print(f"[开始] 执行命令 {command} ...")
+        _report(reporter, f"[cyan][开始][/cyan] 执行命令 {command} ...")
 
         if client is None:
             async with BleakClient(device) as session_client:
-                if reporter:
-                    reporter(f"[cyan][连接][/cyan] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
-                else:
-                    print(f"[连接] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
-                if reporter:
-                    reporter("[cyan][校验][/cyan] 验证服务特征...")
-                else:
-                    print("[校验] 验证服务特征...")
+                _report(reporter, f"[cyan][连接][/cyan] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
+                _report(reporter, "[cyan][校验][/cyan] 验证服务特征...")
                 verify_error = await verify_target_service(session_client)
                 if verify_error:
                     return RunResult(ResultCode.FAILED, verify_error)
 
-                if reporter:
-                    reporter(f"[cyan][发送][/cyan] 命令 {command} 已发送，等待响应...")
-                else:
-                    print(f"[发送] 命令 {command} 已发送，等待响应...")
+                _report(reporter, f"[cyan][发送][/cyan] 命令 {command} 已发送，等待响应...")
                 await write_with_fallback(session_client, CHAR_WRITE_UUID, payload)
-                response = await wait_response(session_client, request.request_id, wait_timeout, reporter=reporter or print)
+                response = await wait_response(session_client, request.request_id, wait_timeout, reporter=reporter)
                 if response is None:
                     return RunResult(ResultCode.TIMEOUT, "等待命令响应超时")
                 if response.ok:
-                    return RunResult(ResultCode.SUCCESS, response.text)
-                return RunResult(ResultCode.FAILED, response.text)
+                    return RunResult(ResultCode.SUCCESS, response.text, data=response.data)
+                return RunResult(ResultCode.FAILED, response.text, data=response.data)
 
         if not client.is_connected:
-            if reporter:
-                reporter(f"[cyan][连接][/cyan] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
-            else:
-                print(f"[连接] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
+            _report(reporter, f"[cyan][连接][/cyan] {getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})")
             await asyncio.wait_for(client.connect(), timeout=10.0)
 
-        if reporter:
-            reporter("[cyan][校验][/cyan] 验证服务特征...")
-        else:
-            print("[校验] 验证服务特征...")
+        _report(reporter, "[cyan][校验][/cyan] 验证服务特征...")
         verify_error = await verify_target_service(client)
         if verify_error:
             return RunResult(ResultCode.FAILED, verify_error)
 
-        if reporter:
-            reporter(f"[cyan][发送][/cyan] 命令 {command} 已发送，等待响应...")
-        else:
-            print(f"[发送] 命令 {command} 已发送，等待响应...")
+        _report(reporter, f"[cyan][发送][/cyan] 命令 {command} 已发送，等待响应...")
         await write_with_fallback(client, CHAR_WRITE_UUID, payload)
-        response = await wait_response(client, request.request_id, wait_timeout, reporter=reporter or print)
+        response = await wait_response(client, request.request_id, wait_timeout, reporter=reporter)
         if response is None:
             return RunResult(ResultCode.TIMEOUT, "等待命令响应超时")
         if response.ok:
-            return RunResult(ResultCode.SUCCESS, response.text)
-        return RunResult(ResultCode.FAILED, response.text)
+            return RunResult(ResultCode.SUCCESS, response.text, data=response.data)
+        return RunResult(ResultCode.FAILED, response.text, data=response.data)
     except Exception as exc:  # noqa: BLE001
         message = str(exc).strip() or repr(exc)
         return RunResult(ResultCode.FAILED, f"BLE 交互异常: {type(exc).__name__}: {message}")
@@ -416,60 +384,46 @@ async def provision_device(
     password: str,
     wait_timeout: int,
     verbose: bool,
-    reporter: Callable[..., None] | None = None,
+    reporter: Reporter = None,
     client: BleakClient | None = None,
 ) -> RunResult:
     request = command_request(CMD_PROVISION, {"ssid": ssid, "pwd": password})
     payload = encode_request(request)
+    device_label = f"{getattr(device, 'name', '<unknown>')} ({getattr(device, 'address', '<?>')})"
 
     try:
-        if reporter:
-            reporter(f"[cyan][开始][/cyan] 执行配网 SSID={ssid} ...")
-        else:
-            print(f"[开始] 执行配网 SSID={ssid} ...")
+        _report(reporter, f"[cyan][开始][/cyan] 执行配网 SSID={ssid} ...")
 
         if client is None:
             async with BleakClient(device) as session_client:
-                if reporter:
-                    reporter(f"[cyan][连接][/cyan] {device.name} ({device.address})")
-                else:
-                    print(f"[连接] {device.name} ({device.address})")
-                if reporter:
-                    reporter("[cyan][校验][/cyan] 验证服务特征...")
-                else:
-                    print("[校验] 验证服务特征...")
+                _report(reporter, f"[cyan][连接][/cyan] {device_label}")
+                _report(reporter, "[cyan][校验][/cyan] 验证服务特征...")
                 verify_error = await verify_target_service(session_client)
                 if verify_error:
                     return RunResult(ResultCode.FAILED, verify_error)
 
                 write_mode = await write_with_fallback(session_client, CHAR_WRITE_UUID, payload)
-                if reporter:
-                    reporter(f"[cyan][发送][/cyan] 配网命令已发送（{write_mode}），等待终态...")
-                else:
-                    print(f"[发送] 配网命令已发送（{write_mode}），等待终态...")
-                return await wait_status(session_client, request.request_id, wait_timeout, verbose)
+                _report(reporter, f"[cyan][发送][/cyan] 配网命令已发送（{write_mode}），等待终态...")
+                return await wait_status(
+                    session_client,
+                    request.request_id,
+                    wait_timeout,
+                    verbose,
+                    reporter=reporter,
+                )
 
         if not client.is_connected:
-            if reporter:
-                reporter(f"[cyan][连接][/cyan] {device.name} ({device.address})")
-            else:
-                print(f"[连接] {device.name} ({device.address})")
+            _report(reporter, f"[cyan][连接][/cyan] {device_label}")
             await asyncio.wait_for(client.connect(), timeout=10.0)
 
-        if reporter:
-            reporter("[cyan][校验][/cyan] 验证服务特征...")
-        else:
-            print("[校验] 验证服务特征...")
+        _report(reporter, "[cyan][校验][/cyan] 验证服务特征...")
         verify_error = await verify_target_service(client)
         if verify_error:
             return RunResult(ResultCode.FAILED, verify_error)
 
         write_mode = await write_with_fallback(client, CHAR_WRITE_UUID, payload)
-        if reporter:
-            reporter(f"[cyan][发送][/cyan] 配网命令已发送（{write_mode}），等待终态...")
-        else:
-            print(f"[发送] 配网命令已发送（{write_mode}），等待终态...")
-        return await wait_status(client, request.request_id, wait_timeout, verbose)
+        _report(reporter, f"[cyan][发送][/cyan] 配网命令已发送（{write_mode}），等待终态...")
+        return await wait_status(client, request.request_id, wait_timeout, verbose, reporter=reporter)
     except Exception as exc:  # noqa: BLE001
         message = str(exc).strip() or repr(exc)
         return RunResult(ResultCode.FAILED, f"BLE 交互异常: {type(exc).__name__}: {message}")
@@ -495,6 +449,8 @@ async def open_device_session(
             if verify_error:
                 await close_device_session(client)
                 return RunResult(ResultCode.FAILED, verify_error), None
+            if reporter:
+                reporter(f"[green][连接] 成功[/green] 尝试 {attempt}/{total_attempts}")
             return RunResult(ResultCode.SUCCESS, "已连接并验证服务"), client
         except Exception as exc:  # noqa: BLE001
             message = str(exc).strip() or repr(exc)

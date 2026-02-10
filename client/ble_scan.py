@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from bleak import BleakScanner
 
@@ -12,6 +12,10 @@ DeviceCallback = Callable[[Any], None]
 MatchCallback = Callable[[Any], None]
 ProgressCallback = Callable[[float, float, int, int], None]
 ScannerCallback = Callable[[BleakScanner | None], None]
+
+
+class StopSignal(Protocol):
+    def is_set(self) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,7 @@ async def scan_devices(
     timeout: float,
     *,
     match_all: bool,
+    stop_event: StopSignal | None = None,
     refresh_interval: float = 0.1,
     stop_on_first_match: bool = False,
     on_detect: DeviceCallback | None = None,
@@ -104,6 +109,10 @@ async def scan_devices(
                 on_progress(elapsed, timeout, devices_now, matched_now)
 
             if elapsed >= timeout:
+                break
+
+            if stop_event is not None and stop_event.is_set():
+                stopped_early = True
                 break
 
             if stop_on_first_match and matched_event.is_set():

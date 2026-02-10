@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from client.library_api import SessionHandle
+    from client.library_models import DeviceInfo
 
 
 class ResultCode(int, Enum):
@@ -17,6 +24,7 @@ class RunResult:
     message: str
     ip: str | None = None
     ssh_user: str | None = None
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -25,8 +33,8 @@ class SessionState:
     scan_timeout: int
     wait_timeout: int
     verbose: bool
-    selected_device: Any | None = None
-    ble_client: Any | None = None
+    selected_device: DeviceInfo | None = None
+    active_session: SessionHandle | None = None
     ssid: str | None = None
     password: str | None = None
     last_result: RunResult | None = None
