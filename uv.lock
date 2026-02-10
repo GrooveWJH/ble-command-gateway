@@ -27,13 +27,34 @@ wheels = [
 [[package]]
 name = "ble-command-gateway"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 client = [
     { name = "bleak", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "inquirerpy", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "rich", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+gui = [
+    { name = "freesimplegui", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+server = [
+    { name = "bless", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "dbus-next", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "rich", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+
+[package.dev-dependencies]
+build = [
+    { name = "nuitka", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+client = [
+    { name = "bleak", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "inquirerpy", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "rich", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+gui = [
+    { name = "freesimplegui", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 server = [
     { name = "bless", marker = "(python_full_version < '3.12' and sys_platform == 'win32') or sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -42,13 +63,25 @@ server = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "bleak", marker = "extra == 'client'" },
+    { name = "bless", marker = "extra == 'server'", specifier = "==0.3.0" },
+    { name = "dbus-next", marker = "extra == 'server'" },
+    { name = "freesimplegui", marker = "extra == 'gui'" },
+    { name = "inquirerpy", marker = "extra == 'client'" },
+    { name = "rich", marker = "extra == 'client'" },
+    { name = "rich", marker = "extra == 'server'" },
+]
+provides-extras = ["client", "server", "gui"]
 
 [package.metadata.requires-dev]
+build = [{ name = "nuitka", specifier = ">=4" }]
 client = [
     { name = "bleak" },
     { name = "inquirerpy" },
     { name = "rich" },
 ]
+gui = [{ name = "freesimplegui" }]
 server = [
     { name = "bless", specifier = "==0.3.0" },
     { name = "dbus-next" },
@@ -142,6 +175,15 @@ wheels = [
 ]
 
 [[package]]
+name = "freesimplegui"
+version = "5.2.0.post1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/41/8a56f3d4a3760fec6b1f63ff48fa57620f0552eb5f0986fb4aa35f4119f1/freesimplegui-5.2.0.post1.tar.gz", hash = "sha256:e58a0e6758e9a9e87152256911f94fcc3998356d1309973a9f4d9df2dc55f98a", size = 718668 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/b4/ce89b4b40d1d2f726583b4d00b99589ba37580012890a8bc4b88d1d2a239/freesimplegui-5.2.0.post1-py3-none-any.whl", hash = "sha256:3d61eb519324503232f86b2f1bd7f5c6813ce225f6e189d0fd737ddb036af4d5", size = 733618 },
+]
+
+[[package]]
 name = "inquirerpy"
 version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
@@ -174,6 +216,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979 },
 ]
+
+[[package]]
+name = "nuitka"
+version = "4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/d6/477dc84457fc07885f5fd020da4920e8a2787b2c04563ad444ac98f7d3eb/nuitka-4.0.tar.gz", hash = "sha256:0f404f292c3c2cc808d186d05a6d06a4b0aeca93f299cdfd5e33ddbcd19ab560", size = 4410008 }
 
 [[package]]
 name = "pfzy"

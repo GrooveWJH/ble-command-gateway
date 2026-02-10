@@ -73,6 +73,14 @@ Python 依赖：
 ```bash
 uv sync --only-group server
 uv sync --only-group client
+uv sync --group client --group gui
+```
+
+若作为库安装（pip）：
+
+```bash
+pip install ".[client]"
+pip install ".[client,gui]"
 ```
 
 ## 快速开始
@@ -93,6 +101,49 @@ sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
 "$(pwd)/.venv/bin/python" app/client_main.py --target-name Yundrone_UAV
 ```
 
+GUI 客户端（macOS/Linux/Windows）：
+
+```bash
+"$(pwd)/.venv/bin/python" app/client_gui_main.py --target-name Yundrone_UAV
+```
+
+结果区说明（GUI）：
+
+- `status` 与 `wifi.scan` 会在右侧“结果”区以内嵌 Tab 展示（`概览 / 状态 / Wi-Fi 扫描 / 原始`）。
+- 不再弹出独立窗口，原始响应始终保留在“原始”Tab 便于排障。
+
+注意：FreeSimpleGUI 依赖 `tkinter`。若出现 `_tkinter` 缺失（常见于 Homebrew Python），先执行：
+
+```bash
+brew install python-tk@3.11
+```
+
+## 作为库使用（面向后续 GUI）
+
+已提供高层客户端 API（异步 + 同步 facade）：
+
+- `client.BleGatewayClient`
+- `client.SyncBleGatewayClient`
+
+说明：库层默认不直接 `print`，进度文本仅通过可选 `reporter` 回调输出。
+
+最小示例（同步，适合 GUI 线程直接调用）：
+
+```python
+from client import SyncBleGatewayClient
+
+gateway = SyncBleGatewayClient(target_name="Yundrone_UAV")
+devices = gateway.scan(timeout=8)
+if not devices:
+    raise SystemExit("No device found")
+
+session = gateway.connect(devices[0])
+status = session.status(timeout=8)
+print(status.message)
+session.close()
+gateway.close()
+```
+
 ## 建议流程
 
 - 最小联通性验证：`help` -> `status` -> `wifi.scan` -> `provision`
@@ -102,8 +153,8 @@ sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
 ## 测试
 
 ```bash
-python3 -m py_compile app/server_main.py app/client_main.py
-python3 -m unittest discover -s tests/unit -p 'test_*.py'
+uv run python -m py_compile app/server_main.py app/client_main.py app/client_gui_main.py
+uv run python -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
 ## 部署
@@ -119,6 +170,6 @@ ExecStart=/path/to/.venv/bin/python /path/to/app/server_main.py --device-name Yu
 
 ## 路线图
 
-- 链路心跳与断联判定（见 `TODO.md`）
+- 链路心跳与断联判定（远期可选：仅在长会话高丢包场景启用）
 - 更细粒度的配网进度事件模型
 - 更完整的端到端自动化与压力测试

@@ -73,6 +73,14 @@ Python deps:
 ```bash
 uv sync --only-group server
 uv sync --only-group client
+uv sync --group client --group gui
+```
+
+If installing as a library (pip):
+
+```bash
+pip install ".[client]"
+pip install ".[client,gui]"
 ```
 
 ## Quick Start
@@ -93,6 +101,49 @@ Client (macOS/Linux/Windows):
 "$(pwd)/.venv/bin/python" app/client_main.py --target-name Yundrone_UAV
 ```
 
+GUI client (macOS/Linux/Windows):
+
+```bash
+"$(pwd)/.venv/bin/python" app/client_gui_main.py --target-name Yundrone_UAV
+```
+
+Result panel notes (GUI):
+
+- `status` and `wifi.scan` are rendered inline in the right result area (`Overview / Status / Wi-Fi Scan / Raw` tabs).
+- No extra popup is used; full raw response is always available in the `Raw` tab for troubleshooting.
+
+Note: FreeSimpleGUI depends on `tkinter`. If `_tkinter` is missing (common on Homebrew Python), run:
+
+```bash
+brew install python-tk@3.11
+```
+
+## Use as a Library (GUI-friendly)
+
+High-level client APIs are available:
+
+- `client.BleGatewayClient`
+- `client.SyncBleGatewayClient`
+
+Note: library APIs do not print to stdout by default; progress text is emitted only via optional `reporter` callbacks.
+
+Minimal sync example (for GUI callers):
+
+```python
+from client import SyncBleGatewayClient
+
+gateway = SyncBleGatewayClient(target_name="Yundrone_UAV")
+devices = gateway.scan(timeout=8)
+if not devices:
+    raise SystemExit("No device found")
+
+session = gateway.connect(devices[0])
+status = session.status(timeout=8)
+print(status.message)
+session.close()
+gateway.close()
+```
+
 ## Suggested Flow
 
 - Minimal link check: `help` -> `status` -> `wifi.scan` -> `provision`
@@ -102,8 +153,8 @@ Client (macOS/Linux/Windows):
 ## Tests
 
 ```bash
-python3 -m py_compile app/server_main.py app/client_main.py
-python3 -m unittest discover -s tests/unit -p 'test_*.py'
+uv run python -m py_compile app/server_main.py app/client_main.py app/client_gui_main.py
+uv run python -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
 ## Deployment
@@ -119,6 +170,6 @@ ExecStart=/path/to/.venv/bin/python /path/to/app/server_main.py --device-name Yu
 
 ## Roadmap
 
-- Link heartbeat and disconnect detection (see `TODO.md`)
+- Link heartbeat and disconnect detection (future optional; only for unstable long-lived sessions)
 - Finer-grained provisioning progress model
 - More complete e2e automation and stress testing
