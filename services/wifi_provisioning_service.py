@@ -144,6 +144,13 @@ class WifiProvisioningService:
             if ip:
                 self.logger.debug("[PROVISION] ip from interface=%s value=%s", self.interface, ip)
                 return ip
+        else:
+            wifi_ifname = self._get_connected_wifi_interface()
+            if wifi_ifname:
+                ip = self._get_ipv4_for_interface(wifi_ifname)
+                if ip:
+                    self.logger.debug("[PROVISION] ip from connected_wifi_if=%s value=%s", wifi_ifname, ip)
+                    return ip
 
         try:
             output = subprocess.check_output(["hostname", "-I"], text=True).strip()
@@ -182,6 +189,30 @@ class WifiProvisioningService:
             if line.startswith("inet "):
                 token = line.split()[1]
                 return token.split("/")[0]
+        return None
+
+    @staticmethod
+    def _get_connected_wifi_interface() -> str | None:
+        try:
+            output = subprocess.check_output(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device", "status"],
+                text=True,
+            ).strip()
+        except Exception:
+            return None
+
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parts = line.split(":", 2)
+            if len(parts) != 3:
+                continue
+            device, kind, state = (part.strip() for part in parts)
+            if not device or kind.lower() != "wifi":
+                continue
+            if state.lower().startswith("connected"):
+                return device
         return None
 
 

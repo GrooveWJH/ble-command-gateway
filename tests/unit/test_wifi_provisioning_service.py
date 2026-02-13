@@ -38,6 +38,30 @@ class WifiProvisioningServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ip, "192.168.1.30")
         connect_mock.assert_awaited_once()
 
+    def test_primary_ip_prefers_connected_wifi_interface_when_ifname_missing(self) -> None:
+        service = WifiProvisioningService(interface=None, connect_timeout=30, logger=logging.getLogger("test"))
+
+        with (
+            patch.object(service, "_get_connected_wifi_interface", return_value="wlan0"),
+            patch.object(service, "_get_ipv4_for_interface", side_effect=lambda ifname: "198.51.100.228" if ifname == "wlan0" else None),
+            patch("subprocess.check_output", return_value="203.0.113.5 172.17.0.1"),
+        ):
+            ip = service._get_primary_ipv4()
+
+        self.assertEqual(ip, "198.51.100.228")
+
+    def test_primary_ip_falls_back_to_hostname_i_when_no_wifi_interface(self) -> None:
+        service = WifiProvisioningService(interface=None, connect_timeout=30, logger=logging.getLogger("test"))
+
+        with (
+            patch.object(service, "_get_connected_wifi_interface", return_value=None),
+            patch.object(service, "_get_ipv4_for_interface", return_value=None),
+            patch("subprocess.check_output", return_value="203.0.113.5 172.17.0.1"),
+        ):
+            ip = service._get_primary_ipv4()
+
+        self.assertEqual(ip, "203.0.113.5")
+
 
 if __name__ == "__main__":
     unittest.main()
