@@ -9,6 +9,7 @@ from client.gui.reporting import LogBuffer
 from client.gui.result_panel import ResultPanelPresenter
 from client.gui.state import GuiState, TaskResult
 from client.gui.task_protocol import GuiTaskDone, GuiTaskKind, GuiTaskRequest
+from client.library_models import DeviceInfo
 from client.models import ResultCode
 from client.gui.view import KEY_PASSWORD, KEY_SCAN_TIMEOUT, KEY_SSID, KEY_TARGET_NAME, KEY_VERBOSE, KEY_WAIT_TIMEOUT
 
@@ -103,6 +104,26 @@ class GuiControllerRoutingTests(unittest.TestCase):
         self.assertEqual(controller.state.scan_mode, "idle")
         controller.presenter.render_result.assert_called_once()  # type: ignore[attr-defined]
 
+    @patch("client.gui.controller.update_control_states")
+    def test_handle_scan_clears_device_list_before_submit(self, _update_state: Mock) -> None:
+        controller = self._build_controller()
+        controller._submit_task = Mock(return_value=True)  # type: ignore[method-assign]
+        controller.state.display_devices = [DeviceInfo(address="AA:BB", name="Old", adv_name="Old")]
+        controller.state.selected_device = controller.state.display_devices[0]
+
+        values = {
+            KEY_TARGET_NAME: "Yundrone",
+            KEY_SCAN_TIMEOUT: "25",
+            KEY_WAIT_TIMEOUT: "45",
+            KEY_VERBOSE: False,
+            KEY_SSID: "",
+            KEY_PASSWORD: "",
+        }
+        controller._handle_scan(values)
+
+        self.assertEqual(controller.state.display_devices, [])
+        self.assertIsNone(controller.state.selected_device)
+
     @patch("client.gui.controller.scan_devices")
     def test_scan_task_closes_existing_session_non_blocking(self, patched_scan_devices: Mock) -> None:
         controller = self._build_controller()
@@ -118,6 +139,25 @@ class GuiControllerRoutingTests(unittest.TestCase):
         )
 
         controller._close_session_non_blocking.assert_called_once()  # type: ignore[attr-defined]
+
+    @patch("client.gui.controller.update_control_states")
+    def test_handle_disconnect_resets_state_immediately(self, _update_state: Mock) -> None:
+        controller = self._build_controller()
+        controller.active_session = Mock()
+        controller.state.session_connected = True
+        controller._submit_task = Mock(return_value=True)  # type: ignore[method-assign]
+        controller._render_scan_ui = Mock()  # type: ignore[method-assign]
+
+        controller._handle_disconnect()
+
+        self.assertIsNone(controller.active_session)
+        self.assertFalse(controller.state.session_connected)
+        self.assertFalse(controller.state.busy)
+        self.assertEqual(controller.state.busy_task, "")
+        controller._submit_task.assert_called_once()  # type: ignore[attr-defined]
+        request = controller._submit_task.call_args.args[0]  # type: ignore[attr-defined]
+        self.assertEqual(request.kind, GuiTaskKind.DISCONNECT)
+        self.assertFalse(request.affects_busy)
 
 
 if __name__ == "__main__":

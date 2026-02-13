@@ -303,7 +303,7 @@ class GuiController:
         if request.affects_busy:
             self.state.busy = True
             self.state.busy_task = request.kind.value
-        else:
+        elif request.kind is GuiTaskKind.HEARTBEAT:
             self.state.mark_heartbeat_submitted()
         update_control_states(self.window, self.state)
 
@@ -668,6 +668,11 @@ class GuiController:
             self._render_input_error(update_err)
             return
 
+        # Start every scan from a clean list to avoid stale devices from previous runs.
+        self.state.display_devices = []
+        self.state.selected_device = None
+        self._refresh_device_table()
+
         self.state.scan_run_id += 1
         self.state.scan_mode = "scanning"
         self.state.scan_total_devices = 0
@@ -727,10 +732,24 @@ class GuiController:
         )
 
     def _handle_disconnect(self) -> None:
+        session = self.active_session
+        self.active_session = None
+        self.state.scan_mode = "idle"
+        self._mark_disconnected()
+        self.state.busy = False
+        self.state.busy_task = ""
+        self._render_scan_ui(remaining=None)
+        self.window[KEY_STATUS_BAR].update(value=f"{self.state.status_text()} | 正在断开...")
+        update_control_states(self.window, self.state)
+
+        if session is None:
+            self._append_log("会话已断开")
+            return
+
         self._submit_task(
-            GuiTaskRequest(kind=GuiTaskKind.DISCONNECT),
+            GuiTaskRequest(kind=GuiTaskKind.DISCONNECT, affects_busy=False),
             close_session,
-            self.active_session,
+            session,
         )
 
     def _handle_provision(self, values: dict[str, Any]) -> None:
