@@ -1,175 +1,66 @@
-# BLE Command Gateway
+# BLE Command Gateway (Rust)
 
 [![English](https://img.shields.io/badge/README-English-blue)](./README_EN.md)
 
-BLE 配网与设备诊断网关：通过 BLE 将 Wi‑Fi 指令从客户端下发到 Linux 设备端，并返回可观测状态与系统信息。
+**云端无人机指控网关 (BLE Provisioning and Diagnostics Gateway)**：基于跨平台安全的 Rust 构建。本仓库提供了一个通过低功耗蓝牙 (BLE) 将 Wi-Fi 凭证下发到无头系统设备 (Linux / 树莓派 / Jetson Orin) 并提取网络和系统探针信息的完整开源解决方案。
 
-- English README: `README_EN.md`
-- 路线图与待办: `TODO.md`
+原 `Python + bluedot / PySimpleGUI` 版本现已**100% 彻底以极致的模块化解耦标准用 Rust 重构**！全面支持了多国语言 (i18n)、超长 JSON 的跨端自动分片抓取、原生的高频异步并发线程池等。
 
-## 概述
+---
 
-本项目面向设备首次联网、现场换网以及无屏诊断场景，提供一套可脚本化、可观测、可扩展的 BLE 指令通道与交互式客户端。
+## 🏗️ 全新 Crate 工作区架构 (Workspace)
 
-## 主要特性
+项目被标准切割为了四个高度内聚的独立板块：
 
-- 交互式客户端：扫描、选设备、长连接会话复用、Rich UI 输出
-- 配网能力：下发 SSID/密码（支持开放网络），服务端通过 `nmcli` 执行并回传终态与 IP
-- 诊断指令：`status / sys.whoami / net.ifconfig / wifi.scan` 等用于现场定位问题
-- 可观测性：服务端配网阶段日志与进行中状态回传；客户端等待与分片接收可视化
-- 可扩展性：协议编解码、命令注册、系统执行、BLE 网关分层清晰，便于持续演进
+1. **`protocol` (核心协议)** (`crates/protocol`)
+   - **零依赖**的纯算法核心。
+   - `commands.rs`: 全局统一下发的指令键值对系统。
+   - `chunking.rs`: 为抵抗蓝牙底层 MTU 收发限制（约 ~360 Bytes 最大），自研实现的自动封包拆解 / 组装引擎。
 
-## 架构
+2. **`server` (Linux 外设服务端)** (`crates/server`)
+   - *（仅限 Linux ARM/x86 编译）*
+   - `main.rs`: 呼叫高底层 BlueZ D-Bus，作为 Peripheral 外设广播出 `Yundrone_UAV`。
+   - `services.rs`: 使用 `tokio` 强力接管诸如 `nmcli device wifi connect`、`ifconfig` 和 `whoami` 等系统级指控。
 
-```text
-app/        入口（server_main.py / client_main.py）
-ble/        BLE 网关、运行时封装、响应发布（含分片）
-protocol/   协议结构、编解码、状态码
-commands/   命令注册与内置命令实现
-services/   系统命令执行、Wi‑Fi 配网服务
-client/     扫描、连接会话、交互流程、渲染
-config/     默认配置与 UUID
-tests/      单元/集成测试
-```
+3. **`client` (跨平台 CLI 控制台)** (`crates/client`)
+   - `ble.rs`: 基于跨平台 `btleplug`，封装建立连接、UUID 通道定位与订阅的核心句柄。
+   - `main.rs`: 指令级的 TUI。支持高颜值的终端表格 (`comfy-table`) 和隐藏式的安全密码下发输入 (`inquire`)，附带内建的简易 i18n 多语言翻译器。
 
-## BLE 协议
+4. **`gui` (原生解耦图形界面)** (`crates/gui`)
+   - `main.rs`: 仅 **34 行** 的极简框架接驳点。
+   - `i18n.rs`: 零依赖的多国语言词典 (中英无缝热切)。
+   - `ble_worker.rs`: 在后台独立生长的守护 tokio 线程，屏蔽所有底层 IO 带来的桌面卡顿。
+   - `app.rs`: 原生 `egui` 高刷画师，包含原汁原味的“核心配网”、“系统诊断”、“原始日志”三阶面板。
 
-- Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
-- Client Write Char: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
-- Server Read/Notify Char: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
+---
 
-请求示例（JSON）：
+## 🚀 快速启动
 
-```json
-{"id":"req-1","cmd":"provision","args":{"ssid":"LabWiFi","pwd":"secret"}}
-```
+你需要安装一套标准的 Rust 开发环境（`rustup`，包含 `cargo`）。
 
-## 命令
-
-- `help`
-- `ping`
-- `status`
-- `provision`
-- `shutdown`
-- `sys.whoami`
-- `net.ifconfig`
-- `wifi.scan`
-
-## 环境要求
-
-- Python：`3.10 - 3.13`
-- 依赖管理：`uv`
-- 服务端：仅支持 Linux（BlueZ + NetworkManager `nmcli`）
-
-系统依赖（Debian/Ubuntu）：
-
+### 启动跨平台全干图形界面 (Mac / Win / Linux)
 ```bash
-sudo apt update
-sudo apt install -y network-manager bluez
+cargo run -p gui
 ```
 
-Python 依赖：
-
+### 启动安全沉浸式的命令行客户端
+支持附加传入对应语言旗帜（默认 `zh`）。
 ```bash
-uv sync --only-group server
-uv sync --only-group client
-uv sync --group client --group gui
+cargo run -p client -- --lang en
 ```
 
-若作为库安装（pip）：
-
+### 编译下位机后台端程序 (在树莓派或 Jetson Linux 设备上执行)
 ```bash
-pip install ".[client]"
-pip install ".[client,gui]"
+cargo build --release -p server
+# 生成的高性能二进制文件会安静地存放于 target/release/server
 ```
 
-## 快速开始
+有关系统级自启运维 (systemd) 的教程请见 [docs/systemd.md](./docs/systemd.md)。
 
-服务端（Linux）：
+有关如何为设备加入新的自定义功能和回调请见 [docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)。
 
-```bash
-sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
-  --device-name Yundrone_UAV \
-  --ifname wlan0 \
-  --adapter hci0 \
-  --log-level INFO
-```
+---
 
-客户端（macOS/Linux/Windows）：
+## 📝 许可证
 
-```bash
-"$(pwd)/.venv/bin/python" app/client_main.py --target-name Yundrone_UAV
-```
-
-GUI 客户端（macOS/Linux/Windows）：
-
-```bash
-"$(pwd)/.venv/bin/python" app/client_gui_main.py --target-name Yundrone_UAV
-```
-
-结果区说明（GUI）：
-
-- `status` 与 `wifi.scan` 会在右侧“结果”区以内嵌 Tab 展示（`概览 / 状态 / Wi-Fi 扫描 / 原始`）。
-- 不再弹出独立窗口，原始响应始终保留在“原始”Tab 便于排障。
-
-注意：FreeSimpleGUI 依赖 `tkinter`。若出现 `_tkinter` 缺失（常见于 Homebrew Python），先执行：
-
-```bash
-brew install python-tk@3.11
-```
-
-## 作为库使用（面向后续 GUI）
-
-已提供高层客户端 API（异步 + 同步 facade）：
-
-- `client.BleGatewayClient`
-- `client.SyncBleGatewayClient`
-
-说明：库层默认不直接 `print`，进度文本仅通过可选 `reporter` 回调输出。
-
-最小示例（同步，适合 GUI 线程直接调用）：
-
-```python
-from client import SyncBleGatewayClient
-
-gateway = SyncBleGatewayClient(target_name="Yundrone_UAV")
-devices = gateway.scan(timeout=8)
-if not devices:
-    raise SystemExit("No device found")
-
-session = gateway.connect(devices[0])
-status = session.status(timeout=8)
-print(status.message)
-session.close()
-gateway.close()
-```
-
-## 建议流程
-
-- 最小联通性验证：`help` -> `status` -> `wifi.scan` -> `provision`
-- `status`：校验当前 SSID 与 IP，确认换网是否生效
-- `wifi.scan`：确认目标 SSID 可见且信号强度可接受
-
-## 测试
-
-```bash
-uv run python -m py_compile app/server_main.py app/client_main.py app/client_gui_main.py
-uv run python -m unittest discover -s tests/unit -p 'test_*.py'
-```
-
-## 部署
-
-- 推荐以 `app/server_main.py` 作为 systemd `ExecStart`
-- 服务端通常以 `sudo` 启动；`status/whoami` 会优先返回实际操作者账号（如 `SUDO_USER`）
-
-示例：
-
-```ini
-ExecStart=/path/to/.venv/bin/python /path/to/app/server_main.py --device-name Yundrone_UAV --ifname wlan0 --adapter hci0
-```
-
-## 路线图
-
-- 链路心跳与断联判定（远期可选：仅在长会话高丢包场景启用）
-- 更细粒度的配网进度事件模型
-- 更完整的端到端自动化与压力测试
+这是一个供软硬结合边缘设备使用的控制协议方案，您可以在协议授权允许的范围内集成于实际产线的无人机设备、IoT 硬件出厂部署。

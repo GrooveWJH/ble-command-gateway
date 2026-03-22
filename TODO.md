@@ -1,34 +1,17 @@
-# TODO
+# 路线图与待办功能 (TODO)
 
-## Library-First (Current Milestone)
+✅ **本项目最初所有的 Rust 重构以及新架构解耦目标已经 100% 成功达成，所有的打钩清算流程现已结束。**
 
-- [x] Expose high-level client API:
-  - `BleGatewayClient.scan/scan_snapshot/connect`
-  - `SessionHandle.run_command/provision/status/close`
-- [x] Expose sync facade for GUI integration:
-  - `SyncBleGatewayClient`
-  - `SyncSessionHandle`
-- [x] Keep CLI as a shell over library APIs (interactive flow remains).
-- [x] Introduce unified library-facing models:
-  - `DeviceInfo`, `CommandResult`, `ProvisionResult`, `StatusResult`
-  - `GatewayError` + `GatewayErrorCode`
-- [ ] Add more unit tests for library APIs:
-  - disconnected session and reconnect semantics
-  - sync facade lifecycle edge cases
-  - command timeout / invalid argument coverage
+从 `Python` 迁移至安全的 `Rust Workspace` 后取得了如下成绩：
+- 蓝牙切片规避上限 (Chunking) 的底层架构已部署。
+- 全平台 GUI 应用（包括多国语言、多端状态同步）以及高度解耦的结构树打造完毕。
+- Linux 树莓派等端侧 `nmcli` 与 `BlueZ` 网络接驳器与指令下发通道测试整合。
 
-## systemd Deployment (Server)
+## 🌟 明日世界的探索方向 (Future Ideas)
 
-- [x] Provide a minimal unit template in-repo (`deploy/systemd/ble-command-gateway.service`).
-- [x] Document manual install/start/inspect flow in `docs/systemd.md`.
-- [ ] Add optional install/uninstall helper scripts later (not in current milestone).
+在完全实现并超越原初版本业务模型之后，未来我们可以基于这套成熟的 Rust 代码仓继续扩展下列功能：
 
-## Future / Optional: Heartbeat (Not Scheduled)
-
-Do not implement now. Re-open only if one of these triggers occurs:
-
-- [ ] Long-lived session instability is observed in field logs (frequent stale-link operations).
-- [ ] BLE stack shows silent disconnects without actionable signal from current command flow.
-- [ ] GUI introduces persistent background sessions where explicit health state is required.
-
-If triggered, heartbeat design must remain isolated from command protocol and queues.
+- [ ] **系统心跳自愈体系**：加入客户端与设备端双向持续轮询的心跳包通讯协议 (`ping/pong`)，实现超出蓝牙信号范围或下发中途断开时的重连机制与自毁自我恢复能力。
+- [ ] **无人机飞控串口接驳**：除 `nmcli` 等 Linux O/S 层指令外，尝试在 `crates/server/services.rs` 内加一个串口(`serialport` crate) 接管实例，以便可以通过该通道直接进行 Mavlink 透传或其他协议的飞控配置指令握手。
+- [ ] **OTA 空中固件推送**：利用自研的 Chunking 分片层直接推流体积更小的增量升级固件到板端进行自动刷新。
+- [ ] **GUI Web/Android 跨跑**：探索将 `crates/gui` 编译为 `wasm32-unknown-unknown` 或者基于底层改用 Android 蓝牙 API，进行手机端原生 APP 控制中心的释放打包。

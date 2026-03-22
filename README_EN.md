@@ -1,175 +1,60 @@
-# BLE Command Gateway
+# BLE Command Gateway (Rust Port)
 
-[![中文](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-red)](./README.md)
+[![中文版](https://img.shields.io/badge/README-中文-blue)](./README.md)
 
-BLE provisioning and device diagnostics gateway: send Wi‑Fi commands to a Linux device over BLE and get observable status back.
+**BLE Provisioning and Diagnostics Gateway**: Built entirely with memory-safe Rust. This repository provides a complete open-source solution for dispatching Wi-Fi provisioning credentials over low-energy Bluetooth (BLE) to headless devices (Linux / Raspberry Pi / Jetson Orin), alongside extracting network and system diagnostic probes.
 
-- 中文说明: `README.md`
-- Roadmap: `TODO.md`
+The legacy `Python + bluedot / PySimpleGUI` prototype has been **100% fully rewritten into extensively modularized Rust**. This massive overhaul brings i18n support natively to the binaries, seamless automated MTU chunking logic for transferring huge JSON structures across air-gaps, and a native asynchronous thread-pool engine.
 
-## Overview
+---
 
-This project targets first-time provisioning, on-site Wi‑Fi switching, and headless diagnostics. It provides a scriptable BLE command channel plus an interactive client.
+## 🏗️ New Workspace Architecture
 
-## Key Features
+The Cargo Workspace is strictly decoupled into four highly cohesive domains:
 
-- Interactive client: scan, select device, reuse a long-lived session, Rich UI output
-- Provisioning: send SSID/password (open networks supported), server executes via `nmcli` and returns final status + IP
-- Diagnostics: `status / sys.whoami / net.ifconfig / wifi.scan` for on-site troubleshooting
-- Observability: server logs and in-progress updates during provisioning; client-side wait/chunk receive visualization
-- Extensibility: clear layering across protocol, command registry, system services, and BLE gateway
+1. **`protocol` (Core Data Layer)** (`crates/protocol`)
+   - **Zero-dependency** algorithm algorithms.
+   - `commands.rs`: The global command routing dictionary.
+   - `chunking.rs`: A custom sub-layer protocol designed to split massive payloads into ~360 Bytes to safely navigate around low BLE MTU hardware limitations, seamlessly reassembling them down the pipeline.
 
-## Architecture
+2. **`server` (Linux Embedded Peripheral)** (`crates/server`)
+   - *(Linux ARM/x86 compilation target ONLY)*
+   - `main.rs`: Interfaces directly with BlueZ D-Bus APIs to broadcast as a peripheral acting as `Yundrone_UAV` with native custom GATT characteristics.
+   - `services.rs`: Utilizes `tokio::process` to asynchronously execute headless OS bindings like `nmcli device wifi connect`, `ifconfig`, and `whoami`.
 
-```text
-app/        entrypoints (server_main.py / client_main.py)
-ble/        BLE gateway/runtime/response publisher (chunking)
-protocol/   protocol models/codec/status codes
-commands/   command registry + built-in commands
-services/   system execution + Wi‑Fi provisioning services
-client/     scanning/session/interactive flow/rendering
-config/     defaults and UUIDs
-tests/      unit/integration tests
-```
+3. **`client` (Cross-Platform CLI)** (`crates/client`)
+   - `ble.rs`: Native multi-os BLE Central device connector built atop `btleplug`.
+   - `main.rs`: Highly interactive Command-Line Interface. Renders system diagnostics in terminal tables (`comfy-table`), offers hidden secure password inputs (`inquire`), and ships with a lightweight i18n translator (`--lang en`).
 
-## BLE Protocol
+4. **`gui` (Decoupled Native GUI App)** (`crates/gui`)
+   - `main.rs`: Extremely minimal 34-line integration boundary.
+   - `i18n.rs`: Zero-dependency internationalization dictionary allowing hot swaps.
+   - `ble_worker.rs`: A background `tokio` observer thread hiding all heavy-lifting IO routines and delivering robust MPSC asynchronous feedback to the visual components.
+   - `app.rs`: The high-refresh-rate `egui` native canvas with beautiful replicas of the "Wi-Fi Provisioning", "Diagnostics", and "Raw Logs" control panels.
 
-- Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
-- Client Write Char: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
-- Server Read/Notify Char: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
+---
 
-Request JSON example:
+## 🚀 Quickstart
 
-```json
-{"id":"req-1","cmd":"provision","args":{"ssid":"LabWiFi","pwd":"secret"}}
-```
+A standard Rust toolchain (`rustup`) is required.
 
-## Commands
-
-- `help`
-- `ping`
-- `status`
-- `provision`
-- `shutdown`
-- `sys.whoami`
-- `net.ifconfig`
-- `wifi.scan`
-
-## Requirements
-
-- Python: `3.10 - 3.13`
-- Dependency manager: `uv`
-- Server: Linux only (BlueZ + NetworkManager `nmcli`)
-
-System deps (Debian/Ubuntu):
-
+### Launch GUI Native Client (Mac / Win / Linux)
 ```bash
-sudo apt update
-sudo apt install -y network-manager bluez
+cargo run -p gui
 ```
 
-Python deps:
-
+### Launch Interactive Safe Terminal Interface
+Pass the localized `--lang` attribute per your needs (defaults to `zh`).
 ```bash
-uv sync --only-group server
-uv sync --only-group client
-uv sync --group client --group gui
+cargo run -p client -- --lang en 
 ```
 
-If installing as a library (pip):
-
+### Build Embedded Daemon Target (Execute on Raspberry Pi / Jetson Linux)
 ```bash
-pip install ".[client]"
-pip install ".[client,gui]"
+cargo build --release -p server
+# The high-performance footprint binary surfaces at target/release/server
 ```
 
-## Quick Start
+For deployment via `systemd` across autonomous robots, see [docs/systemd.md](./docs/systemd.md).
 
-Server (Linux):
-
-```bash
-sudo -E "$(pwd)/.venv/bin/python" app/server_main.py \
-  --device-name Yundrone_UAV \
-  --ifname wlan0 \
-  --adapter hci0 \
-  --log-level INFO
-```
-
-Client (macOS/Linux/Windows):
-
-```bash
-"$(pwd)/.venv/bin/python" app/client_main.py --target-name Yundrone_UAV
-```
-
-GUI client (macOS/Linux/Windows):
-
-```bash
-"$(pwd)/.venv/bin/python" app/client_gui_main.py --target-name Yundrone_UAV
-```
-
-Result panel notes (GUI):
-
-- `status` and `wifi.scan` are rendered inline in the right result area (`Overview / Status / Wi-Fi Scan / Raw` tabs).
-- No extra popup is used; full raw response is always available in the `Raw` tab for troubleshooting.
-
-Note: FreeSimpleGUI depends on `tkinter`. If `_tkinter` is missing (common on Homebrew Python), run:
-
-```bash
-brew install python-tk@3.11
-```
-
-## Use as a Library (GUI-friendly)
-
-High-level client APIs are available:
-
-- `client.BleGatewayClient`
-- `client.SyncBleGatewayClient`
-
-Note: library APIs do not print to stdout by default; progress text is emitted only via optional `reporter` callbacks.
-
-Minimal sync example (for GUI callers):
-
-```python
-from client import SyncBleGatewayClient
-
-gateway = SyncBleGatewayClient(target_name="Yundrone_UAV")
-devices = gateway.scan(timeout=8)
-if not devices:
-    raise SystemExit("No device found")
-
-session = gateway.connect(devices[0])
-status = session.status(timeout=8)
-print(status.message)
-session.close()
-gateway.close()
-```
-
-## Suggested Flow
-
-- Minimal link check: `help` -> `status` -> `wifi.scan` -> `provision`
-- `status`: verify current SSID and IP
-- `wifi.scan`: verify target SSID visibility and signal strength
-
-## Tests
-
-```bash
-uv run python -m py_compile app/server_main.py app/client_main.py app/client_gui_main.py
-uv run python -m unittest discover -s tests/unit -p 'test_*.py'
-```
-
-## Deployment
-
-- Use `app/server_main.py` as systemd `ExecStart`
-- Server is often run with `sudo`; `status/whoami` prefers the operator account (e.g. `SUDO_USER`)
-
-Example:
-
-```ini
-ExecStart=/path/to/.venv/bin/python /path/to/app/server_main.py --device-name Yundrone_UAV --ifname wlan0 --adapter hci0
-```
-
-## Roadmap
-
-- Link heartbeat and disconnect detection (future optional; only for unstable long-lived sessions)
-- Finer-grained provisioning progress model
-- More complete e2e automation and stress testing
+If you are an engineer looking to embed new custom robotic hook endpoints, see [docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md).

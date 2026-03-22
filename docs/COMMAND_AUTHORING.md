@@ -1,43 +1,48 @@
-# 指令扩展指南
+# 自定义指令开发指南
 
-目标：新增一个指令时，不改核心分发器逻辑，仅新增模块并注册。
+## 理解新的架构层级
 
-## 三步新增指令
+在 Rust 版本的重构中，新增或修改一条蓝牙指令，需要跨越以下几个模块层：
 
-1. 在 `protocol/command_ids.py` 新增命令常量。  
-2. 在 `commands/builtins/` 下新增 `<name>_cmd.py`。  
-3. 在文件中定义 `SPEC`（`CommandSpec`）和 `register(dispatcher)`。  
-4. 将模块加入 `commands/builtins/__init__.py` 的 `BUILTIN_MODULES`。
+1. **协议定义层**: `crates/protocol/src/lib.rs`
+2. **服务端执行层**: `crates/server/src/services.rs`
+3. **客户端发包层**: `crates/client/` 或 `crates/gui/`
 
-## 模块模板
+### 1. 注册新的指令 ID
 
-```python
-from protocol.command_ids import CMD_EXAMPLE_ECHO
-from commands.schemas import CommandSpec
-from protocol.envelope import CommandRequest, CommandResponse, response_ok
-from commands.registry import CommandDispatcher, DispatchContext
+打开 `crates/protocol/src/lib.rs` 并找到 `pub mod commands` 模块。在这里添加表示您新指令的字符串常量：
 
-SPEC = CommandSpec(
-    name=CMD_EXAMPLE_ECHO,
-    summary="Echo input text",
-    usage="example.echo {text: str}",
-    permission="user",
-    risk="low",
-    timeout_sec=2.0,
-)
-
-def register(dispatcher: CommandDispatcher) -> None:
-    async def _handler(_context: DispatchContext, request: CommandRequest) -> CommandResponse:
-        text = str(request.args.get("text", ""))
-        return response_ok(request.request_id, text)
-
-    dispatcher.register(SPEC, _handler)
+```rust
+pub mod commands {
+    pub const CMD_HELP: &str = "help";
+    pub const CMD_MY_NEW_THING: &str = "my.new_thing"; // <-- 新增
+}
 ```
 
-## 约束
+### 2. 在服务端实现业务处理逻辑
 
-- 指令名必须唯一，重复注册会报错。
-- 命令 ID 必须集中定义在 `protocol/command_ids.py`，不要在模块内写裸字符串。
-- 参数校验由 `CommandSpec.args` 自动完成，避免在 handler 里重复做样板校验。
-- `help` 文本自动来自注册表，会展示 usage、permission、risk、timeout。
-- 系统命令必须走 `run_system_command` 白名单，不允许任意 shell 透传。
+打开 `crates/server/src/services.rs`，将其添加到全局的异步指令路由分发器 `run_named_command` 中：
+
+```rust
+pub async fn run_named_command(name: &str, ifname: Option<&str>, timeout_sec: f64) -> SystemExecResult {
+    match name {
+        protocol::commands::CMD_MY_NEW_THING => handle_new_thing().await,
+        // ...
+// ...
+```
+
+随后在文件下方编写对应的 async 异步函数。如果您的业务需要调用底层 Linux 的 shell （比如驱动脚本），可以直接基于 `tokio::process::Command` 派生子进程去抓取结果并返回 `SystemExecResult`。
+
+### 3. 在客户端或 GUI 发起请求
+
+如果您的新命令需要携带额外参数（比如附带 `ssid` 和 `password`），请在包装发往 `client.send_payload` 时使用 `serde_json::json!` 宏进行直观的构造：
+
+```rust
+let req = CommandRequest::new(
+    "req-1",
+    protocol::commands::CMD_MY_NEW_THING,
+    Some(json!({"param1": "foo"}).as_object().unwrap().clone())
+);
+```
+
+完成代码逻辑后，通过 `cargo build` 重新编译您的 Workspace 即可生效！

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync current repository to remote Orin machine using rsync.
+# Sync current Rust repository to remote Orin machine using rsync.
 # - Uses .gitignore rules automatically when .gitignore exists.
-# - Always excludes .git metadata.
-# - Protects remote .venv/ from deletion.
+# - Always excludes .git metadata and local target/ compilation folders.
 
 TARGET_DEFAULT="orin-Mocap5G:/opt/ble-command-gateway/"
 # TARGET_DEFAULT="orangepi:~/work/ble-command-gateway/"
@@ -19,9 +18,8 @@ RSYNC_OPTS=(
   --delete
   --human-readable
   --exclude=.git/
-  --filter='- __pycache__/'
-  --filter='- *.pyc'
-  --filter='P .venv/'
+  --filter='- target/'
+  --filter='- Cargo.lock'
 )
 
 if [[ "$REMOTE_SUDO" == "1" ]]; then
@@ -36,7 +34,6 @@ fi
 
 echo "[INFO] Source : ${SCRIPT_DIR}/"
 echo "[INFO] Target : ${TARGET}"
-echo "[INFO] Protect: remote .venv/ will not be deleted"
 if [[ "$REMOTE_SUDO" == "1" ]]; then
   echo "[INFO] Remote rsync path: sudo rsync"
 fi
