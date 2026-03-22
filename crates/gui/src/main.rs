@@ -35,6 +35,22 @@ fn setup_custom_fonts(ctx: &egui::Context) {
     }
     
     ctx.set_fonts(fonts);
+
+    // Boost typography scale to fill out emptiness
+    let mut style = (*ctx.style()).clone();
+    style.text_styles = [
+        (egui::TextStyle::Heading, egui::FontId::new(22.0, egui::FontFamily::Proportional)),
+        (egui::TextStyle::Name("Title".into()), egui::FontId::new(18.0, egui::FontFamily::Proportional)),
+        (egui::TextStyle::Body, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+        (egui::TextStyle::Monospace, egui::FontId::new(14.0, egui::FontFamily::Monospace)),
+        (egui::TextStyle::Button, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+        (egui::TextStyle::Small, egui::FontId::new(12.0, egui::FontFamily::Proportional)),
+    ].into();
+    
+    // Add some soft padding globally
+    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    ctx.set_style(style);
 }
 
 fn main() -> eframe::Result<()> {
@@ -51,8 +67,8 @@ fn main() -> eframe::Result<()> {
     // 3. Configure and start Native GUI window
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([920.0, 680.0])
-            .with_min_inner_size([700.0, 500.0]),
+            .with_inner_size([720.0, 520.0])
+            .with_min_inner_size([600.0, 400.0]),
         ..Default::default()
     };
 
