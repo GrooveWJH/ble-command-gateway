@@ -1,0 +1,9 @@
+[package]
+name = "protocol"
+version = "2026.3.22"
+edition = "2021"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "1.0"
