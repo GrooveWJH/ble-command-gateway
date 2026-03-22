@@ -1,60 +1,60 @@
-# BLE Command Gateway (Rust Port)
+# YunDrone BLE Gateway
 
-[![中文版](https://img.shields.io/badge/README-中文-blue)](./README.md)
+[![中文版](https://img.shields.io/badge/README-中文-blue?style=flat-square)](./README_ZH.md)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?style=flat-square&logo=rust)](#)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#)
 
-**BLE Provisioning and Diagnostics Gateway**: Built entirely with memory-safe Rust. This repository provides a complete open-source solution for dispatching Wi-Fi provisioning credentials over low-energy Bluetooth (BLE) to headless devices (Linux / Raspberry Pi / Jetson Orin), alongside extracting network and system diagnostic probes.
+A Bluetooth Low Energy (BLE) gateway for provisioning and diagnosing headless Linux devices (e.g., Raspberry Pi, Jetson). 
 
-The legacy `Python + bluedot / PySimpleGUI` prototype has been **100% fully rewritten into extensively modularized Rust**. This massive overhaul brings i18n support natively to the binaries, seamless automated MTU chunking logic for transferring huge JSON structures across air-gaps, and a native asynchronous thread-pool engine.
+This project allows you to send Wi-Fi credentials and retrieve system status over a BLE connection, bypassing the need for an existing network infrastructure. It is written in Rust and operates across multiple platforms.
 
----
+## Features
 
-## 🏗️ New Workspace Architecture
+- **Protocol Chunking**: Implements a custom chunking algorithm to reliably transmit large JSON payloads over BLE MTU limits (~360 Bytes).
+- **Headless Server**: The Linux-based server daemon (`bluer` + `nmcli`) runs as a background process to handle incoming Wi-Fi credentials and system commands.
+- **Cross-Platform Client**: Provides both a terminal UI (CLI) and a native graphical interface (`egui`) for connecting to the server.
+- **Memory Safety**: Built with Rust and `tokio` to ensure safe, concurrent handling of Bluetooth I/O and UI rendering.
 
-The Cargo Workspace is strictly decoupled into four highly cohesive domains:
+## Quick Start
 
-1. **`protocol` (Core Data Layer)** (`crates/protocol`)
-   - **Zero-dependency** algorithm algorithms.
-   - `commands.rs`: The global command routing dictionary.
-   - `chunking.rs`: A custom sub-layer protocol designed to split massive payloads into ~360 Bytes to safely navigate around low BLE MTU hardware limitations, seamlessly reassembling them down the pipeline.
+### Prerequisites
+- Rust toolchain (`cargo`, `rustup`)
+- A supported Bluetooth adapter
+- Linux environment for the server daemon
 
-2. **`server` (Linux Embedded Peripheral)** (`crates/server`)
-   - *(Linux ARM/x86 compilation target ONLY)*
-   - `main.rs`: Interfaces directly with BlueZ D-Bus APIs to broadcast as a peripheral acting as `Yundrone_UAV` with native custom GATT characteristics.
-   - `services.rs`: Utilizes `tokio::process` to asynchronously execute headless OS bindings like `nmcli device wifi connect`, `ifconfig`, and `whoami`.
-
-3. **`client` (Cross-Platform CLI)** (`crates/client`)
-   - `ble.rs`: Native multi-os BLE Central device connector built atop `btleplug`.
-   - `main.rs`: Highly interactive Command-Line Interface. Renders system diagnostics in terminal tables (`comfy-table`), offers hidden secure password inputs (`inquire`), and ships with a lightweight i18n translator (`--lang en`).
-
-4. **`gui` (Decoupled Native GUI App)** (`crates/gui`)
-   - `main.rs`: Extremely minimal 34-line integration boundary.
-   - `i18n.rs`: Zero-dependency internationalization dictionary allowing hot swaps.
-   - `ble_worker.rs`: A background `tokio` observer thread hiding all heavy-lifting IO routines and delivering robust MPSC asynchronous feedback to the visual components.
-   - `app.rs`: The high-refresh-rate `egui` native canvas with beautiful replicas of the "Wi-Fi Provisioning", "Diagnostics", and "Raw Logs" control panels.
-
----
-
-## 🚀 Quickstart
-
-A standard Rust toolchain (`rustup`) is required.
-
-### Launch GUI Native Client (Mac / Win / Linux)
+### 1. Run the GUI Client (Mac/Win/Linux)
+Starts a graphical interface for scanning devices, provisioning Wi-Fi, and viewing logs.
 ```bash
 cargo run -p gui
 ```
 
-### Launch Interactive Safe Terminal Interface
-Pass the localized `--lang` attribute per your needs (defaults to `zh`).
+### 2. Run the Command-Line Client
+Starts an interactive terminal UI for headless control.
 ```bash
 cargo run -p client -- --lang en 
 ```
 
-### Build Embedded Daemon Target (Execute on Raspberry Pi / Jetson Linux)
+### 3. Build the Server Daemon (Linux Only)
+Builds the BLE peripheral server that listens for incoming commands.
 ```bash
 cargo build --release -p server
-# The high-performance footprint binary surfaces at target/release/server
 ```
+For instructions on registering the server as a system service, see [docs/systemd.md](./docs/systemd.md).
 
-For deployment via `systemd` across autonomous robots, see [docs/systemd.md](./docs/systemd.md).
+## Project Structure
 
-If you are an engineer looking to embed new custom robotic hook endpoints, see [docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md).
+The repository is organized as a Cargo Workspace with four main crates:
+
+- `protocol/`: Core data structures, chunking algorithm, and command definitions. No external dependencies.
+- `server/`: Linux BLE peripheral implementation handling incoming requests and system executions (`nmcli`).
+- `client/`: Cross-platform BLE central connection library utilizing `btleplug`.
+- `gui/`: Native user interface built with `egui` and a background `tokio` worker thread.
+
+## Documentation
+
+- Extending commands: [COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
+- Development roadmap: [TODO.md](./TODO.md)
+
+## License
+
+MIT License.

@@ -1,66 +1,60 @@
-# BLE Command Gateway (Rust)
+# YunDrone BLE Gateway
 
-[![English](https://img.shields.io/badge/README-English-blue)](./README_EN.md)
+[![English](https://img.shields.io/badge/README-English-blue?style=flat-square)](./README.md)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?style=flat-square&logo=rust)](#)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#)
 
-**云端无人机指控网关 (BLE Provisioning and Diagnostics Gateway)**：基于跨平台安全的 Rust 构建。本仓库提供了一个通过低功耗蓝牙 (BLE) 将 Wi-Fi 凭证下发到无头系统设备 (Linux / 树莓派 / Jetson Orin) 并提取网络和系统探针信息的完整开源解决方案。
+YunDrone BLE Gateway 是一个基于低功耗蓝牙 (BLE) 的无头设备通讯网关，旨在为缺少网络和显示器的边缘 Linux 设备（如树莓派、Jetson）提供 Wi-Fi 配网与系统诊断能力。
 
-原 `Python + bluedot / PySimpleGUI` 版本现已**100% 彻底以极致的模块化解耦标准用 Rust 重构**！全面支持了多国语言 (i18n)、超长 JSON 的跨端自动分片抓取、原生的高频异步并发线程池等。
+本项目完全采用 Rust 编写，支持跨平台运行，能够在不依赖云端网络的情况下完成物理穿透控制。
 
----
+## 核心特性
 
-## 🏗️ 全新 Crate 工作区架构 (Workspace)
+- **协议分片 (Chunking)**：内置自定义分段重组算法，突破底层蓝牙硬件的 MTU 负载限制，可稳定传输千字节级大型 JSON。
+- **服务端 (Server)**：专为 Linux 平台优化的外设守护进程，结合 `bluer` 与 `nmcli` 实现网络配置与系统命令执行。
+- **客户端 (Client/GUI)**：提供终端命令行 (TUI) 与图形化视窗 (`egui`) 两种形态的跨平台控制端。
+- **并发与安全**：基于 Rust 与 `tokio` 构建，实现蓝牙底层 I/O 与前端渲染的隔离。
 
-项目被标准切割为了四个高度内聚的独立板块：
+## 快速上手
 
-1. **`protocol` (核心协议)** (`crates/protocol`)
-   - **零依赖**的纯算法核心。
-   - `commands.rs`: 全局统一下发的指令键值对系统。
-   - `chunking.rs`: 为抵抗蓝牙底层 MTU 收发限制（约 ~360 Bytes 最大），自研实现的自动封包拆解 / 组装引擎。
+### 环境依赖
+- Rust 开发环境 (`cargo`, `rustup`)
+- 物理蓝牙适配器
+- 服务端只支持 Linux 操作系统
 
-2. **`server` (Linux 外设服务端)** (`crates/server`)
-   - *（仅限 Linux ARM/x86 编译）*
-   - `main.rs`: 呼叫高底层 BlueZ D-Bus，作为 Peripheral 外设广播出 `Yundrone_UAV`。
-   - `services.rs`: 使用 `tokio` 强力接管诸如 `nmcli device wifi connect`、`ifconfig` 和 `whoami` 等系统级指控。
-
-3. **`client` (跨平台 CLI 控制台)** (`crates/client`)
-   - `ble.rs`: 基于跨平台 `btleplug`，封装建立连接、UUID 通道定位与订阅的核心句柄。
-   - `main.rs`: 指令级的 TUI。支持高颜值的终端表格 (`comfy-table`) 和隐藏式的安全密码下发输入 (`inquire`)，附带内建的简易 i18n 多语言翻译器。
-
-4. **`gui` (原生解耦图形界面)** (`crates/gui`)
-   - `main.rs`: 仅 **34 行** 的极简框架接驳点。
-   - `i18n.rs`: 零依赖的多国语言词典 (中英无缝热切)。
-   - `ble_worker.rs`: 在后台独立生长的守护 tokio 线程，屏蔽所有底层 IO 带来的桌面卡顿。
-   - `app.rs`: 原生 `egui` 高刷画师，包含原汁原味的“核心配网”、“系统诊断”、“原始日志”三阶面板。
-
----
-
-## 🚀 快速启动
-
-你需要安装一套标准的 Rust 开发环境（`rustup`，包含 `cargo`）。
-
-### 启动跨平台全干图形界面 (Mac / Win / Linux)
+### 1. 运行图形化配置端 (GUI)
+跨平台启动带有配网、诊断和日志面板的用户界面。
 ```bash
 cargo run -p gui
 ```
 
-### 启动安全沉浸式的命令行客户端
-支持附加传入对应语言旗帜（默认 `zh`）。
+### 2. 运行命令行控制端 (CLI)
+适合在服务器或纯终端环境下进行的交互式控制。
 ```bash
-cargo run -p client -- --lang en
+cargo run -p client -- --lang zh 
 ```
 
-### 编译下位机后台端程序 (在树莓派或 Jetson Linux 设备上执行)
+### 3. 构建设备端下位机程序 (Server)
+在目标机器上编译提供广播与执行服务的常驻进程。
 ```bash
 cargo build --release -p server
-# 生成的高性能二进制文件会安静地存放于 target/release/server
 ```
+有关设置为随系统启停的后台服务，请参考 [docs/systemd.md](./docs/systemd.md)。
 
-有关系统级自启运维 (systemd) 的教程请见 [docs/systemd.md](./docs/systemd.md)。
+## 项目结构
 
-有关如何为设备加入新的自定义功能和回调请见 [docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)。
+本仓库使用 Cargo Workspace 管理，切分为以下四个子模块：
 
----
+- `protocol/`: 核心数据协议层，包含分段算法与指令映射（无第三方依赖）。
+- `server/`: 搭载在目标设备上的接收端（仅限 Linux 编译）。
+- `client/`: 基于 `btleplug` 的蓝牙发送端 API 与命令行 TUI 工具。
+- `gui/`: 基于 `egui` 构建的全平台图形交互客户端。
 
-## 📝 许可证
+## 扩展与文档
 
-这是一个供软硬结合边缘设备使用的控制协议方案，您可以在协议授权允许的范围内集成于实际产线的无人机设备、IoT 硬件出厂部署。
+- 若要为网关增加新的自定义指令，请参阅：[COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
+- 项目开发计划：[TODO.md](./TODO.md)
+
+## 开源协议
+
+MIT License.
