@@ -1858,6 +1858,7 @@ dependencies = [
  "eframe",
  "egui",
  "protocol",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

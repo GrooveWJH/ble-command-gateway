@@ -43,6 +43,16 @@ impl Lang {
             (Lang::Zh, "btn_send") => "发送",
             (Lang::En, "lang_switch") => "🌐 中 / EN",
             (Lang::Zh, "lang_switch") => "🌐 EN / 中",
+            (Lang::En, "col_ssid") => "SSID (Network)",
+            (Lang::Zh, "col_ssid") => "无线网络 (SSID)",
+            (Lang::En, "col_signal") => "Signal Strength",
+            (Lang::Zh, "col_signal") => "信号强度",
+            (Lang::En, "col_channel") => "Channel",
+            (Lang::Zh, "col_channel") => "信道 (CH)",
+            (Lang::En, "cmd_ping") => "📶 Ping Test",
+            (Lang::Zh, "cmd_ping") => "📶 网络连通测试 (Ping)",
+            (Lang::En, "cmd_help") => "❓ Remote Help",
+            (Lang::Zh, "cmd_help") => "❓ 远程调试求助",
             _ => key,
         }
     }

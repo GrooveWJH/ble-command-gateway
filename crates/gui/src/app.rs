@@ -27,6 +27,7 @@ pub struct GatewayApp {
     // Provisioning states
     ssid_input: String,
     pwd_input: String,
+    wifi_list: Vec<serde_json::Value>,
 
     // Custom commands state
     command_input: String,
@@ -50,6 +51,7 @@ impl GatewayApp {
             is_connected: false,
             ssid_input: String::new(),
             pwd_input: String::new(),
+            wifi_list: vec![],
             command_input: r#"{"cmd":"status"}"#.to_string(),
         }
     }
@@ -144,6 +146,31 @@ impl GatewayApp {
                                 let _ = self.tokio_tx.send(BtleCommand::SendPayload { cmd_str: payload });
                             }
                         });
+
+                        ui.add_space(15.0);
+                        if !self.wifi_list.is_empty() {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                egui::Grid::new("wifi_table").striped(true).show(ui, |ui| {
+                                    ui.heading(self.lang.t("col_ssid"));
+                                    ui.heading(self.lang.t("col_signal"));
+                                    ui.heading(self.lang.t("col_channel"));
+                                    ui.end_row();
+
+                                    for ap in &self.wifi_list {
+                                        let ssid = ap.get("ssid").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                        let signal = ap.get("signal").and_then(|v| v.as_i64()).unwrap_or(0);
+                                        let channel = ap.get("channel").and_then(|v| v.as_i64()).unwrap_or(0);
+                                        
+                                        if ui.selectable_label(self.ssid_input == ssid, ssid).clicked() {
+                                            self.ssid_input = ssid.to_string();
+                                        }
+                                        ui.label(format!("{} dBm", signal));
+                                        ui.label(channel.to_string());
+                                        ui.end_row();
+                                    }
+                                });
+                            });
+                        }
                     });
                 }
                 Tab::Diagnostic => {
@@ -154,6 +181,14 @@ impl GatewayApp {
                     ui.add_enabled_ui(self.is_connected, |ui| {
                         if ui.button(self.lang.t("cmd_whoami")).clicked() {
                             let _ = self.tokio_tx.send(BtleCommand::SendPayload { cmd_str: r#"{"cmd":"sys.whoami"}"#.into() });
+                        }
+                        ui.add_space(5.0);
+                        if ui.button(self.lang.t("cmd_ping")).clicked() {
+                            let _ = self.tokio_tx.send(BtleCommand::SendPayload { cmd_str: r#"{"cmd":"ping"}"#.into() });
+                        }
+                        ui.add_space(5.0);
+                        if ui.button(self.lang.t("cmd_help")).clicked() {
+                            let _ = self.tokio_tx.send(BtleCommand::SendPayload { cmd_str: r#"{"cmd":"help"}"#.into() });
                         }
                         ui.add_space(5.0);
                         if ui.button(self.lang.t("cmd_shutdown")).clicked() {
@@ -194,7 +229,18 @@ impl eframe::App for GatewayApp {
         // 1. Drain incoming background thread events
         while let Ok(event) = self.ui_rx.try_recv() {
             match event {
-                AppEvent::Log(text) => self.push_log(text),
+                AppEvent::Log(text) => {
+                    // Quick heuristic hack for now: if text is a JSON payload, parse it into wifi_list
+                    if text.contains(r#""cmd":"wifi.scan""#) && text.trim().starts_with("<< RX: {") {
+                        let json_str = text.trim_start_matches("<< RX: ").trim();
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            if let Some(data) = json.get("data").and_then(|v| v.get("networks")).and_then(|v| v.as_array()) {
+                                self.wifi_list = data.clone();
+                            }
+                        }
+                    }
+                    self.push_log(text);
+                }
                 AppEvent::ScanStarted => { self.is_scanning = true; }
                 AppEvent::DeviceFound => { self.is_scanning = false; }
                 AppEvent::Connected => { self.is_connected = true; }
