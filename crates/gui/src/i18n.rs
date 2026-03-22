@@ -1,0 +1,49 @@
+#[derive(Clone, Copy, PartialEq)]
+pub enum Lang {
+    En,
+    Zh,
+}
+
+impl Lang {
+    pub fn t<'a>(&self, key: &'a str) -> &'a str {
+        match (self, key) {
+            (Lang::En, "app_title") => "YunDrone Command Gateway",
+            (Lang::Zh, "app_title") => "云端无人机指控网关",
+            (Lang::En, "device_prefix") => "Target Device Prefix:",
+            (Lang::Zh, "device_prefix") => "目标设备名称前缀:",
+            (Lang::En, "scan_btn") => "📡 Scan & Connect",
+            (Lang::Zh, "scan_btn") => "📡 扫描并连接",
+            (Lang::En, "tab_provision") => "Wi-Fi Provisioning",
+            (Lang::Zh, "tab_provision") => "📡 核心配网",
+            (Lang::En, "tab_diag") => "Diagnostics",
+            (Lang::Zh, "tab_diag") => "🛠 系统诊断",
+            (Lang::En, "tab_logs") => "Raw Logs",
+            (Lang::Zh, "tab_logs") => "📜 原始日志",
+            (Lang::En, "conn_yes") => "🟢 CONNECTED",
+            (Lang::Zh, "conn_yes") => "🟢 已连接",
+            (Lang::En, "conn_wait") => "🟡 SEARCHING...",
+            (Lang::Zh, "conn_wait") => "🟡 搜索中...",
+            (Lang::En, "conn_no") => "🔴 DISCONNECTED",
+            (Lang::Zh, "conn_no") => "🔴 未连接",
+            (Lang::En, "ssid_label") => "Wi-Fi SSID:",
+            (Lang::Zh, "ssid_label") => "Wi-Fi 账号 (SSID):",
+            (Lang::En, "pwd_label") => "Password:",
+            (Lang::Zh, "pwd_label") => "密码 (Password):",
+            (Lang::En, "scan_ap_btn") => "🔍 Scan Nearby APs",
+            (Lang::Zh, "scan_ap_btn") => "🔍 扫描周边信标",
+            (Lang::En, "prov_btn") => "🔑 Deploy & Connect Wi-Fi",
+            (Lang::Zh, "prov_btn") => "🔑 下发配网指令",
+            (Lang::En, "cmd_whoami") => "📋 Fetch System Info",
+            (Lang::Zh, "cmd_whoami") => "📋 抓取系统信息",
+            (Lang::En, "cmd_shutdown") => "🚪 Force Shutdown",
+            (Lang::Zh, "cmd_shutdown") => "🚪 远程强制关机",
+            (Lang::En, "raw_send") => "Send Custom JSON:",
+            (Lang::Zh, "raw_send") => "发送自定义 JSON:",
+            (Lang::En, "btn_send") => "TX",
+            (Lang::Zh, "btn_send") => "发送",
+            (Lang::En, "lang_switch") => "🌐 中 / EN",
+            (Lang::Zh, "lang_switch") => "🌐 EN / 中",
+            _ => key,
+        }
+    }
+}
