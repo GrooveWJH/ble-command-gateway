@@ -1,28 +1,25 @@
 #![cfg_attr(not(target_os = "linux"), allow(unused))]
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(test), not(clippy)))]
 compile_error!("The 'server' crate depends on Linux-specific APIs (BlueZ/bluer) and can ONLY be compiled for Linux targets. Please use a Linux machine or cross-compile using --target aarch64-unknown-linux-gnu");
-
-pub mod services;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use std::time::Duration;
-    use tokio::sync::mpsc;
-    use futures::StreamExt;
-    use tracing::{info, warn, error};
-    
-    use bluer::{
-        adv::Advertisement,
-        gatt::local::{
-            Application, Characteristic, CharacteristicControlEvent, CharacteristicNotify,
-            CharacteristicNotifyMethod, CharacteristicWrite, CharacteristicWriteMethod, ReqError,
-            Service,
-        },
+    use futures::FutureExt;
+    use tokio::sync::broadcast;
+    use tracing::{info, warn};
+
+    use bluer::gatt::local::{
+        Application, Characteristic, CharacteristicNotify, CharacteristicNotifyMethod,
+        CharacteristicWrite, CharacteristicWriteMethod, Service,
     };
     use uuid::Uuid;
-    
+
+    let advertised_name =
+        server::device_name::generate_device_name(protocol::config::DEFAULT_DEVICE_NAME);
+    let advertising_policy = server::advertising::default_policy();
+
     // Protocol Definitions
     let service_uuid = Uuid::parse_str("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")?;
     let write_uuid = Uuid::parse_str("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")?;
@@ -34,22 +31,18 @@ async fn main() -> anyhow::Result<()> {
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
-    
-    info!("Bluetooth adapter {} is powered up.", adapter.name());
+    let adapter_name = adapter.name();
+    let advertising_capabilities = server::advertising::probe_capabilities(&adapter).await;
 
-    let (notify_tx, mut notify_rx) = mpsc::channel::<Vec<u8>>(32);
+    info!(
+        adapter_name = %adapter_name,
+        advertised_name = %advertised_name,
+        "ble.server.starting"
+    );
 
-    let notify_char_ctrl = CharacteristicControlEvent::Notify(notify_tx.clone());
-
-    let mut write_char = Characteristic::control(write_uuid, CharacteristicControlEvent::Write(notify_tx.clone()));
-    
-    // Customize Write Characteristic
-    write_char.write = Some(CharacteristicWrite {
-        write: true,
-        write_without_response: true,
-        method: CharacteristicWriteMethod::Io,
-        ..Default::default()
-    });
+    let (notify_tx, _) = broadcast::channel::<Vec<u8>>(32);
+    let write_notify_tx = notify_tx.clone();
+    let read_notify_tx = notify_tx.clone();
 
     // We process incoming writes here. Because we used Io method, bluer will actually provide a stream of writes.
     // However, writing an async handler in bluer requires registering an Io handler, but for simplicity we can use Fun.
@@ -60,46 +53,66 @@ async fn main() -> anyhow::Result<()> {
             write: true,
             write_without_response: true,
             method: CharacteristicWriteMethod::Fun(Box::new(move |new_value, _req| {
-                let tx = notify_tx.clone();
+                let tx = write_notify_tx.clone();
                 Box::pin(async move {
-                    if let Ok(json_str) = String::from_utf8(new_value.clone()) {
-                        info!("Received Request over BLE: {}", json_str);
-                        
-                        // Parse as CommandRequest
-                        match serde_json::from_str::<protocol::CommandRequest>(&json_str) {
-                            Ok(req) => {
-                                // Execute command
-                                // The req.data holds the provision JSON payload sent from GUI/Client ('args' object)
-                                let args = if let Some(mut raw) = req.data {
-                                    if let Some(inner) = raw.remove("args") {
-                                        inner.as_object().cloned()
-                                    } else {
-                                        Some(raw)
-                                    }
-                                } else { None };
+                    match protocol::parse_request(&new_value) {
+                        Ok(req) => {
+                            let command_name = req.payload.command_name().to_string();
+                            info!(
+                                request_id = %req.id,
+                                cmd = %command_name,
+                                protocol_version = %req.v,
+                                payload_bytes = new_value.len(),
+                                "ble.request.received"
+                            );
 
-                                let result = services::run_named_command(&req.cmd, args, 30.0).await;
-                                
-                                // Assemble response
-                                let resp = protocol::CommandResponse {
-                                    id: req.id.clone(),
-                                    ok: result.success,
-                                    code: if result.success { protocol::codes::CODE_OK.into() } else { protocol::codes::CODE_DEVICE_ERROR.into() },
-                                    text: result.stdout,
-                                    data: None, // Can inject parsed iw/nmcli outputs here later
-                                    v: protocol::PROTOCOL_VERSION.into(),
-                                };
-                                
-                                // Chunk it
-                                let chunks = protocol::chunking::chunk_response(resp);
-                                for chunk in chunks {
-                                    if let Ok(ser) = protocol::encode_response(&chunk) {
-                                        let _ = tx.send(ser.into_bytes()).await;
+                            let result =
+                                server::services::run_payload_command(&req.payload, 30.0).await;
+
+                            let resp = protocol::CommandResponse {
+                                id: req.id.clone(),
+                                ok: result.ok,
+                                code: result.code,
+                                text: result.text,
+                                data: result.data,
+                                v: protocol::PROTOCOL_VERSION.into(),
+                            };
+
+                            let response_code = resp.code.clone();
+                            let response_ok = resp.ok;
+                            let chunks = protocol::chunking::chunk_response(resp);
+                            let chunk_count = chunks.len();
+
+                            for chunk in chunks {
+                                match protocol::encode_response(&chunk) {
+                                    Ok(ser) => {
+                                        let _ = tx.send(ser);
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            request_id = %req.id,
+                                            cmd = %command_name,
+                                            error = %err,
+                                            "ble.response.encode_failed"
+                                        );
                                     }
                                 }
                             }
-                            Err(e) => warn!("Protocol Parse Error: {}", e),
+
+                            info!(
+                                request_id = %req.id,
+                                cmd = %command_name,
+                                response_code = %response_code,
+                                response_ok,
+                                chunk_count,
+                                "ble.response.sent"
+                            );
                         }
+                        Err(e) => warn!(
+                            error = %e,
+                            payload_bytes = new_value.len(),
+                            "ble.request.parse_failed"
+                        ),
                     }
                     Ok(())
                 })
@@ -108,23 +121,34 @@ async fn main() -> anyhow::Result<()> {
         }),
         ..Default::default()
     };
-    
+
     let read_char_def = Characteristic {
         uuid: read_uuid,
         notify: Some(CharacteristicNotify {
             notify: true,
             method: CharacteristicNotifyMethod::Fun(Box::new(move |mut notifier| {
-                Box::pin(async move {
-                    // Start an async loop passing messages from notify_rx to notifier
-                    // Note: In real life we clone the Receiver via Arc/Mutex or spawn this separately.
-                    info!("Client subscribed to Notify!");
-                    // Wait for messages from our execution tasks and push to BLE stream
-                    // To do this functionally, we usually use an outbound stream object.
-                    // For the sake of this closure, we will loop and wait on the stream.
-                    // However, we can't move mut notify_rx easily into multiple closures...
-                    // A proper implementation spawns a global task listening to the RX and calling notify.
-                    Ok(())
-                })
+                let mut rx = read_notify_tx.subscribe();
+                async move {
+                    tokio::spawn(async move {
+                        info!("ble.notify.subscribed");
+                        loop {
+                            match rx.recv().await {
+                                Ok(value) => {
+                                    if let Err(err) = notifier.notify(value).await {
+                                        warn!(error = %err, "ble.notify.failed");
+                                        break;
+                                    }
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                                    warn!(skipped, "ble.notify.lagged");
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            }
+                        }
+                        info!("ble.notify.closed");
+                    });
+                }
+                .boxed()
             })),
             ..Default::default()
         }),
@@ -141,30 +165,116 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    // Spawn notifier task outside to avoid closure move issues
-    // bluer's Fun notifier waits for us to call notifier.notify(data).
-    // We will just let the read_char_def handle subscriptions, but actually we need the `notifier` sink to push data.
-    // Since `bluer` provides a stream/sink model, we can redesign it.
-    
-    // In fact, bluer handles notifications through a separate method, we will just use the standard IO flow in a real deployment.
-    
-    let mut adv = Advertisement {
-        advertisement_type: bluer::adv::Type::Peripheral,
-        discoverable: Some(true),
-        local_name: Some("Yundrone_UAV".to_string()),
-        services: vec![service_uuid].into_iter().collect(),
-        ..Default::default()
-    };
+    info!(
+        adapter_name = %adapter_name,
+        active_instances = ?advertising_capabilities.active_instances,
+        supported_instances = ?advertising_capabilities.supported_instances,
+        max_advertisement_length = ?advertising_capabilities.max_advertisement_length,
+        max_scan_response_length = ?advertising_capabilities.max_scan_response_length,
+        max_tx_power = ?advertising_capabilities.max_tx_power,
+        can_set_tx_power = advertising_capabilities.can_set_tx_power,
+        secondary_channels = ?advertising_capabilities.secondary_channels,
+        platform_features = ?advertising_capabilities.platform_features,
+        "ble.advertising.capabilities"
+    );
+    warn!(
+        adapter_name = %adapter_name,
+        advertised_name = %advertised_name,
+        payload_hint = %server::advertising::payload_risk_hint(
+            &advertised_name,
+            &advertising_capabilities
+        ),
+        "ble.advertising.payload_risk"
+    );
+    warn!(
+        adapter_name = %adapter_name,
+        "ble.advertising.interval_unverified"
+    );
 
-    let _adv_handle = adapter.advertise(adv).await?;
-    info!("BLE Advertising started. Server is discoverable.");
+    let fast_config = server::advertising::applied_config(
+        &advertising_policy,
+        server::advertising::AdvertisingPhase::FastStart,
+        &advertising_capabilities,
+    );
+    let mut adv_handle =
+        server::advertising::advertise_phase(&adapter, &advertised_name, service_uuid, fast_config)
+            .await?;
+    info!(
+        adapter_name = %adapter_name,
+        advertised_name = %advertised_name,
+        phase = server::advertising::phase_name(fast_config.phase),
+        fast_duration_secs = advertising_policy.fast_duration.as_secs(),
+        "ble.advertising.fast_start"
+    );
+    info!(
+        adapter_name = %adapter_name,
+        advertised_name = %advertised_name,
+        phase = server::advertising::phase_name(fast_config.phase),
+        min_interval = %server::advertising::interval_ms_text(fast_config.interval.min),
+        max_interval = %server::advertising::interval_ms_text(fast_config.interval.max),
+        tx_power = ?fast_config.tx_power,
+        "ble.advertising.ready"
+    );
+    info!(
+        adapter_name = %adapter_name,
+        advertised_name = %advertised_name,
+        phase = server::advertising::phase_name(fast_config.phase),
+        min_interval = %server::advertising::interval_ms_text(fast_config.interval.min),
+        max_interval = %server::advertising::interval_ms_text(fast_config.interval.max),
+        tx_power = ?fast_config.tx_power,
+        "ble.advertising.config_applied"
+    );
 
     let _app_handle = adapter.serve_gatt_application(app).await?;
-    info!("GATT Application served. Awaiting connections...");
+    info!(
+        adapter_name = %adapter_name,
+        service_uuid = %service_uuid,
+        write_uuid = %write_uuid,
+        read_uuid = %read_uuid,
+        "ble.gatt.ready"
+    );
 
-    // Keep server running
-    tokio::signal::ctrl_c().await?;
-    info!("Shutting down Server...");
+    let reset_delay = tokio::time::sleep(advertising_policy.fast_duration);
+    tokio::pin!(reset_delay);
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = &mut reset_delay => {
+            drop(adv_handle);
+            let steady_config = server::advertising::applied_config(
+                &advertising_policy,
+                server::advertising::AdvertisingPhase::Steady,
+                &advertising_capabilities,
+            );
+            adv_handle = server::advertising::advertise_phase(
+                &adapter,
+                &advertised_name,
+                service_uuid,
+                steady_config,
+            ).await?;
+            info!(
+                adapter_name = %adapter_name,
+                advertised_name = %advertised_name,
+                phase = server::advertising::phase_name(steady_config.phase),
+                min_interval = %server::advertising::interval_ms_text(steady_config.interval.min),
+                max_interval = %server::advertising::interval_ms_text(steady_config.interval.max),
+                tx_power = ?steady_config.tx_power,
+                "ble.advertising.reset_to_steady"
+            );
+            info!(
+                adapter_name = %adapter_name,
+                advertised_name = %advertised_name,
+                phase = server::advertising::phase_name(steady_config.phase),
+                min_interval = %server::advertising::interval_ms_text(steady_config.interval.min),
+                max_interval = %server::advertising::interval_ms_text(steady_config.interval.max),
+                tx_power = ?steady_config.tx_power,
+                "ble.advertising.config_applied"
+            );
+            tokio::signal::ctrl_c().await?;
+        }
+    }
+
+    drop(adv_handle);
+    info!(adapter_name = %adapter_name, "ble.server.stopping");
 
     Ok(())
 }

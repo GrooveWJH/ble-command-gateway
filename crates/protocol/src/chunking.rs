@@ -1,4 +1,4 @@
-use crate::{CommandResponse, ProtocolError, config::MAX_BLE_PAYLOAD_BYTES, ChunkMeta};
+use crate::{config::MAX_BLE_PAYLOAD_BYTES, ChunkMeta, CommandResponse, ProtocolError};
 use std::collections::HashMap;
 
 /// Helper to accumulate chunked CommandResponses.
@@ -23,7 +23,10 @@ impl ChunkAssembler {
     }
 
     /// Process an incoming response. If it completes a chunked message, returns the reassembled response.
-    pub fn add_chunk(&mut self, mut resp: CommandResponse) -> Result<Option<CommandResponse>, ProtocolError> {
+    pub fn add_chunk(
+        &mut self,
+        mut resp: CommandResponse,
+    ) -> Result<Option<CommandResponse>, ProtocolError> {
         let chunk_meta = if let Some(ref mut data) = resp.data {
             if let Some(chunk_val) = data.remove("chunk") {
                 serde_json::from_value::<ChunkMeta>(chunk_val).ok()
@@ -36,14 +39,17 @@ impl ChunkAssembler {
 
         if let Some(meta) = chunk_meta {
             // It's a chunked message
-            let state = self.sessions.entry(resp.id.clone()).or_insert_with(|| SessionState {
-                total: meta.total,
-                received: 0,
-                text_parts: vec![String::new(); meta.total],
-                final_data: None,
-                original_code: resp.code.clone(),
-                original_ok: resp.ok,
-            });
+            let state = self
+                .sessions
+                .entry(resp.id.clone())
+                .or_insert_with(|| SessionState {
+                    total: meta.total,
+                    received: 0,
+                    text_parts: vec![String::new(); meta.total],
+                    final_data: None,
+                    original_code: resp.code.clone(),
+                    original_ok: resp.ok,
+                });
 
             if meta.index > 0 && meta.index <= meta.total {
                 if state.text_parts[meta.index - 1].is_empty() && !resp.text.is_empty() {
@@ -60,10 +66,11 @@ impl ChunkAssembler {
             }
 
             // Check if complete
-            if state.received == state.total || (meta.index == meta.total && meta.total == 1) { // total == 1 can happen if it was forced to pack chunk meta
+            if state.received == state.total || (meta.index == meta.total && meta.total == 1) {
+                // total == 1 can happen if it was forced to pack chunk meta
                 let completed = self.sessions.remove(&resp.id).unwrap();
                 let full_text = completed.text_parts.join("");
-                
+
                 return Ok(Some(CommandResponse {
                     id: resp.id,
                     ok: completed.original_ok,
@@ -89,16 +96,17 @@ pub fn chunk_response(resp: CommandResponse) -> Vec<CommandResponse> {
         return vec![resp];
     }
 
-    // Simplistic chunking: we just split the text evenly. 
+    // Simplistic chunking: we just split the text evenly.
     // In production, we'd do a binary search to perfectly fit the JSON structure, but a static chunk size of ~200 characters is safe for 360 bytes MTU.
     let text = resp.text;
-    let chunk_size = 150; 
-    let mut parts: Vec<String> = text.chars()
+    let chunk_size = 150;
+    let mut parts: Vec<String> = text
+        .chars()
         .collect::<Vec<_>>()
         .chunks(chunk_size)
         .map(|c| c.iter().collect())
         .collect();
-    
+
     if parts.is_empty() {
         parts.push(String::new());
     }
@@ -114,10 +122,13 @@ pub fn chunk_response(resp: CommandResponse) -> Vec<CommandResponse> {
             serde_json::Map::new()
         };
 
-        chunk_data.insert("chunk".to_string(), serde_json::json!({
-            "index": index,
-            "total": total
-        }));
+        chunk_data.insert(
+            "chunk".to_string(),
+            serde_json::json!({
+                "index": index,
+                "total": total
+            }),
+        );
 
         results.push(CommandResponse {
             id: resp.id.clone(),

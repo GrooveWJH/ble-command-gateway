@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod chunking;
+pub mod requests;
+pub mod responses;
 
 pub const PROTOCOL_VERSION: &str = "YundroneBT-V1.0.0";
 
@@ -29,13 +31,10 @@ pub mod commands {
     pub const CMD_WIFI_SCAN: &str = "wifi.scan";
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandRequest {
     pub id: String,
-    pub cmd: String,
-    #[serde(default = "default_args")]
-    pub args: serde_json::Map<String, Value>,
-    #[serde(default = "default_version")]
+    pub payload: requests::CommandPayload,
     pub v: String,
 }
 
@@ -48,11 +47,10 @@ fn default_version() -> String {
 }
 
 impl CommandRequest {
-    pub fn new(id: impl Into<String>, cmd: impl Into<String>, args: Option<serde_json::Map<String, Value>>) -> Self {
+    pub fn new(id: impl Into<String>, payload: requests::CommandPayload) -> Self {
         Self {
             id: id.into(),
-            cmd: cmd.into(),
-            args: args.unwrap_or_default(),
+            payload,
             v: default_version(),
         }
     }
@@ -71,7 +69,11 @@ pub struct CommandResponse {
 }
 
 impl CommandResponse {
-    pub fn ok(id: impl Into<String>, text: impl Into<String>, data: Option<serde_json::Map<String, Value>>) -> Self {
+    pub fn ok(
+        id: impl Into<String>,
+        text: impl Into<String>,
+        data: Option<serde_json::Map<String, Value>>,
+    ) -> Self {
         Self {
             id: id.into(),
             ok: true,
@@ -93,13 +95,19 @@ impl CommandResponse {
         }
     }
 
-    pub fn status(id: impl Into<String>, code: impl Into<String>, text: impl Into<String>, final_flag: bool, data: Option<serde_json::Map<String, Value>>) -> Self {
+    pub fn status(
+        id: impl Into<String>,
+        code: impl Into<String>,
+        text: impl Into<String>,
+        final_flag: bool,
+        data: Option<serde_json::Map<String, Value>>,
+    ) -> Self {
         let code_str = code.into();
         let is_ok = code_str != codes::CODE_PROVISION_FAIL;
-        
+
         let mut body = data.unwrap_or_default();
         body.insert("final".to_string(), Value::Bool(final_flag));
-        
+
         Self {
             id: id.into(),
             ok: is_ok,
@@ -108,6 +116,14 @@ impl CommandResponse {
             data: Some(body),
             v: default_version(),
         }
+    }
+
+    pub fn decode_data<T: serde::de::DeserializeOwned>(&self) -> Result<T, ProtocolError> {
+        let data = self
+            .data
+            .as_ref()
+            .ok_or_else(|| ProtocolError::BadRequest("response data is missing".to_string()))?;
+        responses::from_map(data)
     }
 }
 
@@ -120,11 +136,23 @@ pub enum ProtocolError {
 }
 
 pub fn parse_request(raw: &[u8]) -> Result<CommandRequest, ProtocolError> {
-    serde_json::from_slice(raw).map_err(|e| ProtocolError::BadJson(e.to_string()))
+    let wire: WireCommandRequest =
+        serde_json::from_slice(raw).map_err(|e| ProtocolError::BadJson(e.to_string()))?;
+    Ok(CommandRequest {
+        id: wire.id,
+        payload: requests::CommandPayload::from_wire(&wire.cmd, wire.args)?,
+        v: wire.v,
+    })
 }
 
 pub fn encode_request(req: &CommandRequest) -> Result<Vec<u8>, ProtocolError> {
-    serde_json::to_vec(req).map_err(|e| ProtocolError::BadJson(e.to_string()))
+    let wire = WireCommandRequest {
+        id: req.id.clone(),
+        cmd: req.payload.command_name().to_string(),
+        args: req.payload.to_args_map(),
+        v: req.v.clone(),
+    };
+    serde_json::to_vec(&wire).map_err(|e| ProtocolError::BadJson(e.to_string()))
 }
 
 pub fn parse_response(raw: &[u8]) -> Result<CommandResponse, ProtocolError> {
@@ -146,3 +174,15 @@ pub struct ChunkMeta {
     pub total: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct WireCommandRequest {
+    id: String,
+    cmd: String,
+    #[serde(default = "default_args")]
+    args: serde_json::Map<String, Value>,
+    #[serde(default = "default_version")]
+    v: String,
+}
+
+#[cfg(test)]
+mod tests;

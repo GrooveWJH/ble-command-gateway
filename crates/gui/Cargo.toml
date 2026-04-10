@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 client = { path = "../client" }
 protocol = { path = "../protocol" }
+platform_runtime = { path = "../platform_runtime" }
 tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread"] }
 eframe = "0.29"
 egui = "0.29"
@@ -13,3 +14,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
+futures = "0.3"
