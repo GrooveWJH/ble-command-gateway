@@ -1,0 +1,6 @@
+{
+  "max_lines": 300,
+  "include_exts": ["rs", "md", "sh", "toml", "json"],
+  "exclude_dirs": ["target"],
+  "exclude_files": ["Cargo.lock"]
+}

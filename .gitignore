@@ -22,3 +22,6 @@ target/
 *.swp
 *.swo
 
+# Local investigation outputs
+reports/local/
+reports/local/ble-interval-investigation/

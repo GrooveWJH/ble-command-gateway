@@ -5,7 +5,7 @@ set -euo pipefail
 # - Uses .gitignore rules automatically when .gitignore exists.
 # - Always excludes .git metadata and local target/ compilation folders.
 
-TARGET_DEFAULT="orin-Mocap5G:/opt/ble-command-gateway/"
+TARGET_DEFAULT="orin-Yundrone:/opt/ble-command-gateway/"
 # TARGET_DEFAULT="orangepi:~/work/ble-command-gateway/"
 TARGET="${1:-$TARGET_DEFAULT}"
 REMOTE_SUDO="${RSYNC_REMOTE_SUDO:-0}"
@@ -19,7 +19,6 @@ RSYNC_OPTS=(
   --human-readable
   --exclude=.git/
   --filter='- target/'
-  --filter='- Cargo.lock'
 )
 
 if [[ "$REMOTE_SUDO" == "1" ]]; then
