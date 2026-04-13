@@ -3,13 +3,24 @@ use std::sync::mpsc::{Receiver, Sender};
 use crate::ble_worker::BtleCommand;
 use crate::i18n::Lang;
 
+mod action_ui;
+mod diagnostic_panel;
+mod logs_panel;
 pub(crate) mod model;
 mod panels;
+mod provision_panel;
 pub(crate) mod reducer;
 
 #[cfg(test)]
+mod action_tests;
+#[cfg(test)]
+mod heartbeat_tests;
+#[cfg(test)]
+mod provision_tests;
+#[cfg(test)]
 mod tests;
 
+use model::ActionSlot;
 use model::{AppModel, UiEvent};
 
 pub struct GatewayApp {
@@ -33,8 +44,28 @@ impl GatewayApp {
         }
     }
 
-    fn send_command(&self, payload: protocol::requests::CommandPayload) {
-        let _ = self.tokio_tx.send(BtleCommand::SendCommand { payload });
+    fn send_command(&self, slot: ActionSlot, payload: protocol::requests::CommandPayload) {
+        let _ = self
+            .tokio_tx
+            .send(BtleCommand::SendCommand { slot, payload });
+    }
+
+    fn send_raw_payload(&self, payload: String) {
+        let _ = self.tokio_tx.send(BtleCommand::SendRaw {
+            slot: ActionSlot::RawSend,
+            payload,
+        });
+    }
+
+    fn record_local_success(&mut self, slot: ActionSlot, detail: Option<String>) {
+        reducer::reduce(
+            &mut self.model,
+            UiEvent::ActionSucceeded {
+                slot,
+                request_id: None,
+                detail,
+            },
+        );
     }
 
     fn toggle_lang(&mut self) {

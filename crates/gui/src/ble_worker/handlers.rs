@@ -1,74 +1,118 @@
-use anyhow::Result;
-use client::{prepare_request, BleClient, ScanProgressEvent};
+use client::prepare_request;
 use std::sync::mpsc::Sender;
 use tracing::info;
 
-use super::WorkerState;
-use crate::app::model::{CommandResultSummary, UiEvent};
-
-pub(super) async fn handle_scan_candidates(
-    ui_tx: &Sender<UiEvent>,
-    state: &mut WorkerState,
-    prefix: String,
-    timeout_secs: u64,
-) {
-    emit(ui_tx, UiEvent::ScanStarted);
-    emit(ui_tx, UiEvent::Log(scan_started_log(&prefix)));
-
-    match BleClient::new().await {
-        Ok(client) => {
-            let mut named_device_count = 0usize;
-
-            match client
-                .scan_candidates_with_progress(&prefix, timeout_secs, |event| {
-                    named_device_count += 1;
-                    emit(ui_tx, UiEvent::Log(scan_progress_log(&event)));
-                })
-                .await
-            {
-                Ok(devices) => {
-                    let infos = devices
-                        .iter()
-                        .map(|device| device.info.clone())
-                        .collect::<Vec<_>>();
-                    state.store_scan_results(client, devices);
-                    emit(
-                        ui_tx,
-                        UiEvent::Log(scan_completed_log(named_device_count, infos.len())),
-                    );
-                    emit(ui_tx, UiEvent::ScanResults(infos));
-                }
-                Err(err) => emit(ui_tx, UiEvent::Error(err.to_string())),
-            }
-        }
-        Err(err) => emit(ui_tx, UiEvent::Error(err.to_string())),
-    }
-}
+use super::events::{
+    command_response_events, command_sent_log, connect_started_log, disconnect_success_detail,
+    handshake_completed_log, manual_disconnect_log, request_success_detail,
+};
+use super::state::WorkerState;
+use crate::app::model::{ActionSlot, DisconnectReason, UiEvent};
 
 pub(super) async fn handle_connect_to_candidate(
     ui_tx: &Sender<UiEvent>,
     state: &mut WorkerState,
     name: String,
 ) {
+    emit(
+        ui_tx,
+        UiEvent::ActionStarted {
+            slot: ActionSlot::Connect,
+            request_id: None,
+        },
+    );
     let (client, device) = match state.take_connection_target(&name) {
         Ok(target) => target,
         Err(err) => {
+            emit(
+                ui_tx,
+                UiEvent::ActionFailed {
+                    slot: ActionSlot::Connect,
+                    request_id: None,
+                    error: err.clone(),
+                },
+            );
             emit(ui_tx, UiEvent::Error(err));
             return;
         }
     };
 
+    emit(ui_tx, UiEvent::ConnectingToCandidate(name.clone()));
     emit(ui_tx, UiEvent::Log(connect_started_log(&device.info.name)));
 
     match client.connect_session(device).await {
         Ok(session) => {
+            let connected_name = session.device_name().to_string();
             state.activate_session(session);
             emit(ui_tx, UiEvent::ConnectedDeviceSelected(name));
+            emit(
+                ui_tx,
+                UiEvent::ActionSucceeded {
+                    slot: ActionSlot::Connect,
+                    request_id: None,
+                    detail: Some(connected_name),
+                },
+            );
             emit(ui_tx, UiEvent::Log(handshake_completed_log()));
         }
         Err(err) => {
-            state.restore_client(client);
-            emit(ui_tx, UiEvent::Error(format!("Connect failed: {}", err)));
+            state.reset_to_idle();
+            emit(
+                ui_tx,
+                UiEvent::ActionFailed {
+                    slot: ActionSlot::Connect,
+                    request_id: None,
+                    error: format!("Connect failed: {}", err),
+                },
+            );
+            emit(
+                ui_tx,
+                UiEvent::ConnectionFailed(format!("Connect failed: {}", err)),
+            );
+        }
+    }
+}
+
+pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut WorkerState) {
+    let Some(session) = state.take_active_session() else {
+        return;
+    };
+    emit(
+        ui_tx,
+        UiEvent::ActionStarted {
+            slot: ActionSlot::Disconnect,
+            request_id: None,
+        },
+    );
+    let device_name = session.device_name().to_string();
+    let disconnect_result = session.disconnect().await;
+    state.reset_to_idle();
+    emit(
+        ui_tx,
+        UiEvent::Disconnected {
+            reason: DisconnectReason::Manual,
+        },
+    );
+    emit(ui_tx, UiEvent::Log(manual_disconnect_log(&device_name)));
+    match disconnect_result {
+        Ok(_) => emit(
+            ui_tx,
+            UiEvent::ActionSucceeded {
+                slot: ActionSlot::Disconnect,
+                request_id: None,
+                detail: disconnect_success_detail(&device_name),
+            },
+        ),
+        Err(err) => {
+            emit(
+                ui_tx,
+                UiEvent::ActionFailed {
+                    slot: ActionSlot::Disconnect,
+                    request_id: None,
+                    error: format!("Disconnect fail: {}", err),
+                },
+            );
+            emit(ui_tx, UiEvent::Error(format!("Disconnect fail: {}", err)));
         }
     }
 }
@@ -76,9 +120,18 @@ pub(super) async fn handle_connect_to_candidate(
 pub(super) async fn handle_send_command(
     ui_tx: &Sender<UiEvent>,
     state: &mut WorkerState,
+    slot: ActionSlot,
     payload: protocol::requests::CommandPayload,
 ) {
     let Some(session) = state.active_session_mut() else {
+        emit(
+            ui_tx,
+            UiEvent::ActionFailed {
+                slot,
+                request_id: None,
+                error: "Not connected".to_string(),
+            },
+        );
         emit(ui_tx, UiEvent::Error("Not connected".to_string()));
         return;
     };
@@ -86,6 +139,14 @@ pub(super) async fn handle_send_command(
     let request = match prepare_request(payload) {
         Ok(request) => request,
         Err(err) => {
+            emit(
+                ui_tx,
+                UiEvent::ActionFailed {
+                    slot,
+                    request_id: None,
+                    error: format!("Encode fail: {}", err),
+                },
+            );
             emit(ui_tx, UiEvent::Error(format!("Encode fail: {}", err)));
             return;
         }
@@ -94,10 +155,25 @@ pub(super) async fn handle_send_command(
     let command_name = request.request.payload.command_name();
     emit(
         ui_tx,
+        UiEvent::ActionStarted {
+            slot,
+            request_id: Some(request.request.id.clone()),
+        },
+    );
+    emit(
+        ui_tx,
         UiEvent::Log(command_sent_log(command_name, &request.request.id)),
     );
 
     if let Err(err) = session.send_request(&request).await {
+        emit(
+            ui_tx,
+            UiEvent::ActionFailed {
+                slot,
+                request_id: Some(request.request.id.clone()),
+                error: format!("Write fail: {}", err),
+            },
+        );
         emit(ui_tx, UiEvent::Error(format!("Write fail: {}", err)));
         return;
     }
@@ -117,102 +193,66 @@ pub(super) async fn handle_send_command(
                     for event in events {
                         emit(ui_tx, event);
                     }
+                    if response.ok {
+                        match request_success_detail(slot, &request.request.payload, &response) {
+                            Ok(detail) => emit(
+                                ui_tx,
+                                UiEvent::ActionSucceeded {
+                                    slot,
+                                    request_id: Some(request.request.id.clone()),
+                                    detail,
+                                },
+                            ),
+                            Err(err) => {
+                                emit(
+                                    ui_tx,
+                                    UiEvent::ActionFailed {
+                                        slot,
+                                        request_id: Some(request.request.id.clone()),
+                                        error: err.to_string(),
+                                    },
+                                );
+                                emit(ui_tx, UiEvent::Error(err.to_string()));
+                            }
+                        }
+                    } else {
+                        emit(
+                            ui_tx,
+                            UiEvent::ActionFailed {
+                                slot,
+                                request_id: Some(request.request.id.clone()),
+                                error: response.text.clone(),
+                            },
+                        );
+                    }
                 }
-                Err(err) => emit(ui_tx, UiEvent::Error(err.to_string())),
+                Err(err) => {
+                    emit(
+                        ui_tx,
+                        UiEvent::ActionFailed {
+                            slot,
+                            request_id: Some(request.request.id.clone()),
+                            error: err.to_string(),
+                        },
+                    );
+                    emit(ui_tx, UiEvent::Error(err.to_string()));
+                }
             }
         }
-        Err(err) => emit(ui_tx, UiEvent::Error(format!("Read fail: {}", err))),
+        Err(err) => {
+            emit(
+                ui_tx,
+                UiEvent::ActionFailed {
+                    slot,
+                    request_id: Some(request.request.id.clone()),
+                    error: format!("Read fail: {}", err),
+                },
+            );
+            emit(ui_tx, UiEvent::Error(format!("Read fail: {}", err)));
+        }
     }
 }
 
-pub(super) async fn handle_send_raw(
-    ui_tx: &Sender<UiEvent>,
-    state: &mut WorkerState,
-    payload: String,
-) {
-    let Some(session) = state.active_session() else {
-        emit(ui_tx, UiEvent::Error("Not connected".to_string()));
-        return;
-    };
-
-    info!(
-        device_name = %session.device_name(),
-        rssi = ?session.device_rssi(),
-        payload_bytes = payload.len(),
-        "gui.raw_payload.sent"
-    );
-    emit(ui_tx, UiEvent::Log(raw_payload_log(&payload)));
-
-    if let Err(err) = session.send_payload(payload.as_bytes()).await {
-        emit(ui_tx, UiEvent::Error(format!("Write fail: {}", err)));
-    }
-}
-
-pub(super) fn command_response_events(
-    payload: &protocol::requests::CommandPayload,
-    response: &protocol::CommandResponse,
-) -> Result<Vec<UiEvent>> {
-    let mut events = Vec::new();
-
-    if matches!(payload, protocol::requests::CommandPayload::WifiScan { .. }) {
-        let data: protocol::responses::WifiScanResponseData = response.decode_data()?;
-        events.push(UiEvent::WifiScanLoaded(data.networks));
-    }
-
-    events.push(UiEvent::CommandCompleted(CommandResultSummary {
-        request_id: response.id.clone(),
-        code: response.code.clone(),
-        text: response.text.clone(),
-        ok: response.ok,
-    }));
-    events.push(UiEvent::Log(response_log_line(response)));
-
-    Ok(events)
-}
-
-pub(super) fn scan_started_log(prefix: &str) -> String {
-    format!("[SYS] Scanning for '{}'...", prefix)
-}
-
-pub(super) fn scan_progress_log(event: &ScanProgressEvent) -> String {
-    let signal = event
-        .rssi
-        .map(|value| format!("{value} dBm"))
-        .unwrap_or_else(|| "RSSI unknown".to_string());
-    let prefix = if event.matches_prefix {
-        "[SCAN][MATCH]"
-    } else {
-        "[SCAN]"
-    };
-    format!("{prefix} {} ({signal})", event.device_name)
-}
-
-pub(super) fn scan_completed_log(named_device_count: usize, candidate_count: usize) -> String {
-    format!(
-        "[SYS] Found {named_device_count} named device(s); {candidate_count} candidate device(s) match the prefix."
-    )
-}
-
-pub(super) fn connect_started_log(device_name: &str) -> String {
-    format!("[SYS] Connecting to {}...", device_name)
-}
-
-pub(super) fn handshake_completed_log() -> String {
-    "[SYS] Handshake complete. MTU synced.".to_string()
-}
-
-pub(super) fn command_sent_log(command_name: &str, request_id: &str) -> String {
-    format!(">> TX CMD: {} ({})", command_name, request_id)
-}
-
-pub(super) fn response_log_line(response: &protocol::CommandResponse) -> String {
-    format!("<< RX {} {}: {}", response.id, response.code, response.text)
-}
-
-pub(super) fn raw_payload_log(payload: &str) -> String {
-    format!(">> TX RAW: {}", payload)
-}
-
-fn emit(ui_tx: &Sender<UiEvent>, event: UiEvent) {
+pub(super) fn emit(ui_tx: &Sender<UiEvent>, event: UiEvent) {
     let _ = ui_tx.send(event);
 }

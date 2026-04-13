@@ -1866,6 +1866,7 @@ name = "gui"
 version = "2026.3.22"
 dependencies = [
  "anyhow",
+ "chrono",
  "client",
  "eframe",
  "egui",
