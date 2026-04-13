@@ -16,35 +16,223 @@ This project allows you to send Wi-Fi credentials and retrieve system status ove
 - **Multi-Device Friendly Naming**: The server advertises a dynamic device name in the form `Yundrone_UAV-HH-MM-ABCD`, so multiple devices booting at the same time remain distinguishable.
 - **Memory Safety**: Built with Rust and `tokio` to ensure safe, concurrent handling of Bluetooth I/O and UI rendering.
 
-## Quick Start
+## Installation And Deployment
 
-### Prerequisites
-- Rust toolchain (`cargo`, `rustup`)
-- A supported Bluetooth adapter
-- Linux environment for the server daemon
+This project has two roles:
 
-### 1. Run the GUI Client (Mac/Win/Linux)
-Starts a graphical interface for scanning devices, provisioning Wi-Fi, and viewing logs.
+- `server`: runs on the target Linux device and advertises itself over BLE
+- `client` / `gui`: runs on your laptop or workstation and connects to the server
+
+The safest order is:
+
+1. Install the Rust toolchain
+2. Build and deploy the Linux `server`
+3. Build and run either the `client` CLI or the `gui`
+
+### 1. Install the Rust toolchain
+
+#### macOS
+
+Install Apple's command-line developer tools first:
+
+```bash
+xcode-select --install
+```
+
+Then install Rust:
+
+```bash
+curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+source "$HOME/.cargo/env"
+rustup default stable
+rustup component add rustfmt clippy
+rustc --version
+cargo --version
+```
+
+#### Ubuntu / Debian
+
+Install native build dependencies first:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential pkg-config libdbus-1-dev libudev-dev
+```
+
+Then install Rust:
+
+```bash
+curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+source "$HOME/.cargo/env"
+rustup default stable
+rustup component add rustfmt clippy
+rustc --version
+cargo --version
+```
+
+#### Windows
+
+Install Visual Studio Build Tools with the C++ toolchain first, then install Rust:
+
+```powershell
+winget install Rustlang.Rustup
+rustup default stable-x86_64-pc-windows-msvc
+rustup component add rustfmt clippy
+rustc --version
+cargo --version
+```
+
+### 2. Clone the repository
+
+```bash
+git clone https://github.com/GrooveWJH/ble-command-gateway.git
+cd ble-command-gateway
+```
+
+### 3. Deploy the Linux server
+
+The `server` crate is Linux-only. It is intended for the headless device that will receive Wi-Fi credentials and status commands over BLE.
+
+#### 3.1 Install Linux runtime dependencies on the target device
+
+At minimum, the target device needs:
+
+- BlueZ / `bluetoothd`
+- `NetworkManager` and `nmcli`
+- `pkg-config` and `libdbus-1-dev` if you build on-device
+
+Example on Ubuntu-based devices:
+
+```bash
+sudo apt update
+sudo apt install -y bluetooth bluez network-manager pkg-config libdbus-1-dev
+```
+
+#### 3.2 Build the server
+
+If you build directly on the target device:
+
+```bash
+source "$HOME/.cargo/env"
+cargo build --release -p server
+```
+
+The resulting binary will be:
+
+```text
+target/release/server
+```
+
+#### 3.3 Test the server manually before systemd
+
+```bash
+sudo ./target/release/server
+```
+
+When startup succeeds, the log should include:
+
+- `ble.server.starting`
+- `ble.advertising.ready`
+- `ble.gatt.ready`
+
+The log also prints the real advertised BLE name, for example:
+
+```text
+Yundrone_UAV-15-19-A7F2
+```
+
+#### 3.4 Install the systemd service
+
+The repository ships a ready-to-edit unit file:
+
+```text
+deploy/systemd/ble-command-gateway.service
+```
+
+Typical install flow:
+
+```bash
+sudo cp deploy/systemd/ble-command-gateway.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ble-command-gateway.service
+```
+
+Check service status and logs:
+
+```bash
+sudo systemctl status ble-command-gateway.service --no-pager
+sudo journalctl -u ble-command-gateway.service -f
+```
+
+For a full walkthrough, see [docs/systemd.md](./docs/systemd.md).
+
+### 4. Install and run the client
+
+The project provides two client-side entrypoints:
+
+- `gui`: graphical desktop app for scanning, provisioning, diagnostics, and logs
+- `client`: interactive CLI for terminal-driven workflows
+
+You can build both with:
+
+```bash
+cargo build --release -p gui -p client
+```
+
+#### 4.1 Run the GUI
+
+Development run:
+
 ```bash
 cargo run -p gui
 ```
-Enter the stable prefix `Yundrone_UAV`, scan, then choose the exact advertised instance from the candidate list.
-On macOS, the GUI runtime will relaunch itself through a signed `.app` wrapper so Bluetooth permissions are handled by a proper app bundle.
 
-### 2. Run the Command-Line Client
-Starts an interactive terminal UI for headless control.
-```bash
-cargo run -p client -- --lang en 
-```
-The CLI scans by prefix, prints all matching BLE instances with RSSI, and prompts you to select the exact target when more than one match is found.
-On macOS, the CLI now goes through the same shared runtime compatibility layer before touching CoreBluetooth.
+Release run:
 
-### 3. Build the Server Daemon (Linux Only)
-Builds the BLE peripheral server that listens for incoming commands.
 ```bash
-cargo build --release -p server
+./target/release/gui
 ```
-For instructions on registering the server as a system service, see [docs/systemd.md](./docs/systemd.md).
+
+Usage flow:
+
+1. Enter the stable prefix `Yundrone_UAV`
+2. Click scan
+3. Select the exact BLE instance from the candidate list
+4. Use the provisioning and diagnostic panels after the connection is established
+
+On macOS, the GUI will relaunch itself through a signed `.app` wrapper so Bluetooth permissions are requested through a proper app bundle.
+
+#### 4.2 Run the CLI
+
+Development run:
+
+```bash
+cargo run -p client -- --lang en
+```
+
+Release run:
+
+```bash
+./target/release/client --lang en
+```
+
+The CLI scans by prefix, lists every matching BLE instance with RSSI, and lets you choose the exact device before connecting.
+
+On macOS, the CLI uses the same shared runtime compatibility layer before touching CoreBluetooth.
+
+### 5. Recommended verification after deployment
+
+After both sides are installed:
+
+1. Start the Linux `server`
+2. Open the `gui` or `client`
+3. Scan with the prefix `Yundrone_UAV`
+4. Confirm you can see the full advertised instance name
+5. Connect and run:
+   - Wi-Fi scan
+   - status
+   - ping
+6. Confirm the server log prints matching `request_id` and response events
 
 ## Project Structure
 
