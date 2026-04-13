@@ -193,6 +193,16 @@ cargo run -p gui
 ./target/release/gui
 ```
 
+打包成可在 Finder 中双击启动的 macOS `.app`：
+
+```bash
+chmod +x scripts/package-macos-gui.sh
+./scripts/package-macos-gui.sh
+open "target/release/YunDrone BLE Gateway.app"
+```
+
+这个命令会先构建 release 版 GUI，再生成正式的 `.app` 包目录，拷贝项目里的 `Info.plist`，并做一次 ad-hoc 签名，让 Finder 可以把它当成普通 macOS 应用启动。
+
 使用流程：
 
 1. 输入稳定前缀 `Yundrone_UAV`

@@ -193,6 +193,16 @@ Release run:
 ./target/release/gui
 ```
 
+Package a double-clickable macOS app bundle:
+
+```bash
+chmod +x scripts/package-macos-gui.sh
+./scripts/package-macos-gui.sh
+open "target/release/YunDrone BLE Gateway.app"
+```
+
+This command builds the release GUI binary, stages a proper `.app` bundle, copies the project `Info.plist`, and applies an ad-hoc signature so Finder can launch it as a normal macOS app.
+
 Usage flow:
 
 1. Enter the stable prefix `Yundrone_UAV`
