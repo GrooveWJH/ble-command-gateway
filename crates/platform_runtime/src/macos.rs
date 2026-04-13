@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Context, Result};
+#[cfg(target_os = "macos")]
 use std::ffi::OsStr;
+#[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +152,7 @@ fn sign_app_bundle(bundle_root: &Path) -> Result<()> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn run_relaunch_command(command: RelaunchCommand) -> Result<()> {
     let status = Command::new(&command.program)
         .args(&command.args)
