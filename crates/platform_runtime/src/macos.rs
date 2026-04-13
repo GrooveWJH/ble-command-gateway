@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Context, Result};
+#[cfg(any(target_os = "macos", test))]
+use anyhow::{anyhow, Context};
+use anyhow::Result;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
 #[cfg(target_os = "macos")]
@@ -77,6 +79,7 @@ fn prepare_runtime(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn build_relaunch_command(
     mode: RuntimeMode,
     bundle_root: &str,
