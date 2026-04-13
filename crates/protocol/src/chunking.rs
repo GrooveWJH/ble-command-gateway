@@ -1,20 +1,28 @@
 use crate::{config::MAX_BLE_PAYLOAD_BYTES, ChunkMeta, CommandResponse, ProtocolError};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Helper to accumulate chunked CommandResponses.
 #[derive(Default)]
 pub struct ChunkAssembler {
-    // Maps request_id -> (total_chunks, collected_text, final_data)
     sessions: HashMap<String, SessionState>,
 }
 
 struct SessionState {
     total: usize,
     received: usize,
-    text_parts: Vec<String>,
-    final_data: Option<serde_json::Map<String, serde_json::Value>>,
-    original_code: String,
-    original_ok: bool,
+    parts: Vec<String>,
+    legacy_final_data: Option<serde_json::Map<String, serde_json::Value>>,
+    legacy_original_code: String,
+    legacy_original_ok: bool,
+    response_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ResponseJsonChunkMeta {
+    mode: String,
+    index: usize,
+    total: usize,
+    payload: String,
 }
 
 impl ChunkAssembler {
@@ -22,123 +30,223 @@ impl ChunkAssembler {
         Self::default()
     }
 
-    /// Process an incoming response. If it completes a chunked message, returns the reassembled response.
     pub fn add_chunk(
         &mut self,
         mut resp: CommandResponse,
     ) -> Result<Option<CommandResponse>, ProtocolError> {
-        let chunk_meta = if let Some(ref mut data) = resp.data {
-            if let Some(chunk_val) = data.remove("chunk") {
-                serde_json::from_value::<ChunkMeta>(chunk_val).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some(meta) = chunk_meta {
-            // It's a chunked message
-            let state = self
-                .sessions
-                .entry(resp.id.clone())
-                .or_insert_with(|| SessionState {
-                    total: meta.total,
-                    received: 0,
-                    text_parts: vec![String::new(); meta.total],
-                    final_data: None,
-                    original_code: resp.code.clone(),
-                    original_ok: resp.ok,
-                });
-
-            if meta.index > 0 && meta.index <= meta.total {
-                if state.text_parts[meta.index - 1].is_empty() && !resp.text.is_empty() {
-                    state.received += 1;
-                }
-                state.text_parts[meta.index - 1] = resp.text;
-            }
-
-            // The final chunk usually carries the data payload (if any)
-            if let Some(data) = resp.data {
-                if !data.is_empty() {
-                    state.final_data = Some(data);
-                }
-            }
-
-            // Check if complete
-            if state.received == state.total || (meta.index == meta.total && meta.total == 1) {
-                // total == 1 can happen if it was forced to pack chunk meta
-                let completed = self.sessions.remove(&resp.id).unwrap();
-                let full_text = completed.text_parts.join("");
-
-                return Ok(Some(CommandResponse {
-                    id: resp.id,
-                    ok: completed.original_ok,
-                    code: completed.original_code,
-                    text: full_text,
-                    data: completed.final_data,
-                    v: resp.v,
-                }));
-            }
-
-            Ok(None)
-        } else {
-            // Not chunked, return directly
-            Ok(Some(resp))
+        if let Some(chunk) = parse_response_json_chunk(&mut resp.data)? {
+            return self.add_response_json_chunk(resp.id, chunk);
         }
+        if let Some(meta) = parse_legacy_chunk_meta(&mut resp.data)? {
+            return self.add_legacy_chunk(resp, meta);
+        }
+        Ok(Some(resp))
+    }
+
+    fn add_response_json_chunk(
+        &mut self,
+        response_id: String,
+        chunk: ResponseJsonChunkMeta,
+    ) -> Result<Option<CommandResponse>, ProtocolError> {
+        let state = self
+            .sessions
+            .entry(response_id.clone())
+            .or_insert_with(|| SessionState {
+                total: chunk.total,
+                received: 0,
+                parts: vec![String::new(); chunk.total],
+                legacy_final_data: None,
+                legacy_original_code: String::new(),
+                legacy_original_ok: true,
+                response_version: crate::PROTOCOL_VERSION.to_string(),
+            });
+
+        if chunk.index > 0 && chunk.index <= chunk.total {
+            if state.parts[chunk.index - 1].is_empty() && !chunk.payload.is_empty() {
+                state.received += 1;
+            }
+            state.parts[chunk.index - 1] = chunk.payload;
+        }
+
+        if state.received == state.total {
+            let completed = self.sessions.remove(&response_id).unwrap();
+            let raw = completed.parts.join("");
+            return crate::parse_response(raw.as_bytes()).map(Some);
+        }
+
+        Ok(None)
+    }
+
+    fn add_legacy_chunk(
+        &mut self,
+        resp: CommandResponse,
+        meta: ChunkMeta,
+    ) -> Result<Option<CommandResponse>, ProtocolError> {
+        let response_id = resp.id.clone();
+        let response_text = resp.text.clone();
+        let response_data = resp.data.clone();
+        let state = self
+            .sessions
+            .entry(response_id.clone())
+            .or_insert_with(|| SessionState {
+                total: meta.total,
+                received: 0,
+                parts: vec![String::new(); meta.total],
+                legacy_final_data: None,
+                legacy_original_code: resp.code.clone(),
+                legacy_original_ok: resp.ok,
+                response_version: resp.v.clone(),
+            });
+
+        if meta.index > 0 && meta.index <= meta.total {
+            if state.parts[meta.index - 1].is_empty() && !response_text.is_empty() {
+                state.received += 1;
+            }
+            state.parts[meta.index - 1] = response_text;
+        }
+
+        if let Some(data) = response_data {
+            if !data.is_empty() {
+                state.legacy_final_data = Some(data);
+            }
+        }
+
+        if state.received == state.total || (meta.index == meta.total && meta.total == 1) {
+            let completed = self.sessions.remove(&response_id).unwrap();
+            return Ok(Some(CommandResponse {
+                id: response_id,
+                ok: completed.legacy_original_ok,
+                code: completed.legacy_original_code,
+                text: completed.parts.join(""),
+                data: completed.legacy_final_data,
+                v: completed.response_version,
+            }));
+        }
+
+        Ok(None)
     }
 }
 
-/// Splits a CommandResponse into multiple smaller CommandResponses that fit under MAX_BLE_PAYLOAD_BYTES.
 pub fn chunk_response(resp: CommandResponse) -> Vec<CommandResponse> {
     let serialized = crate::encode_response(&resp).unwrap_or_default();
     if serialized.len() <= MAX_BLE_PAYLOAD_BYTES {
         return vec![resp];
     }
+    chunk_serialized_response(resp, String::from_utf8(serialized).unwrap_or_default())
+}
 
-    // Simplistic chunking: we just split the text evenly.
-    // In production, we'd do a binary search to perfectly fit the JSON structure, but a static chunk size of ~200 characters is safe for 360 bytes MTU.
-    let text = resp.text;
-    let chunk_size = 150;
-    let mut parts: Vec<String> = text
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(chunk_size)
-        .map(|c| c.iter().collect())
-        .collect();
+fn chunk_serialized_response(resp: CommandResponse, raw_response: String) -> Vec<CommandResponse> {
+    let chars: Vec<char> = raw_response.chars().collect();
+    let mut payloads = Vec::new();
+    let mut start = 0usize;
 
-    if parts.is_empty() {
-        parts.push(String::new());
+    while start < chars.len() {
+        let payload = next_payload_fragment(&resp, &chars, start);
+        start += payload.chars().count();
+        payloads.push(payload);
     }
 
-    let total = parts.len();
-    let mut results = Vec::new();
+    let total = payloads.len();
+    payloads
+        .into_iter()
+        .enumerate()
+        .map(|(index, payload)| build_response_json_chunk(&resp, payload, index + 1, total))
+        .collect()
+}
 
-    for (i, part) in parts.into_iter().enumerate() {
-        let index = i + 1;
-        let mut chunk_data = if index == total {
-            resp.data.clone().unwrap_or_default()
+fn next_payload_fragment(resp: &CommandResponse, chars: &[char], start: usize) -> String {
+    let mut low = 1usize;
+    let mut high = chars.len() - start;
+    let mut best = 1usize;
+
+    while low <= high {
+        let mid = (low + high) / 2;
+        let payload: String = chars[start..start + mid].iter().collect();
+        if chunk_fits_limit(resp, &payload) {
+            best = mid;
+            low = mid + 1;
         } else {
-            serde_json::Map::new()
-        };
-
-        chunk_data.insert(
-            "chunk".to_string(),
-            serde_json::json!({
-                "index": index,
-                "total": total
-            }),
-        );
-
-        results.push(CommandResponse {
-            id: resp.id.clone(),
-            ok: resp.ok,
-            code: resp.code.clone(),
-            text: part,
-            data: Some(chunk_data),
-            v: resp.v.clone(),
-        });
+            high = mid.saturating_sub(1);
+        }
     }
 
-    results
+    chars[start..start + best].iter().collect()
+}
+
+fn chunk_fits_limit(resp: &CommandResponse, payload: &str) -> bool {
+    let chunk = build_response_json_chunk(resp, payload.to_string(), 1, 1);
+    crate::encode_response(&chunk)
+        .map(|encoded| encoded.len() <= MAX_BLE_PAYLOAD_BYTES)
+        .unwrap_or(false)
+}
+
+fn build_response_json_chunk(
+    resp: &CommandResponse,
+    payload: String,
+    index: usize,
+    total: usize,
+) -> CommandResponse {
+    let mut data = serde_json::Map::new();
+    data.insert(
+        "chunk".to_string(),
+        serde_json::to_value(ResponseJsonChunkMeta {
+            mode: "response_json".to_string(),
+            index,
+            total,
+            payload,
+        })
+        .expect("chunk metadata should serialize"),
+    );
+
+    CommandResponse {
+        id: resp.id.clone(),
+        ok: resp.ok,
+        code: resp.code.clone(),
+        text: String::new(),
+        data: Some(data),
+        v: resp.v.clone(),
+    }
+}
+
+fn parse_response_json_chunk(
+    data: &mut Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<Option<ResponseJsonChunkMeta>, ProtocolError> {
+    let Some(map) = data.as_mut() else {
+        return Ok(None);
+    };
+    let Some(chunk_val) = map.remove("chunk") else {
+        return Ok(None);
+    };
+    match serde_json::from_value::<ResponseJsonChunkMeta>(chunk_val.clone()) {
+        Ok(chunk) if chunk.mode == "response_json" => {
+            if map.is_empty() {
+                *data = None;
+            }
+            Ok(Some(chunk))
+        }
+        Ok(_) => Err(ProtocolError::BadRequest(
+            "unsupported chunk mode".to_string(),
+        )),
+        Err(_) => {
+            map.insert("chunk".to_string(), chunk_val);
+            Ok(None)
+        }
+    }
+}
+
+fn parse_legacy_chunk_meta(
+    data: &mut Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<Option<ChunkMeta>, ProtocolError> {
+    let Some(map) = data.as_mut() else {
+        return Ok(None);
+    };
+    let Some(chunk_val) = map.remove("chunk") else {
+        return Ok(None);
+    };
+    let meta = serde_json::from_value::<ChunkMeta>(chunk_val)
+        .map_err(|err| ProtocolError::BadJson(err.to_string()))?;
+    if map.is_empty() {
+        *data = None;
+    }
+    Ok(Some(meta))
 }

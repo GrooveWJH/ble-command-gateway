@@ -87,6 +87,11 @@ async fn run_status(session: &mut BleSession) -> Result<()> {
     table.add_row(vec!["Hostname", &data.hostname]);
     table.add_row(vec!["System", &data.system]);
     table.add_row(vec!["User", &data.user]);
+    table.add_row(vec![
+        "Network",
+        data.network.as_deref().unwrap_or("Not connected"),
+    ]);
+    table.add_row(vec!["IP", data.ip.as_deref().unwrap_or("Unavailable")]);
     println!("{table}");
     Ok(())
 }

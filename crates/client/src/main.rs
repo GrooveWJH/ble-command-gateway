@@ -16,7 +16,7 @@ pub(crate) struct Args {
     #[arg(short, long, default_value = "Yundrone_UAV")]
     pub(crate) target: String,
 
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, default_value_t = 30)]
     pub(crate) timeout: u64,
 
     #[arg(long, default_value = "zh")]

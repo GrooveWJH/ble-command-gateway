@@ -128,4 +128,48 @@ impl BleSession {
         .await
         .map_err(|_| anyhow!("Timed out waiting for BLE response after {}s", timeout_secs))?
     }
+
+    pub async fn disconnect(&self) -> Result<()> {
+        if let Err(err) = self.device.unsubscribe(&self.read_char).await {
+            if !is_already_disconnected_error(&err.to_string()) {
+                return Err(err.into());
+            }
+        }
+
+        match self.device.is_connected().await {
+            Ok(false) => Ok(()),
+            Ok(true) => self.device.disconnect().await.map_err(Into::into),
+            Err(err) if is_already_disconnected_error(&err.to_string()) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+}
+
+fn is_already_disconnected_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("not connected")
+        || lower.contains("already disconnected")
+        || lower.contains("peripheral disconnected")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_already_disconnected_error;
+
+    #[test]
+    fn known_disconnect_errors_are_tolerated() {
+        assert!(is_already_disconnected_error("Peripheral is not connected"));
+        assert!(is_already_disconnected_error("already disconnected"));
+        assert!(is_already_disconnected_error(
+            "peripheral disconnected by peer"
+        ));
+    }
+
+    #[test]
+    fn unrelated_errors_are_not_treated_as_disconnects() {
+        assert!(!is_already_disconnected_error("permission denied"));
+        assert!(!is_already_disconnected_error(
+            "write characteristic missing"
+        ));
+    }
 }

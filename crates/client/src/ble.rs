@@ -5,6 +5,7 @@ use futures::StreamExt;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::time::Duration;
+use tokio::sync::watch;
 use tracing::{debug, info};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +27,20 @@ pub struct ScannedDevice {
     pub peripheral: Peripheral,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScanRunSummary {
+    pub named_device_count: usize,
+    pub candidate_count: usize,
+    pub cancelled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScanObservation {
+    progress: Option<ScanProgressEvent>,
+    candidate_name: Option<String>,
+}
+
+#[derive(Clone)]
 pub struct BleClient {
     adapter: Adapter,
 }
@@ -48,8 +63,30 @@ impl BleClient {
         prefix: &str,
         timeout_secs: u64,
     ) -> Result<Vec<ScannedDevice>> {
-        self.scan_candidates_with_progress(prefix, timeout_secs, |_| {})
-            .await
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let mut candidates = Vec::new();
+        let summary = self
+            .scan_candidates_live(
+                prefix,
+                timeout_secs,
+                &mut cancel_rx,
+                |_| {},
+                |device| {
+                    candidates.push(device);
+                },
+            )
+            .await?;
+
+        if summary.candidate_count == 0 {
+            return Err(anyhow!(
+                "Device '{}' not found after {}s scan",
+                prefix,
+                timeout_secs
+            ));
+        }
+
+        candidates.sort_by(scan_candidate_cmp);
+        Ok(candidates)
     }
 
     pub async fn scan_candidates_with_progress<F>(
@@ -61,67 +98,19 @@ impl BleClient {
     where
         F: FnMut(ScanProgressEvent),
     {
-        info!("Starting scan for device with prefix '{}'...", prefix);
-        info!(scan_prefix = %prefix, timeout_secs, "ble.scan.started");
-        let mut events = self.adapter.events().await?;
-        self.adapter.start_scan(ScanFilter::default()).await?;
-
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
-        let mut named_peripherals = HashSet::new();
-
-        loop {
-            match tokio::time::timeout_at(deadline, events.next()).await {
-                Ok(Some(CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id))) => {
-                    let peripheral = self.adapter.peripheral(&id).await?;
-                    let Some(properties) = peripheral.properties().await? else {
-                        continue;
-                    };
-                    let Some(name) = properties.local_name else {
-                        continue;
-                    };
-
-                    let rssi = properties.rssi;
-                    let matches_prefix = name.starts_with(prefix);
-                    debug!(
-                        device_name = %name,
-                        rssi = ?rssi,
-                        matches_prefix,
-                        "ble.scan.found"
-                    );
-
-                    if mark_peripheral_seen(&mut named_peripherals, id.clone()) {
-                        on_progress(progress_event(name.clone(), rssi, matches_prefix));
-                    }
-                }
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => break,
-            }
-        }
-
-        let stop_result = self.adapter.stop_scan().await;
-        stop_result?;
-        let peripherals = self.adapter.peripherals().await?;
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
         let mut filtered_devices = Vec::new();
+        let summary = self
+            .scan_candidates_live(
+                prefix,
+                timeout_secs,
+                &mut cancel_rx,
+                &mut on_progress,
+                |device| filtered_devices.push(device),
+            )
+            .await?;
 
-        for peripheral in peripherals {
-            if let Some(properties) = peripheral.properties().await? {
-                if let Some(name) = properties.local_name {
-                    if name.starts_with(prefix) {
-                        filtered_devices.push(ScannedDevice {
-                            info: ScanCandidateInfo {
-                                name,
-                                rssi: properties.rssi,
-                            },
-                            peripheral,
-                        });
-                    }
-                }
-            }
-        }
-
-        filtered_devices.sort_by(scan_candidate_cmp);
-
-        if filtered_devices.is_empty() {
+        if summary.candidate_count == 0 {
             return Err(anyhow!(
                 "Device '{}' not found after {}s scan",
                 prefix,
@@ -129,13 +118,110 @@ impl BleClient {
             ));
         }
 
+        filtered_devices.sort_by(scan_candidate_cmp);
+        Ok(filtered_devices)
+    }
+
+    pub async fn scan_candidates_live<FP, FC>(
+        &self,
+        prefix: &str,
+        timeout_secs: u64,
+        cancel_rx: &mut watch::Receiver<bool>,
+        mut on_progress: FP,
+        mut on_candidate: FC,
+    ) -> Result<ScanRunSummary>
+    where
+        FP: FnMut(ScanProgressEvent),
+        FC: FnMut(ScannedDevice),
+    {
+        info!("Starting scan for device with prefix '{}'...", prefix);
+        info!(scan_prefix = %prefix, timeout_secs, "ble.scan.started");
+        let mut events = self.adapter.events().await?;
+        self.adapter.start_scan(ScanFilter::default()).await?;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
+        let mut named_peripherals = HashSet::new();
+        let mut matched_peripherals = HashSet::new();
+        let mut named_device_count = 0usize;
+        let mut candidate_count = 0usize;
+        let mut cancelled = false;
+
+        loop {
+            tokio::select! {
+                changed = cancel_rx.changed() => {
+                    match changed {
+                        Ok(()) if *cancel_rx.borrow() => {
+                            cancelled = true;
+                            break;
+                        }
+                        Ok(()) => {}
+                        Err(_) => break,
+                    }
+                }
+                event = tokio::time::timeout_at(deadline, events.next()) => {
+                    match event {
+                        Ok(Some(CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id))) => {
+                            let peripheral = self.adapter.peripheral(&id).await?;
+                            let Some(properties) = peripheral.properties().await? else {
+                                continue;
+                            };
+                            let Some(name) = properties.local_name else {
+                                continue;
+                            };
+
+                            let rssi = properties.rssi;
+                            let observation = classify_scan_observation(
+                                &mut named_peripherals,
+                                &mut matched_peripherals,
+                                id.clone(),
+                                &name,
+                                prefix,
+                                rssi,
+                            );
+
+                            debug!(
+                                device_name = %name,
+                                rssi = ?rssi,
+                                matches_prefix = observation.candidate_name.is_some(),
+                                "ble.scan.found"
+                            );
+
+                            if let Some(progress) = observation.progress {
+                                named_device_count += 1;
+                                on_progress(progress);
+                            }
+
+                            if let Some(candidate_name) = observation.candidate_name {
+                                candidate_count += 1;
+                                on_candidate(ScannedDevice {
+                                    info: ScanCandidateInfo {
+                                        name: candidate_name,
+                                        rssi,
+                                    },
+                                    peripheral,
+                                });
+                            }
+                        }
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => break,
+                    }
+                }
+            }
+        }
+
+        self.adapter.stop_scan().await?;
         info!(
             scan_prefix = %prefix,
-            candidate_count = filtered_devices.len(),
+            candidate_count,
+            cancelled,
             "ble.scan.completed"
         );
 
-        Ok(filtered_devices)
+        Ok(ScanRunSummary {
+            named_device_count,
+            candidate_count,
+            cancelled,
+        })
     }
 
     pub async fn connect_session(
@@ -171,6 +257,54 @@ where
     seen.insert(peripheral_id)
 }
 
+fn classify_scan_observation<K>(
+    named_seen: &mut HashSet<K>,
+    matched_seen: &mut HashSet<K>,
+    peripheral_id: K,
+    raw_name: &str,
+    prefix: &str,
+    rssi: Option<i16>,
+) -> ScanObservation
+where
+    K: Eq + Hash + Clone,
+{
+    let candidate_name = extract_prefixed_name(raw_name, prefix);
+    let matches_prefix = candidate_name.is_some();
+    let progress = if mark_peripheral_seen(named_seen, peripheral_id.clone()) {
+        Some(progress_event(raw_name.to_string(), rssi, matches_prefix))
+    } else {
+        None
+    };
+    let candidate_name =
+        candidate_name.filter(|_| mark_peripheral_seen(matched_seen, peripheral_id));
+
+    ScanObservation {
+        progress,
+        candidate_name,
+    }
+}
+
+fn extract_prefixed_name(raw_name: &str, prefix: &str) -> Option<String> {
+    if raw_name.starts_with(prefix) {
+        return Some(raw_name.to_string());
+    }
+
+    // Some stacks expose local_name like `host-name [Yundrone_UAV-15-19-A7F2]`.
+    // In that case we treat the bracketed BLE name as the matching candidate.
+    let start = raw_name.find('[')?;
+    let end = raw_name.rfind(']')?;
+    if end <= start + 1 {
+        return None;
+    }
+
+    let inner = raw_name[start + 1..end].trim();
+    if inner.starts_with(prefix) {
+        Some(inner.to_string())
+    } else {
+        None
+    }
+}
+
 pub fn sort_scan_candidates(candidates: &mut [ScanCandidateInfo]) {
     candidates.sort_by(scan_candidate_info_cmp);
 }
@@ -193,8 +327,8 @@ fn scan_candidate_info_cmp(
 #[cfg(test)]
 mod tests {
     use super::{
-        mark_peripheral_seen, progress_event, sort_scan_candidates, ScanCandidateInfo,
-        ScanProgressEvent,
+        classify_scan_observation, extract_prefixed_name, mark_peripheral_seen, progress_event,
+        sort_scan_candidates, ScanCandidateInfo, ScanProgressEvent,
     };
     use std::collections::HashSet;
 
@@ -260,5 +394,73 @@ mod tests {
         assert!(mark_peripheral_seen(&mut seen, "dev-1".to_string()));
         assert!(!mark_peripheral_seen(&mut seen, "dev-1".to_string()));
         assert!(mark_peripheral_seen(&mut seen, "dev-2".to_string()));
+    }
+
+    #[test]
+    fn extract_prefixed_name_accepts_direct_prefix_name() {
+        let result = extract_prefixed_name("Yundrone_UAV-15-19-A7", "Yundrone_UAV");
+        assert_eq!(result.as_deref(), Some("Yundrone_UAV-15-19-A7"));
+    }
+
+    #[test]
+    fn extract_prefixed_name_accepts_bracketed_prefix_name() {
+        let result =
+            extract_prefixed_name("orangepi4pro [Yundrone_UAV-03-17-5433]", "Yundrone_UAV");
+        assert_eq!(result.as_deref(), Some("Yundrone_UAV-03-17-5433"));
+    }
+
+    #[test]
+    fn extract_prefixed_name_rejects_non_matching_name() {
+        let result = extract_prefixed_name("GrooveiPhone", "Yundrone_UAV");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_scan_observation_emits_candidate_only_once_per_device() {
+        let mut named_seen = HashSet::new();
+        let mut matched_seen = HashSet::new();
+
+        let first = classify_scan_observation(
+            &mut named_seen,
+            &mut matched_seen,
+            "dev-1".to_string(),
+            "orangepi4pro [Yundrone_UAV-03-17-5433]",
+            "Yundrone_UAV",
+            Some(-11),
+        );
+        let second = classify_scan_observation(
+            &mut named_seen,
+            &mut matched_seen,
+            "dev-1".to_string(),
+            "orangepi4pro [Yundrone_UAV-03-17-5433]",
+            "Yundrone_UAV",
+            Some(-9),
+        );
+
+        assert!(first.progress.is_some());
+        assert_eq!(
+            first.candidate_name.as_deref(),
+            Some("Yundrone_UAV-03-17-5433")
+        );
+        assert!(second.progress.is_none());
+        assert!(second.candidate_name.is_none());
+    }
+
+    #[test]
+    fn classify_scan_observation_keeps_non_matching_devices_out_of_candidate_list() {
+        let mut named_seen = HashSet::new();
+        let mut matched_seen = HashSet::new();
+
+        let observation = classify_scan_observation(
+            &mut named_seen,
+            &mut matched_seen,
+            "dev-2".to_string(),
+            "GrooveiPhone",
+            "Yundrone_UAV",
+            Some(-51),
+        );
+
+        assert!(observation.progress.is_some());
+        assert!(observation.candidate_name.is_none());
     }
 }

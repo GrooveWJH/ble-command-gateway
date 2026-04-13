@@ -18,6 +18,10 @@ pub struct StatusResponseData {
     pub hostname: String,
     pub system: String,
     pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

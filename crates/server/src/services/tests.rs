@@ -37,6 +37,40 @@ async fn status_command_is_supported() {
     assert!(!data.user.is_empty());
 }
 
+#[test]
+fn active_network_name_prefers_non_loopback_connections() {
+    let output = "\
+NAME                DEVICE\n\
+LabWiFi             wlan0\n\
+lo                  lo\n";
+
+    let network = super::system_commands::parse_active_network_name(output);
+
+    assert_eq!(network.as_deref(), Some("LabWiFi"));
+}
+
+#[test]
+fn ip_address_parser_prefers_first_non_loopback_ipv4() {
+    let output = "\
+2: wlan0    inet 192.168.10.2/24 brd 192.168.10.255 scope global dynamic wlan0\n\
+3: lo       inet 127.0.0.1/8 scope host lo\n";
+
+    let ip = super::system_commands::parse_primary_ipv4(output);
+
+    assert_eq!(ip.as_deref(), Some("192.168.10.2"));
+}
+
+#[test]
+fn current_user_prefers_non_root_ssh_session() {
+    let who_output = "\
+orangepi pts/0 2026-04-13 10:00 (192.168.10.20)\n\
+root     pts/1 2026-04-13 10:01 (192.168.10.30)\n";
+
+    let user = super::system_commands::parse_preferred_login_user(who_output);
+
+    assert_eq!(user.as_deref(), Some("orangepi"));
+}
+
 #[tokio::test]
 async fn provisioning_requires_ssid() {
     let result = run_payload_command(

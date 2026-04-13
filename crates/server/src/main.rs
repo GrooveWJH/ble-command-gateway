@@ -80,12 +80,17 @@ async fn main() -> anyhow::Result<()> {
 
                             let response_code = resp.code.clone();
                             let response_ok = resp.ok;
+                            let response_bytes = protocol::encode_response(&resp)
+                                .map(|value| value.len())
+                                .ok();
                             let chunks = protocol::chunking::chunk_response(resp);
                             let chunk_count = chunks.len();
+                            let mut max_chunk_bytes = 0usize;
 
                             for chunk in chunks {
                                 match protocol::encode_response(&chunk) {
                                     Ok(ser) => {
+                                        max_chunk_bytes = max_chunk_bytes.max(ser.len());
                                         let _ = tx.send(ser);
                                     }
                                     Err(err) => {
@@ -105,6 +110,8 @@ async fn main() -> anyhow::Result<()> {
                                 response_code = %response_code,
                                 response_ok,
                                 chunk_count,
+                                response_bytes,
+                                max_chunk_bytes,
                                 "ble.response.sent"
                             );
                         }

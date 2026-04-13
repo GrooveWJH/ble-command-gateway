@@ -7,7 +7,6 @@ Wants=bluetooth.service NetworkManager.service
 Type=simple
 User=root
 WorkingDirectory=/opt/ble-command-gateway
-Environment="SUDO_USER=root"
 ExecStart=/opt/ble-command-gateway/target/release/server
 Restart=on-failure
 RestartSec=5

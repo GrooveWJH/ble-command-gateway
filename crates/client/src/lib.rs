@@ -5,7 +5,8 @@ pub mod session;
 
 // Shared client library exports
 pub use ble::{
-    sort_scan_candidates, BleClient, ScanCandidateInfo, ScanProgressEvent, ScannedDevice,
+    sort_scan_candidates, BleClient, ScanCandidateInfo, ScanProgressEvent, ScanRunSummary,
+    ScannedDevice,
 };
 pub use request::{build_request, encode_request_bytes, prepare_request, PreparedRequest};
 pub use session::BleSession;
