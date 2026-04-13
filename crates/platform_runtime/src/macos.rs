@@ -1,6 +1,6 @@
+use anyhow::Result;
 #[cfg(any(target_os = "macos", test))]
 use anyhow::{anyhow, Context};
-use anyhow::Result;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
 #[cfg(target_os = "macos")]
