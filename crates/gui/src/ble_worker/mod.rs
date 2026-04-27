@@ -2,7 +2,7 @@ mod events;
 mod handlers;
 mod heartbeat;
 mod raw_actions;
-mod state;
+pub(crate) mod state;
 
 #[cfg(test)]
 mod tests;

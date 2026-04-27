@@ -10,6 +10,8 @@ pub(crate) mod model;
 mod panels;
 mod provision_panel;
 pub(crate) mod reducer;
+pub(crate) mod settings;
+mod theme;
 
 #[cfg(test)]
 mod action_tests;
@@ -21,7 +23,7 @@ mod provision_tests;
 mod tests;
 
 use model::ActionSlot;
-use model::{AppModel, UiEvent};
+use model::{AppModel, ThemePreference, UiEvent};
 
 pub struct GatewayApp {
     _ui_tx: Sender<UiEvent>,
@@ -35,12 +37,16 @@ impl GatewayApp {
         ui_tx: Sender<UiEvent>,
         ui_rx: Receiver<UiEvent>,
         tokio_tx: tokio::sync::mpsc::UnboundedSender<BtleCommand>,
+        theme_preference: ThemePreference,
     ) -> Self {
         Self {
             _ui_tx: ui_tx,
             ui_rx,
             tokio_tx,
-            model: AppModel::default(),
+            model: AppModel {
+                theme_preference,
+                ..AppModel::default()
+            },
         }
     }
 
@@ -74,6 +80,22 @@ impl GatewayApp {
         } else {
             Lang::Zh
         };
+    }
+
+    fn set_theme_preference(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        theme_preference: ThemePreference,
+    ) {
+        self.model.theme_preference = theme_preference;
+        ctx.set_theme(theme_preference.to_egui());
+
+        let settings = settings::StoredSettings { theme_preference };
+        if let Err(err) = settings::save_settings(&settings) {
+            self.model
+                .logs
+                .push(format!("[ERR] Failed to save theme settings: {err}"));
+        }
     }
 }
 

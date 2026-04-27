@@ -95,6 +95,18 @@ fn every_typed_response_data_round_trips_through_json_maps() {
         user: "orangepi".to_string(),
         network: Some("LabWiFi".to_string()),
         ip: Some("192.168.10.2".to_string()),
+        interfaces: vec![
+            responses::StatusInterfaceIpv4 {
+                ifname: "wlan0".to_string(),
+                kind: responses::StatusInterfaceKind::Wifi,
+                ipv4: "192.168.10.2".to_string(),
+            },
+            responses::StatusInterfaceIpv4 {
+                ifname: "eth0".to_string(),
+                kind: responses::StatusInterfaceKind::Ethernet,
+                ipv4: "10.0.0.8".to_string(),
+            },
+        ],
     });
     assert_response_data_round_trip(responses::WhoAmIResponseData {
         user: "root".to_string(),
@@ -120,6 +132,56 @@ fn every_typed_response_data_round_trips_through_json_maps() {
         ssid: "LabWiFi".to_string(),
         ip: Some("192.168.10.2".to_string()),
     });
+}
+
+#[test]
+fn large_status_data_response_chunks_and_round_trips() {
+    let response_data = responses::StatusResponseData {
+        hostname: "orin-nx-deployment-target".repeat(4),
+        system: "Linux 6.1.0-jetson aarch64".repeat(4),
+        user: "yundrone".to_string(),
+        network: Some("FieldOpsMesh".repeat(4)),
+        ip: Some("192.168.10.2".to_string()),
+        interfaces: vec![
+            responses::StatusInterfaceIpv4 {
+                ifname: "wlan0".to_string(),
+                kind: responses::StatusInterfaceKind::Wifi,
+                ipv4: "192.168.10.2".to_string(),
+            },
+            responses::StatusInterfaceIpv4 {
+                ifname: "wlan1".to_string(),
+                kind: responses::StatusInterfaceKind::Wifi,
+                ipv4: "172.16.0.22".to_string(),
+            },
+            responses::StatusInterfaceIpv4 {
+                ifname: "eth0".to_string(),
+                kind: responses::StatusInterfaceKind::Ethernet,
+                ipv4: "10.24.6.9".to_string(),
+            },
+        ],
+    };
+    let response = CommandResponse::ok(
+        "req-large-status",
+        "status collected",
+        Some(responses::to_map(&response_data).unwrap()),
+    );
+
+    let chunks = chunking::chunk_response(response.clone());
+
+    assert!(chunks.len() > 1);
+
+    let mut assembler = chunking::ChunkAssembler::new();
+    let mut assembled = None;
+    for chunk in chunks {
+        let encoded = encode_response(&chunk).unwrap();
+        let decoded = parse_response(&encoded).unwrap();
+        assembled = assembler.add_chunk(decoded).unwrap();
+    }
+
+    let assembled = assembled.expect("status response should reassemble");
+    let decoded_data: responses::StatusResponseData = assembled.decode_data().unwrap();
+    assert_eq!(assembled, response);
+    assert_eq!(decoded_data, response_data);
 }
 
 #[test]

@@ -3,6 +3,7 @@ use protocol::requests::CommandPayload;
 
 use super::action_ui::{render_action_status, render_refreshing_badge, DIAGNOSTIC_ACTION_SLOTS};
 use super::model::ActionSlot;
+use super::theme::{failure_color, panel_frame, success_color};
 use super::GatewayApp;
 
 impl GatewayApp {
@@ -46,12 +47,12 @@ impl GatewayApp {
         });
         ui.add_space(6.0);
 
-        result_frame().show(ui, |ui| {
+        panel_frame(ui).show(ui, |ui| {
             if let Some(result) = &self.model.diagnostic_result {
                 let status_text = if result.ok {
-                    egui::RichText::new("OK").color(egui::Color32::from_rgb(120, 220, 130))
+                    egui::RichText::new("OK").color(success_color(ui))
                 } else {
-                    egui::RichText::new("FAIL").color(egui::Color32::from_rgb(255, 120, 120))
+                    egui::RichText::new("FAIL").color(failure_color(ui))
                 };
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&result.title).strong());
@@ -67,12 +68,4 @@ impl GatewayApp {
             }
         });
     }
-}
-
-fn result_frame() -> egui::Frame {
-    egui::Frame::none()
-        .fill(egui::Color32::from_rgb(22, 25, 30))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 66, 78)))
-        .inner_margin(egui::Margin::same(10.0))
-        .rounding(egui::Rounding::same(6.0))
 }

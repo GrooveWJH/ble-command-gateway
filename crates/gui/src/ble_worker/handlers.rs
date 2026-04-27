@@ -1,5 +1,6 @@
 use client::prepare_request;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 use tracing::info;
 
 use super::events::{
@@ -85,7 +86,6 @@ pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut Worke
         },
     );
     let device_name = session.device_name().to_string();
-    let disconnect_result = session.disconnect().await;
     state.reset_to_idle();
     emit(
         ui_tx,
@@ -94,8 +94,10 @@ pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut Worke
         },
     );
     emit(ui_tx, UiEvent::Log(manual_disconnect_log(&device_name)));
+    let disconnect_result =
+        tokio::time::timeout(Duration::from_secs(2), session.disconnect()).await;
     match disconnect_result {
-        Ok(_) => emit(
+        Ok(Ok(_)) => emit(
             ui_tx,
             UiEvent::ActionSucceeded {
                 slot: ActionSlot::Disconnect,
@@ -103,7 +105,7 @@ pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut Worke
                 detail: disconnect_success_detail(&device_name),
             },
         ),
-        Err(err) => {
+        Ok(Err(err)) => {
             emit(
                 ui_tx,
                 UiEvent::ActionFailed {
@@ -114,6 +116,10 @@ pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut Worke
             );
             emit(ui_tx, UiEvent::Error(format!("Disconnect fail: {}", err)));
         }
+        Err(_) => emit(
+            ui_tx,
+            UiEvent::Error("Disconnect fail: timed out after 2s".to_string()),
+        ),
     }
 }
 

@@ -50,6 +50,18 @@ fn non_wifi_response_events_skip_wifi_network_loading() {
                 user: "orangepi".to_string(),
                 network: Some("LabWiFi".to_string()),
                 ip: Some("192.168.10.2".to_string()),
+                interfaces: vec![
+                    protocol::responses::StatusInterfaceIpv4 {
+                        ifname: "wlan0".to_string(),
+                        kind: protocol::responses::StatusInterfaceKind::Wifi,
+                        ipv4: "192.168.10.2".to_string(),
+                    },
+                    protocol::responses::StatusInterfaceIpv4 {
+                        ifname: "eth0".to_string(),
+                        kind: protocol::responses::StatusInterfaceKind::Ethernet,
+                        ipv4: "10.24.6.9".to_string(),
+                    },
+                ],
             })
             .unwrap(),
         ),
@@ -64,7 +76,9 @@ fn non_wifi_response_events_skip_wifi_network_loading() {
         UiEvent::DiagnosticResult(result)
             if result.title == "System Status"
             && result.lines.iter().any(|line| line.contains("Network: LabWiFi"))
-            && result.lines.iter().any(|line| line.contains("IP: 192.168.10.2"))
+            && result.lines.iter().any(|line| line.contains("Preferred IP: 192.168.10.2"))
+            && result.lines.iter().any(|line| line.contains("wlan0 [wifi] -> 192.168.10.2"))
+            && result.lines.iter().any(|line| line.contains("eth0 [ethernet] -> 10.24.6.9"))
             && result.lines.iter().any(|line| line.contains("User: orangepi"))
     ));
     assert!(matches!(
@@ -158,8 +172,8 @@ fn scan_control_logs_are_operator_friendly() {
         "[SYS] Disconnected from Yundrone_UAV-03-17-5433."
     );
     assert_eq!(
-        heartbeat_disconnected_log("Yundrone_UAV-03-17-5433", 3),
-        "[ERR] Heartbeat failed 3 times for Yundrone_UAV-03-17-5433, connection marked as disconnected."
+        heartbeat_disconnected_log("Yundrone_UAV-03-17-5433", 3, true),
+        "[ERR] Heartbeat failed 3 times for Yundrone_UAV-03-17-5433, grace window elapsed and connection was marked as disconnected."
     );
 }
 

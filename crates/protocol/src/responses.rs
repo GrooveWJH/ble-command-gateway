@@ -14,6 +14,37 @@ pub struct PingResponseData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusInterfaceKind {
+    Wifi,
+    Ethernet,
+    Other,
+}
+
+impl StatusInterfaceKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Wifi => "wifi",
+            Self::Ethernet => "ethernet",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatusInterfaceIpv4 {
+    pub ifname: String,
+    pub kind: StatusInterfaceKind,
+    pub ipv4: String,
+}
+
+impl StatusInterfaceIpv4 {
+    pub fn summary_line(&self) -> String {
+        format!("{} [{}] -> {}", self.ifname, self.kind.as_str(), self.ipv4)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusResponseData {
     pub hostname: String,
     pub system: String,
@@ -22,6 +53,8 @@ pub struct StatusResponseData {
     pub network: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ip: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interfaces: Vec<StatusInterfaceIpv4>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

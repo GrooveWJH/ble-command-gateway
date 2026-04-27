@@ -3,7 +3,9 @@ use eframe::egui;
 use super::action_ui::{render_action_status, DEVICE_ACTION_SLOTS};
 use super::model::{
     format_scan_candidate_label, header_badge_text, heartbeat_summary, ActionSlot, Tab,
+    ThemePreference,
 };
+use super::theme::{failure_color, success_color, warning_color};
 use super::GatewayApp;
 use crate::ble_worker::BtleCommand;
 
@@ -19,6 +21,9 @@ impl GatewayApp {
                     if ui.button(self.model.lang.t("lang_switch")).clicked() {
                         self.toggle_lang();
                     }
+
+                    ui.add_space(12.0);
+                    render_theme_controls(ui, self);
 
                     ui.add_space(15.0);
                     render_connection_status(ui, &self.model);
@@ -149,21 +154,15 @@ impl GatewayApp {
 
 fn render_connection_status(ui: &mut egui::Ui, model: &super::model::AppModel) {
     let (label, color) = if model.is_connected && model.heartbeat_failures > 0 {
-        (
-            model.lang.t("conn_yes_warn"),
-            egui::Color32::from_rgb(255, 180, 70),
-        )
+        (model.lang.t("conn_yes_warn"), warning_color(ui))
     } else if model.is_connected {
-        (model.lang.t("conn_yes"), egui::Color32::GREEN)
+        (model.lang.t("conn_yes"), success_color(ui))
     } else if model.is_connecting {
-        (
-            model.lang.t("conn_connecting"),
-            egui::Color32::from_rgb(255, 180, 70),
-        )
+        (model.lang.t("conn_connecting"), warning_color(ui))
     } else if model.is_scanning {
-        (model.lang.t("conn_wait"), egui::Color32::YELLOW)
+        (model.lang.t("conn_wait"), warning_color(ui))
     } else {
-        (model.lang.t("conn_no"), egui::Color32::RED)
+        (model.lang.t("conn_no"), failure_color(ui))
     };
 
     ui.horizontal(|ui| {
@@ -171,4 +170,38 @@ fn render_connection_status(ui: &mut egui::Ui, model: &super::model::AppModel) {
         ui.painter().circle_filled(rect.center(), 4.0, color);
         ui.label(egui::RichText::new(label).color(color));
     });
+}
+
+fn render_theme_controls(ui: &mut egui::Ui, app: &mut GatewayApp) {
+    let mut selected = app.model.theme_preference;
+
+    egui::ComboBox::from_id_salt("theme_preference")
+        .selected_text(match selected {
+            ThemePreference::Light => app.model.lang.t("theme_light"),
+            ThemePreference::Dark => app.model.lang.t("theme_dark"),
+            ThemePreference::System => app.model.lang.t("theme_system"),
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(
+                &mut selected,
+                ThemePreference::System,
+                app.model.lang.t("theme_system"),
+            );
+            ui.selectable_value(
+                &mut selected,
+                ThemePreference::Light,
+                app.model.lang.t("theme_light"),
+            );
+            ui.selectable_value(
+                &mut selected,
+                ThemePreference::Dark,
+                app.model.lang.t("theme_dark"),
+            );
+        });
+
+    ui.label(app.model.lang.t("theme_label"));
+
+    if selected != app.model.theme_preference {
+        app.set_theme_preference(ui.ctx(), selected);
+    }
 }
