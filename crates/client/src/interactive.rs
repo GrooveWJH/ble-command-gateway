@@ -84,16 +84,41 @@ async fn run_status(session: &mut BleSession) -> Result<()> {
     let mut table = Table::new();
     table.apply_modifier(UTF8_ROUND_CORNERS);
     table.set_header(vec!["Metric", "Value"]);
-    table.add_row(vec!["Hostname", &data.hostname]);
-    table.add_row(vec!["System", &data.system]);
-    table.add_row(vec!["User", &data.user]);
-    table.add_row(vec![
-        "Network",
-        data.network.as_deref().unwrap_or("Not connected"),
-    ]);
-    table.add_row(vec!["IP", data.ip.as_deref().unwrap_or("Unavailable")]);
+    for (metric, value) in status_rows(&data) {
+        table.add_row(vec![metric, value]);
+    }
     println!("{table}");
     Ok(())
+}
+
+fn status_rows(data: &StatusResponseData) -> Vec<(String, String)> {
+    let mut rows = vec![
+        ("Hostname".to_string(), data.hostname.clone()),
+        ("System".to_string(), data.system.clone()),
+        ("User".to_string(), data.user.clone()),
+        (
+            "Network".to_string(),
+            data.network
+                .clone()
+                .unwrap_or_else(|| "Not connected".to_string()),
+        ),
+        (
+            "Preferred IP".to_string(),
+            data.ip.clone().unwrap_or_else(|| "Unavailable".to_string()),
+        ),
+    ];
+
+    if data.interfaces.is_empty() {
+        rows.push(("Interfaces".to_string(), "none".to_string()));
+    } else {
+        rows.extend(
+            data.interfaces
+                .iter()
+                .map(|interface| ("Interface".to_string(), interface.summary_line())),
+        );
+    }
+
+    rows
 }
 
 async fn run_wifi_scan(session: &mut BleSession) -> Result<()> {
@@ -181,27 +206,42 @@ fn prompt_menu_action(lang: &Lang) -> Result<MenuAction> {
     })
 }
 
-#[derive(Clone)]
-struct CandidateChoice {
-    info: ScanCandidateInfo,
-}
-
-impl fmt::Display for CandidateChoice {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&format_scan_candidate_label(&self.info))
-    }
-}
-
-enum MenuAction {
-    Status,
-    WifiScan,
-    Provision,
-    Exit,
-}
-
 #[cfg(test)]
 mod tests {
-    use super::format_scan_candidate_label;
+    use super::{format_scan_candidate_label, status_rows};
+
+    #[test]
+    fn status_rows_include_preferred_ip_and_interfaces() {
+        let rows = status_rows(&protocol::responses::StatusResponseData {
+            hostname: "orin".to_string(),
+            system: "Linux 6.1".to_string(),
+            user: "yundrone".to_string(),
+            network: Some("LabWiFi".to_string()),
+            ip: Some("192.168.10.2".to_string()),
+            interfaces: vec![
+                protocol::responses::StatusInterfaceIpv4 {
+                    ifname: "wlan0".to_string(),
+                    kind: protocol::responses::StatusInterfaceKind::Wifi,
+                    ipv4: "192.168.10.2".to_string(),
+                },
+                protocol::responses::StatusInterfaceIpv4 {
+                    ifname: "eth0".to_string(),
+                    kind: protocol::responses::StatusInterfaceKind::Ethernet,
+                    ipv4: "10.24.6.9".to_string(),
+                },
+            ],
+        });
+
+        assert!(rows.contains(&("Preferred IP".to_string(), "192.168.10.2".to_string())));
+        assert!(rows.contains(&(
+            "Interface".to_string(),
+            "wlan0 [wifi] -> 192.168.10.2".to_string()
+        )));
+        assert!(rows.contains(&(
+            "Interface".to_string(),
+            "eth0 [ethernet] -> 10.24.6.9".to_string()
+        )));
+    }
 
     #[test]
     fn format_scan_candidate_label_shows_name_and_signal() {
@@ -222,4 +262,22 @@ mod tests {
 
         assert_eq!(label, "Yundrone_UAV-15-19-UNK (RSSI unknown)");
     }
+}
+
+#[derive(Clone)]
+struct CandidateChoice {
+    info: ScanCandidateInfo,
+}
+
+impl fmt::Display for CandidateChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format_scan_candidate_label(&self.info))
+    }
+}
+
+enum MenuAction {
+    Status,
+    WifiScan,
+    Provision,
+    Exit,
 }

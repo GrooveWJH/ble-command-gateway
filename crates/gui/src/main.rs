@@ -117,7 +117,14 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             setup_custom_fonts(&cc.egui_ctx);
-            Ok(Box::new(app::GatewayApp::new(ui_tx, ui_rx, tokio_tx)))
+            let settings = app::settings::load_settings().unwrap_or_default();
+            cc.egui_ctx.set_theme(settings.theme_preference.to_egui());
+            Ok(Box::new(app::GatewayApp::new(
+                ui_tx,
+                ui_rx,
+                tokio_tx,
+                settings.theme_preference,
+            )))
         }),
     )
 }

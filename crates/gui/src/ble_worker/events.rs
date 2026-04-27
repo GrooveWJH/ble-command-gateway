@@ -63,17 +63,28 @@ fn diagnostic_result(
             let data: protocol::responses::StatusResponseData = response.decode_data()?;
             let network = data.network.unwrap_or_else(|| "Not connected".to_string());
             let ip = data.ip.unwrap_or_else(|| "Unavailable".to_string());
+            let mut lines = vec![
+                format!("Hostname: {}", data.hostname),
+                format!("System: {}", data.system),
+                format!("User: {}", data.user),
+                format!("Network: {}", network),
+                format!("Preferred IP: {}", ip),
+            ];
+            if data.interfaces.is_empty() {
+                lines.push("Interfaces: none".to_string());
+            } else {
+                lines.push("Interfaces:".to_string());
+                lines.extend(
+                    data.interfaces
+                        .iter()
+                        .map(|interface| interface.summary_line()),
+                );
+            }
             Ok(Some(DiagnosticResultCard {
                 title: "System Status".to_string(),
                 ok: response.ok,
                 code: response.code.clone(),
-                lines: vec![
-                    format!("Hostname: {}", data.hostname),
-                    format!("System: {}", data.system),
-                    format!("User: {}", data.user),
-                    format!("Network: {}", network),
-                    format!("IP: {}", ip),
-                ],
+                lines,
             }))
         }
         protocol::requests::CommandPayload::Ping => {
@@ -166,10 +177,20 @@ pub(super) fn disconnect_success_detail(device_name: &str) -> Option<String> {
     Some(device_name.to_string())
 }
 
-pub(super) fn heartbeat_disconnected_log(device_name: &str, failures: u8) -> String {
-    format!(
-        "[ERR] Heartbeat failed {failures} times for {device_name}, connection marked as disconnected."
-    )
+pub(super) fn heartbeat_disconnected_log(
+    device_name: &str,
+    failures: u8,
+    grace_elapsed: bool,
+) -> String {
+    if grace_elapsed {
+        format!(
+            "[ERR] Heartbeat failed {failures} times for {device_name}, grace window elapsed and connection was marked as disconnected."
+        )
+    } else {
+        format!(
+            "[ERR] Heartbeat failed {failures} times for {device_name}, connection marked as disconnected."
+        )
+    }
 }
 
 pub(super) fn command_sent_log(command_name: &str, request_id: &str) -> String {

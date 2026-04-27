@@ -1,4 +1,5 @@
 use client::ScanCandidateInfo;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::i18n::Lang;
@@ -41,6 +42,25 @@ pub struct ActionFeedback {
 pub enum DisconnectReason {
     Manual,
     HeartbeatFailed,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreference {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+impl ThemePreference {
+    pub fn to_egui(self) -> eframe::egui::ThemePreference {
+        match self {
+            Self::Light => eframe::egui::ThemePreference::Light,
+            Self::Dark => eframe::egui::ThemePreference::Dark,
+            Self::System => eframe::egui::ThemePreference::System,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,6 +136,7 @@ pub enum Tab {
 
 pub struct AppModel {
     pub lang: Lang,
+    pub theme_preference: ThemePreference,
     pub current_tab: Tab,
     pub device_name: String,
     pub connected_device_name: Option<String>,
@@ -142,6 +163,7 @@ impl Default for AppModel {
     fn default() -> Self {
         Self {
             lang: Lang::Zh,
+            theme_preference: ThemePreference::System,
             current_tab: Tab::Provision,
             device_name: "Yundrone_UAV".to_string(),
             connected_device_name: None,

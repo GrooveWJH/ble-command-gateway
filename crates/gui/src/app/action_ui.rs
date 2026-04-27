@@ -1,6 +1,7 @@
 use eframe::egui;
 
 use super::model::{latest_feedback_for_slots, ActionFeedback, ActionPhase, ActionSlot, AppModel};
+use super::theme::{failure_color, success_color, warning_color};
 use crate::i18n::Lang;
 
 pub(crate) const DEVICE_ACTION_SLOTS: [ActionSlot; 3] = [
@@ -23,7 +24,7 @@ pub(crate) fn render_action_status(ui: &mut egui::Ui, model: &AppModel, slots: &
         return;
     };
 
-    let (fill, stroke, text) = action_style_and_text(model.lang, feedback);
+    let (fill, stroke, text) = action_style_and_text(ui, model.lang, feedback);
     let frame = egui::Frame::none()
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, stroke))
@@ -54,33 +55,34 @@ pub(crate) fn render_refreshing_badge(ui: &mut egui::Ui, model: &AppModel, slots
             Lang::Zh => "正在刷新，旧结果仅供参考",
             Lang::En => "Refreshing; previous result shown",
         };
-        ui.label(egui::RichText::new(text).color(egui::Color32::from_rgb(255, 190, 90)));
+        ui.label(egui::RichText::new(text).color(warning_color(ui)));
     }
 }
 
 fn action_style_and_text(
+    ui: &egui::Ui,
     lang: Lang,
     feedback: &ActionFeedback,
 ) -> (egui::Color32, egui::Color32, String) {
     match feedback.phase {
         ActionPhase::Running => (
-            egui::Color32::from_rgb(46, 38, 20),
-            egui::Color32::from_rgb(170, 120, 45),
+            ui.visuals().widgets.inactive.bg_fill,
+            warning_color(ui),
             running_text(lang, feedback.slot).to_string(),
         ),
         ActionPhase::Succeeded => (
-            egui::Color32::from_rgb(22, 45, 30),
-            egui::Color32::from_rgb(70, 150, 95),
+            ui.visuals().faint_bg_color,
+            success_color(ui),
             success_text(lang, feedback),
         ),
         ActionPhase::Failed => (
-            egui::Color32::from_rgb(55, 24, 28),
-            egui::Color32::from_rgb(180, 70, 80),
+            ui.visuals().faint_bg_color,
+            failure_color(ui),
             failure_text(lang, feedback),
         ),
         ActionPhase::Idle => (
-            egui::Color32::from_rgb(28, 32, 38),
-            egui::Color32::from_rgb(60, 66, 78),
+            ui.visuals().faint_bg_color,
+            ui.visuals().widgets.noninteractive.bg_stroke.color,
             idle_text(lang).to_string(),
         ),
     }

@@ -55,7 +55,110 @@ fn ip_address_parser_prefers_first_non_loopback_ipv4() {
 2: wlan0    inet 192.168.10.2/24 brd 192.168.10.255 scope global dynamic wlan0\n\
 3: lo       inet 127.0.0.1/8 scope host lo\n";
 
-    let ip = super::system_commands::parse_primary_ipv4(output);
+    let ip =
+        super::system_commands::preferred_ipv4(&super::system_commands::build_status_interfaces(
+            super::system_commands::parse_ipv4_interfaces(output),
+            std::collections::HashMap::from([(
+                "wlan0".to_string(),
+                protocol::responses::StatusInterfaceKind::Wifi,
+            )]),
+        ));
+
+    assert_eq!(ip.as_deref(), Some("192.168.10.2"));
+}
+
+#[test]
+fn parse_ipv4_interfaces_collects_all_global_addresses() {
+    let output = "\
+2: eth0    inet 10.24.6.9/24 brd 10.24.6.255 scope global dynamic eth0\n\
+3: wlan0    inet 192.168.10.2/24 brd 192.168.10.255 scope global dynamic wlan0\n\
+4: lo       inet 127.0.0.1/8 scope host lo\n\
+5: docker0 inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\n";
+
+    let interfaces = super::system_commands::parse_ipv4_interfaces(output);
+
+    assert_eq!(interfaces.len(), 3);
+    assert_eq!(interfaces[0], ("eth0".to_string(), "10.24.6.9".to_string()));
+    assert_eq!(
+        interfaces[1],
+        ("wlan0".to_string(), "192.168.10.2".to_string())
+    );
+    assert_eq!(
+        interfaces[2],
+        ("docker0".to_string(), "172.17.0.1".to_string())
+    );
+}
+
+#[test]
+fn parse_device_types_maps_wifi_ethernet_and_other_interfaces() {
+    let output = "\
+wlan0:wifi\n\
+eth0:ethernet\n\
+docker0:bridge\n\
+lo:loopback\n";
+
+    let types = super::system_commands::parse_device_types(output);
+
+    assert_eq!(
+        types.get("wlan0"),
+        Some(&protocol::responses::StatusInterfaceKind::Wifi)
+    );
+    assert_eq!(
+        types.get("eth0"),
+        Some(&protocol::responses::StatusInterfaceKind::Ethernet)
+    );
+    assert_eq!(
+        types.get("docker0"),
+        Some(&protocol::responses::StatusInterfaceKind::Other)
+    );
+}
+
+#[test]
+fn build_status_interfaces_sorts_wifi_then_ethernet_then_other() {
+    let interfaces = super::system_commands::build_status_interfaces(
+        vec![
+            ("eth0".to_string(), "10.24.6.9".to_string()),
+            ("wlan1".to_string(), "172.16.0.22".to_string()),
+            ("docker0".to_string(), "172.17.0.1".to_string()),
+            ("wlan0".to_string(), "192.168.10.2".to_string()),
+        ],
+        std::collections::HashMap::from([
+            (
+                "wlan0".to_string(),
+                protocol::responses::StatusInterfaceKind::Wifi,
+            ),
+            (
+                "wlan1".to_string(),
+                protocol::responses::StatusInterfaceKind::Wifi,
+            ),
+            (
+                "eth0".to_string(),
+                protocol::responses::StatusInterfaceKind::Ethernet,
+            ),
+        ]),
+    );
+
+    assert_eq!(interfaces.len(), 4);
+    assert_eq!(interfaces[0].ifname, "wlan0");
+    assert_eq!(interfaces[1].ifname, "wlan1");
+    assert_eq!(interfaces[2].ifname, "eth0");
+    assert_eq!(interfaces[3].ifname, "docker0");
+}
+
+#[test]
+fn preferred_ipv4_prefers_wifi_before_other_interfaces() {
+    let ip = super::system_commands::preferred_ipv4(&[
+        protocol::responses::StatusInterfaceIpv4 {
+            ifname: "eth0".to_string(),
+            kind: protocol::responses::StatusInterfaceKind::Ethernet,
+            ipv4: "10.24.6.9".to_string(),
+        },
+        protocol::responses::StatusInterfaceIpv4 {
+            ifname: "wlan0".to_string(),
+            kind: protocol::responses::StatusInterfaceKind::Wifi,
+            ipv4: "192.168.10.2".to_string(),
+        },
+    ]);
 
     assert_eq!(ip.as_deref(), Some("192.168.10.2"));
 }

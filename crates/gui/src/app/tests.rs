@@ -1,5 +1,6 @@
 use super::model::{
-    AppModel, CommandResultSummary, DiagnosticResultCard, ProvisionResultCard, UiEvent,
+    AppModel, CommandResultSummary, DiagnosticResultCard, ProvisionResultCard, ThemePreference,
+    UiEvent,
 };
 use super::reducer::reduce;
 use std::path::PathBuf;
@@ -274,4 +275,29 @@ fn macos_bundle_declares_bluetooth_usage_description() {
     assert!(plist.contains("CFBundlePackageType"));
     assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
     assert!(plist.contains("Bluetooth"));
+}
+
+#[test]
+fn app_model_defaults_to_following_system_theme() {
+    let model = AppModel::default();
+
+    assert_eq!(model.theme_preference, ThemePreference::System);
+}
+
+#[test]
+fn theme_preference_round_trips_through_settings_file() {
+    let temp_root =
+        std::env::temp_dir().join(format!("ble-gateway-theme-settings-{}", std::process::id()));
+    let settings_path = temp_root.join("settings.json");
+
+    let settings = super::settings::StoredSettings {
+        theme_preference: ThemePreference::Dark,
+    };
+    super::settings::save_settings_to_path(&settings_path, &settings).unwrap();
+    let loaded = super::settings::load_settings_from_path(&settings_path).unwrap();
+
+    assert_eq!(loaded.theme_preference, ThemePreference::Dark);
+
+    let _ = std::fs::remove_file(&settings_path);
+    let _ = std::fs::remove_dir_all(&temp_root);
 }

@@ -1,8 +1,11 @@
 use client::{BleClient, ScannedDevice};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
+const HEARTBEAT_DISCONNECT_GRACE_SECS: u64 = 12;
+
 #[derive(Default)]
-pub(super) struct WorkerState {
+pub(crate) struct WorkerState {
     discovered_client: Option<BleClient>,
     discovered_devices: Vec<ScannedDevice>,
     active_session: Option<client::BleSession>,
@@ -10,6 +13,8 @@ pub(super) struct WorkerState {
     next_scan_id: u64,
     scan_cancel_tx: Option<watch::Sender<bool>>,
     heartbeat_failures: u8,
+    heartbeat_abnormal_since: Option<Instant>,
+    heartbeat_disconnect_deadline: Option<Instant>,
 }
 
 impl WorkerState {
@@ -21,7 +26,7 @@ impl WorkerState {
         self.active_session = None;
         self.active_scan_id = Some(scan_id);
         self.scan_cancel_tx = Some(cancel_tx);
-        self.heartbeat_failures = 0;
+        self.reset_heartbeat_failures();
         scan_id
     }
 
@@ -81,7 +86,7 @@ impl WorkerState {
         self.discovered_devices.clear();
         self.active_scan_id = None;
         self.scan_cancel_tx = None;
-        self.heartbeat_failures = 0;
+        self.reset_heartbeat_failures();
     }
 
     pub(super) fn active_session_mut(&mut self) -> Option<&mut client::BleSession> {
@@ -102,11 +107,33 @@ impl WorkerState {
 
     pub(super) fn reset_heartbeat_failures(&mut self) {
         self.heartbeat_failures = 0;
+        self.heartbeat_abnormal_since = None;
+        self.heartbeat_disconnect_deadline = None;
     }
 
-    pub(super) fn record_heartbeat_failure(&mut self) -> u8 {
+    pub(crate) fn record_heartbeat_failure(&mut self, now: Instant) -> u8 {
+        if self.heartbeat_abnormal_since.is_none() {
+            self.heartbeat_abnormal_since = Some(now);
+            self.heartbeat_disconnect_deadline =
+                Some(now + Duration::from_secs(HEARTBEAT_DISCONNECT_GRACE_SECS));
+        }
         self.heartbeat_failures = self.heartbeat_failures.saturating_add(1);
         self.heartbeat_failures
+    }
+
+    #[cfg(test)]
+    pub(crate) fn heartbeat_disconnect_deadline(&self) -> Option<Instant> {
+        self.heartbeat_disconnect_deadline
+    }
+
+    pub(super) fn heartbeat_failures(&self) -> u8 {
+        self.heartbeat_failures
+    }
+
+    pub(super) fn heartbeat_deadline_elapsed(&self, now: Instant) -> bool {
+        self.heartbeat_disconnect_deadline
+            .map(|deadline| now >= deadline)
+            .unwrap_or(false)
     }
 
     pub(super) fn reset_to_idle(&mut self) {
@@ -115,7 +142,7 @@ impl WorkerState {
         self.discovered_devices.clear();
         self.active_scan_id = None;
         self.scan_cancel_tx = None;
-        self.heartbeat_failures = 0;
+        self.reset_heartbeat_failures();
     }
 }
 

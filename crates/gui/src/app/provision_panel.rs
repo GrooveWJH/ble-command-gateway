@@ -3,6 +3,7 @@ use protocol::{requests::CommandPayload, responses::WifiNetwork};
 
 use super::action_ui::{render_action_status, render_refreshing_badge, PROVISION_ACTION_SLOTS};
 use super::model::ActionSlot;
+use super::theme::{failure_color, panel_frame, success_color};
 use super::GatewayApp;
 
 impl GatewayApp {
@@ -74,7 +75,7 @@ fn render_wifi_table(ui: &mut egui::Ui, app: &mut GatewayApp) {
     }
 
     let rows = aggregate_wifi_networks(&app.model.wifi_list);
-    result_frame().show(ui, |ui| {
+    panel_frame(ui).show(ui, |ui| {
         let width = ui.available_width();
         render_wifi_header_row(ui, app, width);
         ui.separator();
@@ -211,13 +212,13 @@ fn render_provision_result(ui: &mut egui::Ui, app: &GatewayApp) {
         ui.label(egui::RichText::new(app.model.lang.t("prov_result_title")).strong());
         render_refreshing_badge(ui, &app.model, &PROVISION_ACTION_SLOTS);
     });
-    let frame = result_frame();
+    let frame = panel_frame(ui);
     frame.show(ui, |ui| {
         if let Some(result) = &app.model.provision_result {
             let status = if result.ok {
-                egui::RichText::new("OK").color(egui::Color32::from_rgb(120, 220, 130))
+                egui::RichText::new("OK").color(success_color(ui))
             } else {
-                egui::RichText::new("FAIL").color(egui::Color32::from_rgb(255, 120, 120))
+                egui::RichText::new("FAIL").color(failure_color(ui))
             };
             ui.horizontal(|ui| {
                 ui.label(format!("code: {}", result.code));
@@ -237,12 +238,4 @@ fn render_provision_result(ui: &mut egui::Ui, app: &GatewayApp) {
             ui.label(app.model.lang.t("prov_result_empty"));
         }
     });
-}
-
-fn result_frame() -> egui::Frame {
-    egui::Frame::none()
-        .fill(egui::Color32::from_rgb(22, 25, 30))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 66, 78)))
-        .inner_margin(egui::Margin::same(10.0))
-        .rounding(egui::Rounding::same(6.0))
 }

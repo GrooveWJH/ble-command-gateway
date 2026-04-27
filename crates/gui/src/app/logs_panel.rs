@@ -3,6 +3,7 @@ use eframe::egui;
 use super::action_ui::{render_action_status, LOG_ACTION_SLOTS};
 use super::model::ActionSlot;
 use super::model::{clear_logs, export_logs};
+use super::theme::{log_text_color, panel_frame};
 use super::GatewayApp;
 
 impl GatewayApp {
@@ -25,12 +26,8 @@ impl GatewayApp {
         ui.add_space(8.0);
 
         let log_font = egui::FontId::new(11.0, egui::FontFamily::Monospace);
-        let log_color = egui::Color32::from_gray(220);
-        let frame = egui::Frame::none()
-            .fill(egui::Color32::from_rgb(16, 19, 24))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 54, 64)))
-            .inner_margin(egui::Margin::same(8.0))
-            .rounding(egui::Rounding::same(6.0));
+        let log_color = log_text_color(ui);
+        let frame = panel_frame(ui).inner_margin(egui::Margin::same(8.0));
 
         frame.show(ui, |ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 2.0);
