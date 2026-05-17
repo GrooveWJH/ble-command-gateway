@@ -14,16 +14,7 @@ async fn main() -> anyhow::Result<()> {
         Application, Characteristic, CharacteristicNotify, CharacteristicNotifyMethod,
         CharacteristicWrite, CharacteristicWriteMethod, Service,
     };
-    use uuid::Uuid;
-
-    let advertised_name =
-        server::device_name::generate_device_name(protocol::config::DEFAULT_DEVICE_NAME);
-    let advertising_policy = server::advertising::default_policy();
-
-    // Protocol Definitions
-    let service_uuid = Uuid::parse_str("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")?;
-    let write_uuid = Uuid::parse_str("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")?;
-    let read_uuid = Uuid::parse_str("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")?;
+    let runtime = server::runtime::build_runtime_context()?;
 
     tracing_subscriber::fmt::init();
     info!("Starting YunDrone BLE Command Gateway (Linux Server)...");
@@ -31,14 +22,15 @@ async fn main() -> anyhow::Result<()> {
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
-    let adapter_name = adapter.name();
     let advertising_capabilities = server::advertising::probe_capabilities(&adapter).await;
-
-    info!(
-        adapter_name = %adapter_name,
-        advertised_name = %advertised_name,
-        "ble.server.starting"
-    );
+    let bluetoothd_environment = server::bluetoothd::inspect_bluetoothd_environment().await;
+    server::runtime::log_advertising_environment(
+        &adapter,
+        &advertising_capabilities,
+        &bluetoothd_environment,
+        &runtime,
+    )
+    .await;
 
     let (notify_tx, _) = broadcast::channel::<Vec<u8>>(32);
     let write_notify_tx = notify_tx.clone();
@@ -48,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     // However, writing an async handler in bluer requires registering an Io handler, but for simplicity we can use Fun.
     // Let's redefine the Write Characteristic with a Fun handler.
     let write_char_def = Characteristic {
-        uuid: write_uuid,
+        uuid: runtime.write_uuid,
         write: Some(CharacteristicWrite {
             write: true,
             write_without_response: true,
@@ -130,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let read_char_def = Characteristic {
-        uuid: read_uuid,
+        uuid: runtime.read_uuid,
         notify: Some(CharacteristicNotify {
             notify: true,
             method: CharacteristicNotifyMethod::Fun(Box::new(move |mut notifier| {
@@ -164,124 +156,48 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Application {
         services: vec![Service {
-            uuid: service_uuid,
+            uuid: runtime.service_uuid,
             primary: true,
             characteristics: vec![write_char_def, read_char_def],
             ..Default::default()
         }],
         ..Default::default()
     };
-
-    info!(
-        adapter_name = %adapter_name,
-        active_instances = ?advertising_capabilities.active_instances,
-        supported_instances = ?advertising_capabilities.supported_instances,
-        max_advertisement_length = ?advertising_capabilities.max_advertisement_length,
-        max_scan_response_length = ?advertising_capabilities.max_scan_response_length,
-        max_tx_power = ?advertising_capabilities.max_tx_power,
-        can_set_tx_power = advertising_capabilities.can_set_tx_power,
-        secondary_channels = ?advertising_capabilities.secondary_channels,
-        platform_features = ?advertising_capabilities.platform_features,
-        "ble.advertising.capabilities"
-    );
-    warn!(
-        adapter_name = %adapter_name,
-        advertised_name = %advertised_name,
-        payload_hint = %server::advertising::payload_risk_hint(
-            &advertised_name,
-            &advertising_capabilities
-        ),
-        "ble.advertising.payload_risk"
-    );
-    warn!(
-        adapter_name = %adapter_name,
-        "ble.advertising.interval_unverified"
-    );
-
-    let fast_config = server::advertising::applied_config(
-        &advertising_policy,
-        server::advertising::AdvertisingPhase::FastStart,
+    let mut advertising_session = server::runtime::start_advertising(
+        &adapter,
         &advertising_capabilities,
-    );
-    let mut adv_handle =
-        server::advertising::advertise_phase(&adapter, &advertised_name, service_uuid, fast_config)
-            .await?;
-    info!(
-        adapter_name = %adapter_name,
-        advertised_name = %advertised_name,
-        phase = server::advertising::phase_name(fast_config.phase),
-        fast_duration_secs = advertising_policy.fast_duration.as_secs(),
-        "ble.advertising.fast_start"
-    );
-    info!(
-        adapter_name = %adapter_name,
-        advertised_name = %advertised_name,
-        phase = server::advertising::phase_name(fast_config.phase),
-        min_interval = %server::advertising::interval_ms_text(fast_config.interval.min),
-        max_interval = %server::advertising::interval_ms_text(fast_config.interval.max),
-        tx_power = ?fast_config.tx_power,
-        "ble.advertising.ready"
-    );
-    info!(
-        adapter_name = %adapter_name,
-        advertised_name = %advertised_name,
-        phase = server::advertising::phase_name(fast_config.phase),
-        min_interval = %server::advertising::interval_ms_text(fast_config.interval.min),
-        max_interval = %server::advertising::interval_ms_text(fast_config.interval.max),
-        tx_power = ?fast_config.tx_power,
-        "ble.advertising.config_applied"
-    );
+        &runtime,
+        server::advertising::AdvertisingPhase::FastStart,
+    )
+    .await?;
 
     let _app_handle = adapter.serve_gatt_application(app).await?;
     info!(
-        adapter_name = %adapter_name,
-        service_uuid = %service_uuid,
-        write_uuid = %write_uuid,
-        read_uuid = %read_uuid,
+        adapter_name = %adapter.name(),
+        service_uuid = %runtime.service_uuid,
+        write_uuid = %runtime.write_uuid,
+        read_uuid = %runtime.read_uuid,
         "ble.gatt.ready"
     );
 
-    let reset_delay = tokio::time::sleep(advertising_policy.fast_duration);
+    let reset_delay = tokio::time::sleep(runtime.advertising_policy.fast_duration);
     tokio::pin!(reset_delay);
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = &mut reset_delay => {
-            drop(adv_handle);
-            let steady_config = server::advertising::applied_config(
-                &advertising_policy,
-                server::advertising::AdvertisingPhase::Steady,
-                &advertising_capabilities,
-            );
-            adv_handle = server::advertising::advertise_phase(
+            advertising_session.stop().await?;
+            advertising_session = server::runtime::start_advertising(
                 &adapter,
-                &advertised_name,
-                service_uuid,
-                steady_config,
+                &advertising_capabilities,
+                &runtime,
+                server::advertising::AdvertisingPhase::Steady,
             ).await?;
-            info!(
-                adapter_name = %adapter_name,
-                advertised_name = %advertised_name,
-                phase = server::advertising::phase_name(steady_config.phase),
-                min_interval = %server::advertising::interval_ms_text(steady_config.interval.min),
-                max_interval = %server::advertising::interval_ms_text(steady_config.interval.max),
-                tx_power = ?steady_config.tx_power,
-                "ble.advertising.reset_to_steady"
-            );
-            info!(
-                adapter_name = %adapter_name,
-                advertised_name = %advertised_name,
-                phase = server::advertising::phase_name(steady_config.phase),
-                min_interval = %server::advertising::interval_ms_text(steady_config.interval.min),
-                max_interval = %server::advertising::interval_ms_text(steady_config.interval.max),
-                tx_power = ?steady_config.tx_power,
-                "ble.advertising.config_applied"
-            );
             tokio::signal::ctrl_c().await?;
         }
     }
 
-    drop(adv_handle);
-    info!(adapter_name = %adapter_name, "ble.server.stopping");
+    advertising_session.stop().await?;
+    info!(adapter_name = %adapter.name(), "ble.server.stopping");
 
     Ok(())
 }

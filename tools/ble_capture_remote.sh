@@ -9,7 +9,7 @@ fi
 host="$1"
 sudo_password="$2"
 wait_secs="${3:-130}"
-service_name="${4:-ble-command-gateway.service}"
+service_name="${4:-yundrone-ble-command-gateway.service}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 local_root="${TMPDIR:-/tmp}/ble-int-captures/${host}-${stamp}"
 

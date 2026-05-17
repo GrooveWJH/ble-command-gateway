@@ -53,10 +53,10 @@ pub struct AppliedAdvertisingConfig {
 pub fn default_policy() -> AdvertisingPolicy {
     AdvertisingPolicy {
         fast_interval: AdvertisingInterval {
-            min: Duration::from_millis(20),
-            max: Duration::from_millis(20),
+            min: Duration::from_millis(25),
+            max: Duration::from_millis(25),
         },
-        fast_duration: Duration::from_secs(120),
+        fast_duration: Duration::from_secs(300),
         steady_interval: AdvertisingInterval {
             min: Duration::from_micros(152_500),
             max: Duration::from_micros(152_500),
@@ -86,11 +86,13 @@ pub fn applied_config(
 
 pub fn payload_risk_hint(
     advertised_name: &str,
+    short_name: &str,
     capabilities: &AdvertisingCapabilitiesSnapshot,
 ) -> String {
     format!(
-        "device_name_len={} max_adv_len={:?} max_scan_rsp_len={:?}; local_name may be truncated or shifted to scan response, do not rely on scan response for identity",
+        "full_name_len={} short_name_len={} max_adv_len={:?} max_scan_rsp_len={:?}; keep primary identity short and do not rely on scan response for full instance identity",
         advertised_name.len(),
+        short_name.len(),
         capabilities.max_advertisement_length,
         capabilities.max_scan_response_length
     )
@@ -158,14 +160,14 @@ pub async fn probe_capabilities(adapter: &Adapter) -> AdvertisingCapabilitiesSna
 
 #[cfg(target_os = "linux")]
 pub fn build_advertisement(
-    advertised_name: &str,
+    short_name: &str,
     service_uuid: Uuid,
     config: AppliedAdvertisingConfig,
 ) -> Advertisement {
     Advertisement {
         advertisement_type: bluer::adv::Type::Peripheral,
         discoverable: Some(config.discoverable),
-        local_name: Some(advertised_name.to_string()),
+        local_name: Some(short_name.to_string()),
         service_uuids: [service_uuid].into_iter().collect::<BTreeSet<_>>(),
         min_interval: Some(config.interval.min),
         max_interval: Some(config.interval.max),
@@ -177,12 +179,12 @@ pub fn build_advertisement(
 #[cfg(target_os = "linux")]
 pub async fn advertise_phase(
     adapter: &Adapter,
-    advertised_name: &str,
+    short_name: &str,
     service_uuid: Uuid,
     config: AppliedAdvertisingConfig,
 ) -> bluer::Result<AdvertisementHandle> {
     adapter
-        .advertise(build_advertisement(advertised_name, service_uuid, config))
+        .advertise(build_advertisement(short_name, service_uuid, config))
         .await
 }
 
@@ -195,13 +197,13 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn fast_phase_uses_twenty_millisecond_interval() {
+    fn fast_phase_uses_twenty_five_millisecond_interval() {
         let policy = AdvertisingPolicy {
             fast_interval: AdvertisingInterval {
-                min: Duration::from_millis(20),
-                max: Duration::from_millis(20),
+                min: Duration::from_millis(25),
+                max: Duration::from_millis(25),
             },
-            fast_duration: Duration::from_secs(120),
+            fast_duration: Duration::from_secs(300),
             steady_interval: AdvertisingInterval {
                 min: Duration::from_micros(152_500),
                 max: Duration::from_micros(152_500),
@@ -234,10 +236,10 @@ mod tests {
     fn steady_phase_drops_tx_power_when_unsupported() {
         let policy = AdvertisingPolicy {
             fast_interval: AdvertisingInterval {
-                min: Duration::from_millis(20),
-                max: Duration::from_millis(20),
+                min: Duration::from_millis(25),
+                max: Duration::from_millis(25),
             },
-            fast_duration: Duration::from_secs(120),
+            fast_duration: Duration::from_secs(300),
             steady_interval: AdvertisingInterval {
                 min: Duration::from_micros(152_500),
                 max: Duration::from_micros(152_500),
@@ -279,9 +281,10 @@ mod tests {
             platform_features: vec![],
         };
 
-        let hint = super::payload_risk_hint("Yundrone_UAV-14-20-5433", &caps);
+        let hint = super::payload_risk_hint("Yundrone_UAV-14-20-5433", "YD-5433", &caps);
 
-        assert!(hint.contains("device_name_len=23"));
+        assert!(hint.contains("full_name_len=23"));
+        assert!(hint.contains("short_name_len=7"));
         assert!(hint.contains("max_adv_len=Some(31)"));
         assert!(hint.contains("scan response"));
     }

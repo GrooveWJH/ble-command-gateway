@@ -13,35 +13,21 @@ This project allows you to send Wi-Fi credentials and retrieve system status ove
 - **Protocol Chunking**: Implements a custom chunking algorithm to reliably transmit large JSON payloads over BLE MTU limits (~360 Bytes).
 - **Headless Server**: The Linux-based server daemon (`bluer` + `nmcli`) runs as a background process to handle incoming Wi-Fi credentials and system commands.
 - **Cross-Platform Client**: Provides both a terminal UI (CLI) and a native graphical interface (`egui`) for connecting to the server.
-- **Multi-Device Friendly Naming**: The server advertises a dynamic device name in the form `Yundrone_UAV-HH-MM-ABCD`, so multiple devices booting at the same time remain distinguishable.
+- **Discoverability-First Identity**: The server uses a short primary BLE name such as `YD-A3FB` for reliable discovery, while preserving the full dynamic instance name `Yundrone_UAV-HH-MM-ABCD` in logs and post-connect context.
 - **Memory Safety**: Built with Rust and `tokio` to ensure safe, concurrent handling of Bluetooth I/O and UI rendering.
 
 ## Installation And Deployment
 
-This project has two roles:
-
-- `server`: runs on the target Linux device and advertises itself over BLE
-- `client` / `gui`: runs on your laptop or workstation and connects to the server
-
-The safest order is:
-
-1. Install the Rust toolchain
-2. Build and deploy the Linux `server`
-3. Build and run either the `client` CLI or the `gui`
+This project has two roles: `server` on the target Linux device, and `client` / `gui` on your workstation. Recommended order: install Rust, deploy the Linux `server`, then run `client` or `gui`.
 
 ### 1. Install the Rust toolchain
 
 #### macOS
 
-Install Apple's command-line developer tools first:
+Install Apple's command-line developer tools, then Rust:
 
 ```bash
 xcode-select --install
-```
-
-Then install Rust:
-
-```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 source "$HOME/.cargo/env"
 rustup default stable
@@ -52,16 +38,11 @@ cargo --version
 
 #### Ubuntu / Debian
 
-Install native build dependencies first:
+Install native build dependencies, then Rust:
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential pkg-config libdbus-1-dev libudev-dev
-```
-
-Then install Rust:
-
-```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 source "$HOME/.cargo/env"
 rustup default stable
@@ -72,7 +53,7 @@ cargo --version
 
 #### Windows
 
-Install Visual Studio Build Tools with the C++ toolchain first, then install Rust:
+Install Visual Studio Build Tools with the C++ toolchain, then Rust:
 
 ```powershell
 winget install Rustlang.Rustup
@@ -91,17 +72,11 @@ cd ble-command-gateway
 
 ### 3. Deploy the Linux server
 
-The `server` crate is Linux-only. It is intended for the headless device that will receive Wi-Fi credentials and status commands over BLE.
+The `server` crate is Linux-only and is intended for the headless device that will receive Wi-Fi credentials and status commands over BLE.
 
 #### 3.1 Install Linux runtime dependencies on the target device
 
-At minimum, the target device needs:
-
-- BlueZ / `bluetoothd`
-- `NetworkManager` and `nmcli`
-- `pkg-config` and `libdbus-1-dev` if you build on-device
-
-Example on Ubuntu-based devices:
+At minimum, the target device needs BlueZ / `bluetoothd`, `NetworkManager` / `nmcli`, and if you build on-device, `pkg-config` plus `libdbus-1-dev`. Example on Ubuntu-based devices:
 
 ```bash
 sudo apt update
@@ -117,11 +92,7 @@ source "$HOME/.cargo/env"
 cargo build --release -p server
 ```
 
-The resulting binary will be:
-
-```text
-target/release/server
-```
+The resulting binary is `target/release/server`.
 
 #### 3.3 Test the server manually before systemd
 
@@ -129,16 +100,10 @@ target/release/server
 sudo ./target/release/server
 ```
 
-When startup succeeds, the log should include:
-
-- `ble.server.starting`
-- `ble.advertising.ready`
-- `ble.gatt.ready`
-
-The log also prints the real advertised BLE name, for example:
+When startup succeeds, the log should include `ble.server.starting`, `ble.advertising.ready`, and `ble.gatt.ready`. It also prints both the full instance identity and the short primary BLE name, for example:
 
 ```text
-Yundrone_UAV-15-19-A7F2
+advertised_name=Yundrone_UAV-15-19-A7F2 short_name=YD-A7F2
 ```
 
 #### 3.4 Install the systemd service
@@ -146,34 +111,29 @@ Yundrone_UAV-15-19-A7F2
 The repository ships a ready-to-edit unit file:
 
 ```text
-deploy/systemd/ble-command-gateway.service
+deploy/systemd/yundrone-ble-command-gateway.service
 ```
 
 Typical install flow:
 
 ```bash
-sudo cp deploy/systemd/ble-command-gateway.service /etc/systemd/system/
+sudo cp deploy/systemd/yundrone-ble-command-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ble-command-gateway.service
+sudo systemctl enable --now yundrone-ble-command-gateway.service
 ```
 
 Check service status and logs:
 
 ```bash
-sudo systemctl status ble-command-gateway.service --no-pager
-sudo journalctl -u ble-command-gateway.service -f
+sudo systemctl status yundrone-ble-command-gateway.service --no-pager
+sudo journalctl -u yundrone-ble-command-gateway.service -f
 ```
 
 For a full walkthrough, see [docs/systemd.md](./docs/systemd.md).
 
 ### 4. Install and run the client
 
-The project provides two client-side entrypoints:
-
-- `gui`: graphical desktop app for scanning, provisioning, diagnostics, and logs
-- `client`: interactive CLI for terminal-driven workflows
-
-You can build both with:
+The project provides two client-side entrypoints: `gui` for the desktop app, and `client` for the interactive CLI. Build both with:
 
 ```bash
 cargo build --release -p gui -p client
@@ -181,17 +141,7 @@ cargo build --release -p gui -p client
 
 #### 4.1 Run the GUI
 
-Development run:
-
-```bash
-cargo run -p gui
-```
-
-Release run:
-
-```bash
-./target/release/gui
-```
+Run the GUI in development with `cargo run -p gui`, or in release with `./target/release/gui`.
 
 Package a double-clickable macOS app bundle:
 
@@ -201,30 +151,20 @@ chmod +x scripts/package-macos-gui.sh
 open "target/release/YunDrone BLE Gateway.app"
 ```
 
-This command builds the release GUI binary, stages a proper `.app` bundle, copies the project `Info.plist`, and applies an ad-hoc signature so Finder can launch it as a normal macOS app.
+This builds the release GUI binary, stages a proper `.app` bundle, copies the project `Info.plist`, and applies an ad-hoc signature so Finder can launch it as a normal macOS app.
 
 Usage flow:
 
 1. Enter the stable prefix `Yundrone_UAV`
 2. Click scan
-3. Select the exact BLE instance from the candidate list
+3. Select the matching `YD-*` or full `Yundrone_UAV-*` candidate from the list
 4. Use the provisioning and diagnostic panels after the connection is established
 
 On macOS, the GUI will relaunch itself through a signed `.app` wrapper so Bluetooth permissions are requested through a proper app bundle.
 
 #### 4.2 Run the CLI
 
-Development run:
-
-```bash
-cargo run -p client -- --lang en
-```
-
-Release run:
-
-```bash
-./target/release/client --lang en
-```
+Run the CLI in development with `cargo run -p client -- --lang en`, or in release with `./target/release/client --lang en`.
 
 The CLI scans by prefix, lists every matching BLE instance with RSSI, and lets you choose the exact device before connecting.
 
@@ -265,9 +205,14 @@ Legacy Python service entrypoints have been removed. The repository no longer sh
 
 ## Troubleshooting
 
-### Linux server: advertising interval may be ignored on some BlueZ setups
+### Linux server: discoverability-first advertising requires `bluetoothd --experimental`
 
-On some Linux devices, the server may log a fast advertising interval such as `20 ms`, while the controller still ends up advertising at a much slower default interval.
+The Linux server now assumes a discoverability-first BLE profile:
+
+- fast-start interval: `25 ms`
+- fast-start duration: `300 s`
+- steady interval: `152.5 ms`
+- short primary advertising name: `YD-XXXX`
 
 This was observed on an `OrangePi 4 Pro` running:
 
@@ -284,15 +229,17 @@ the requested advertising interval was correctly propagated to mgmt/HCI on that 
 
 Important:
 
-- This is documented here as a possible platform-specific issue, not as a guaranteed problem on every Linux device.
-- If you see server logs claiming `20 ms` but discovery still feels unusually slow, inspect the real HCI parameters instead of trusting the application log alone.
+- This is a deployment requirement for the discoverability-first profile.
+- If you see server logs claiming `25 ms` but discovery still feels unusually slow, inspect the real HCI parameters instead of trusting the application log alone.
+- Do not rely on the full dynamic instance name being present in scan response; the short primary name is the reliable on-air identity.
 
 Recommended workaround on affected machines:
 
 1. Add a systemd override for `bluetooth.service` so `bluetoothd` starts with `--experimental`
 2. Restart `bluetooth.service`
-3. Restart `ble-command-gateway.service`
+3. Restart `yundrone-ble-command-gateway.service`
 4. Verify with `btmon` that `LE Set Extended Advertising Parameters` now shows the requested interval
+5. Verify that the primary advertising name is the short identity, such as `YD-A3FB`
 
 Example override:
 

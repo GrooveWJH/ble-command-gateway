@@ -7,6 +7,7 @@ Wants=bluetooth.service NetworkManager.service
 Type=simple
 User=root
 WorkingDirectory=/opt/ble-command-gateway
+Environment=YUNDRONE_BLE_ADV_BACKEND=legacy-hci
 ExecStart=/opt/ble-command-gateway/target/release/server
 Restart=on-failure
 RestartSec=5

@@ -2,7 +2,7 @@
 
 本项目提供了一个 systemd 单元服务模板，用于在边缘设备（如 Jetson Orin / 树莓派）上部署 Rust 服务端。
 
-- 模板位置：`deploy/systemd/ble-command-gateway.service`
+- 模板位置：`deploy/systemd/yundrone-ble-command-gateway.service`
 
 ## 1) 安装构建依赖
 
@@ -53,16 +53,16 @@ WantedBy=multi-user.target
 安装命令：
 
 ```bash
-sudo cp deploy/systemd/ble-command-gateway.service /etc/systemd/system/
+sudo cp deploy/systemd/yundrone-ble-command-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ble-command-gateway.service
+sudo systemctl enable --now yundrone-ble-command-gateway.service
 ```
 
 ## 4) 查看状态与日志
 
 ```bash
-sudo systemctl status ble-command-gateway.service --no-pager
-sudo journalctl -u ble-command-gateway.service -f
+sudo systemctl status yundrone-ble-command-gateway.service --no-pager
+sudo journalctl -u yundrone-ble-command-gateway.service -f
 ```
 
 服务启动后，日志中会打印结构化关键事件。部署验证时，至少应看到下面这些关键字：
@@ -78,24 +78,24 @@ sudo journalctl -u ble-command-gateway.service -f
 - `ble.response.sent`
   需要同时带出 `request_id`、`cmd`、`response_code`、`chunk_count`
 
-部署验证时请记录日志里的 `advertised_name`，例如 `Yundrone_UAV-15-19-A7F2`，然后在 CLI / GUI 中按前缀 `Yundrone_UAV` 扫描，再从候选列表里选择对应实例。
+部署验证时请记录日志里的 `advertised_name` 与 `short_name`，例如 `advertised_name=Yundrone_UAV-15-19-A7F2 short_name=YD-A7F2`，然后在 CLI / GUI 中按前缀 `Yundrone_UAV` 扫描，再从候选列表里选择对应实例。
 
 建议直接用下面的命令过滤关键日志：
 
 ```bash
-sudo journalctl -u ble-command-gateway.service -f | rg 'ble\\.(server|advertising|gatt|request|response)'
+sudo journalctl -u yundrone-ble-command-gateway.service -f | rg 'ble\\.(server|advertising|gatt|request|response)'
 ```
 
 若要核对某次请求的完整链路，可按 `request_id` 过滤：
 
 ```bash
-sudo journalctl -u ble-command-gateway.service --since "10 min ago" | rg 'request_id='
+sudo journalctl -u yundrone-ble-command-gateway.service --since "10 min ago" | rg 'request_id='
 ```
 
 若启动失败，请优先检查：
 
 ```bash
-sudo journalctl -u ble-command-gateway.service -n 100 --no-pager
+sudo journalctl -u yundrone-ble-command-gateway.service -n 100 --no-pager
 ```
 
 常见阻塞项：
@@ -105,11 +105,11 @@ sudo journalctl -u ble-command-gateway.service -n 100 --no-pager
 
 ## 5) BlueZ 广告 interval 排障提示
 
-在部分 Linux 设备上，server 日志虽然会打印快刀广告 interval，例如 `20 ms`，但控制器最终可能仍以默认慢 interval 广播。
+在部分 Linux 设备上，server 日志虽然会打印快刀广告 interval，例如 `25 ms`，但控制器最终可能仍以默认慢 interval 广播。
 
 我们在 `OrangePi 4 Pro` + BlueZ `5.64` 上实测过一种情况：如果 `bluetoothd` 未带 `--experimental` 启动，BlueZ 会看到 D-Bus 广告对象中的 `MinInterval` / `MaxInterval`，但不会把它们继续下发到 mgmt/HCI。
 
-这不是当前已知会在所有 Linux 设备上必现的问题，但如果你看到“应用日志说自己在快刀广播，实机却很难被扫描到”，建议按下面步骤核对。
+这已经是发现优先部署配置中的重点核对项。如果你看到“应用日志说自己在快刀广播，实机却很难被扫描到”，建议按下面步骤核对。
 
 ### 建议排查步骤
 
@@ -134,17 +134,18 @@ ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart bluetooth.service
-sudo systemctl restart ble-command-gateway.service
+sudo systemctl restart yundrone-ble-command-gateway.service
 ```
 
 4. 再次用 `btmon` 验证 interval 是否真正变化
+5. 同时确认主广播 local name 是短身份，如 `YD-A3FB`
 
 如果你的板卡本来就能正确应用 `MinInterval` / `MaxInterval`，则不需要为此调整系统配置。
 
 ## 6) 禁用与卸载
 
 ```bash
-sudo systemctl disable --now ble-command-gateway.service
-sudo rm -f /etc/systemd/system/ble-command-gateway.service
+sudo systemctl disable --now yundrone-ble-command-gateway.service
+sudo rm -f /etc/systemd/system/yundrone-ble-command-gateway.service
 sudo systemctl daemon-reload
 ```

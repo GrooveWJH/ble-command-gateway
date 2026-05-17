@@ -15,7 +15,7 @@
 ## 主要公开接口
 
 - `BleClient::scan_candidates(prefix, timeout_secs)`
-  返回命中前缀的候选设备列表
+  返回命中 UART service 且名称匹配稳定前缀/短主身份的候选设备列表
 - `BleClient::scan_candidates_with_progress(prefix, timeout_secs, on_event)`
   扫描期间通过 `ScanProgressEvent` 实时上报已发现的命名设备，适合 GUI Raw Logs
 - `BleClient::connect_session(device)`
@@ -58,6 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-服务端默认广播名是动态实例名，例如 `Yundrone_UAV-15-19-A7F2`。推荐始终按稳定前缀扫描，再由 CLI / GUI 让用户选择最终设备，而不是默认连第一个命中项。
+服务端默认会把短主广播名（如 `YD-A7F2`）放进 primary advertising，同时把完整实例身份保留为 `Yundrone_UAV-15-19-A7F2`。推荐始终按稳定前缀扫描，再由 CLI / GUI 让用户选择最终设备，而不是默认连第一个命中项。
 
 如果你只需要发送底层字节，仍可使用 `session.send_payload(...)`；但正式命令链路推荐统一走 `prepare_request(...) + send_request(...)`，这样 request ID、日志字段和协议兼容性会保持一致。
