@@ -1,7 +1,6 @@
 use anyhow::Result;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
-#[cfg(any(target_os = "macos", test))]
 use std::path::PathBuf as ReplayPathBuf;
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};

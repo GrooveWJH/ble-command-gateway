@@ -88,7 +88,7 @@ pub async fn log_advertising_environment(
         "ble.server.starting"
     );
     crate::log_view::emit_block(&crate::log_view::startup_block(
-        &adapter_name,
+        adapter_name,
         &context.identity.name,
         context.identity_source.as_str(),
         context.advertising_backend.as_str(),
@@ -171,7 +171,7 @@ pub async fn start_advertising(
         ),
         crate::advertising_backend::AdvertisingBackend::LegacyHci => AdvertisingSession::Legacy(
             crate::legacy_hci::start_legacy_advertising(
-                &adapter_name,
+                adapter_name,
                 &context.identity.name,
                 context.service_uuid,
                 config.interval,
@@ -215,7 +215,7 @@ pub async fn start_advertising(
     crate::log_view::emit_block(&crate::log_view::advertising_block(
         &crate::log_view::AdvertisingLogView {
             title: "BLE advertising",
-            adapter_name: &adapter_name,
+            adapter_name,
             identity_name: &context.identity.name,
             phase: crate::advertising::phase_name(config.phase),
             min_interval: &crate::advertising::interval_ms_text(config.interval.min),

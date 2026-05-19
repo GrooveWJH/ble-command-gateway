@@ -213,10 +213,10 @@ mod tests {
         let payload = build_primary_payload("yundrone-ytcwln").unwrap();
 
         assert_eq!(&payload[..3], &[0x02, 0x01, 0x06]);
-        assert_eq!(payload[3], 20);
+        assert_eq!(payload[3], 16);
         assert_eq!(payload[4], 0x09);
         assert_eq!(&payload[5..], b"yundrone-ytcwln");
-        assert_eq!(payload.len(), 24);
+        assert_eq!(payload.len(), 20);
     }
 
     #[test]
