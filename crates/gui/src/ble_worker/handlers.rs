@@ -76,6 +76,21 @@ pub(super) async fn handle_connect_to_candidate(
 
 pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut WorkerState) {
     let Some(session) = state.take_active_session() else {
+        state.reset_to_idle();
+        emit(
+            ui_tx,
+            UiEvent::Disconnected {
+                reason: DisconnectReason::Manual,
+            },
+        );
+        emit(
+            ui_tx,
+            UiEvent::ActionSucceeded {
+                slot: ActionSlot::Disconnect,
+                request_id: None,
+                detail: None,
+            },
+        );
         return;
     };
     emit(
@@ -118,7 +133,11 @@ pub(super) async fn handle_disconnect(ui_tx: &Sender<UiEvent>, state: &mut Worke
         }
         Err(_) => emit(
             ui_tx,
-            UiEvent::Error("Disconnect fail: timed out after 2s".to_string()),
+            UiEvent::ActionSucceeded {
+                slot: ActionSlot::Disconnect,
+                request_id: None,
+                detail: disconnect_success_detail(&device_name),
+            },
         ),
     }
 }
@@ -171,20 +190,14 @@ pub(super) async fn handle_send_command(
         UiEvent::Log(command_sent_log(command_name, &request.request.id)),
     );
 
-    if let Err(err) = session.send_request(&request).await {
-        emit(
-            ui_tx,
-            UiEvent::ActionFailed {
-                slot,
-                request_id: Some(request.request.id.clone()),
-                error: format!("Write fail: {}", err),
-            },
-        );
-        emit(ui_tx, UiEvent::Error(format!("Write fail: {}", err)));
-        return;
-    }
-
-    match session.next_response(30).await {
+    match session
+        .run_request_until_final(&request, 30, |event| {
+            if !event.final_flag {
+                emit(ui_tx, UiEvent::Log(super::events::response_log_line(event)));
+            }
+        })
+        .await
+    {
         Ok(response) => {
             info!(
                 device_name = %session.device_name(),

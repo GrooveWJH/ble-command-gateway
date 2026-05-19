@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 mod command_runner;
 mod network;
 mod system_commands;
+mod wifi_profiles;
 
 #[cfg(test)]
 mod tests;
@@ -44,30 +45,43 @@ impl SystemExecResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceContext {
+    pub device_name: String,
+}
+
+impl ServiceContext {
+    pub fn new(device_name: impl Into<String>) -> Self {
+        Self {
+            device_name: device_name.into(),
+        }
+    }
+}
+
 pub async fn run_payload_command(
+    context: &ServiceContext,
     payload: &protocol::requests::CommandPayload,
     timeout_sec: f64,
 ) -> SystemExecResult {
     match payload {
-        protocol::requests::CommandPayload::Help => system_commands::run_help(),
-        protocol::requests::CommandPayload::Ping => system_commands::run_ping(),
-        protocol::requests::CommandPayload::Status => {
-            system_commands::run_status(timeout_sec).await
+        protocol::requests::CommandPayload::SystemCapabilities => {
+            system_commands::run_capabilities()
         }
-        protocol::requests::CommandPayload::SysWhoAmI => {
-            system_commands::run_effective_user(timeout_sec).await
-        }
-        protocol::requests::CommandPayload::NetIfconfig { ifname } => {
-            system_commands::run_ifconfig(ifname.as_deref(), timeout_sec).await
+        protocol::requests::CommandPayload::LinkHeartbeat => system_commands::run_heartbeat(),
+        protocol::requests::CommandPayload::SystemStatus => {
+            system_commands::run_status(context, timeout_sec).await
         }
         protocol::requests::CommandPayload::WifiScan { ifname } => {
             network::run_wifi_scan(ifname.as_deref()).await
         }
-        protocol::requests::CommandPayload::Provision { ssid, pwd } => {
+        protocol::requests::CommandPayload::WifiProvision { ssid, pwd } => {
             network::run_wifi_provision(ssid, pwd.as_deref()).await
         }
-        protocol::requests::CommandPayload::Shutdown => {
-            run_system_command(vec!["shutdown", "-h", "now"], timeout_sec).await
+        protocol::requests::CommandPayload::WifiProfilesList => {
+            wifi_profiles::run_wifi_profiles_list().await
+        }
+        protocol::requests::CommandPayload::WifiProfilesDelete { uuids, force } => {
+            wifi_profiles::run_wifi_profiles_delete(uuids, *force).await
         }
     }
 }

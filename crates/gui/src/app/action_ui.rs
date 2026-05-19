@@ -9,10 +9,14 @@ pub(crate) const DEVICE_ACTION_SLOTS: [ActionSlot; 3] = [
     ActionSlot::Connect,
     ActionSlot::Disconnect,
 ];
-pub(crate) const PROVISION_ACTION_SLOTS: [ActionSlot; 2] =
-    [ActionSlot::WifiScan, ActionSlot::Provision];
-pub(crate) const DIAGNOSTIC_ACTION_SLOTS: [ActionSlot; 3] =
-    [ActionSlot::Status, ActionSlot::Ping, ActionSlot::Help];
+pub(crate) const PROVISION_ACTION_SLOTS: [ActionSlot; 4] = [
+    ActionSlot::WifiScan,
+    ActionSlot::Provision,
+    ActionSlot::WifiProfilesList,
+    ActionSlot::WifiProfilesDelete,
+];
+pub(crate) const DIAGNOSTIC_ACTION_SLOTS: [ActionSlot; 2] =
+    [ActionSlot::Status, ActionSlot::Capabilities];
 pub(crate) const LOG_ACTION_SLOTS: [ActionSlot; 3] = [
     ActionSlot::RawSend,
     ActionSlot::LogsCopy,
@@ -100,12 +104,14 @@ fn running_text(lang: Lang, slot: ActionSlot) -> &'static str {
         (Lang::En, ActionSlot::WifiScan) => "Scanning nearby Wi-Fi...",
         (Lang::Zh, ActionSlot::Provision) => "正在发送配网请求...",
         (Lang::En, ActionSlot::Provision) => "Sending provisioning request...",
+        (Lang::Zh, ActionSlot::WifiProfilesList) => "正在读取已保存 Wi-Fi...",
+        (Lang::En, ActionSlot::WifiProfilesList) => "Loading saved Wi-Fi profiles...",
+        (Lang::Zh, ActionSlot::WifiProfilesDelete) => "正在删除选中的 Wi-Fi 记忆...",
+        (Lang::En, ActionSlot::WifiProfilesDelete) => "Deleting selected Wi-Fi profiles...",
         (Lang::Zh, ActionSlot::Status) => "正在抓取系统信息...",
         (Lang::En, ActionSlot::Status) => "Fetching system info...",
-        (Lang::Zh, ActionSlot::Ping) => "正在执行连通性测试...",
-        (Lang::En, ActionSlot::Ping) => "Running reachability test...",
-        (Lang::Zh, ActionSlot::Help) => "正在请求远程支持信息...",
-        (Lang::En, ActionSlot::Help) => "Requesting remote help...",
+        (Lang::Zh, ActionSlot::Capabilities) => "正在读取协议能力...",
+        (Lang::En, ActionSlot::Capabilities) => "Fetching protocol capabilities...",
         (Lang::Zh, ActionSlot::RawSend) => "正在发送原始负载...",
         (Lang::En, ActionSlot::RawSend) => "Sending raw payload...",
         (Lang::Zh, ActionSlot::LogsCopy) => "正在复制日志...",
@@ -143,12 +149,20 @@ fn success_text(lang: Lang, feedback: &ActionFeedback) -> String {
         }
         (Lang::Zh, ActionSlot::Provision) => "配网请求已完成。".into(),
         (Lang::En, ActionSlot::Provision) => "Provision request completed.".into(),
+        (Lang::Zh, ActionSlot::WifiProfilesList) => {
+            format!("已读取 {} 个 Wi-Fi 记忆。", detail.unwrap_or("0"))
+        }
+        (Lang::En, ActionSlot::WifiProfilesList) => {
+            format!("Loaded {} saved Wi-Fi profile(s).", detail.unwrap_or("0"))
+        }
+        (Lang::Zh, ActionSlot::WifiProfilesDelete) => "Wi-Fi 记忆删除请求已完成。".into(),
+        (Lang::En, ActionSlot::WifiProfilesDelete) => {
+            "Wi-Fi profile delete request completed.".into()
+        }
         (Lang::Zh, ActionSlot::Status) => "系统信息已更新。".into(),
         (Lang::En, ActionSlot::Status) => "System info updated.".into(),
-        (Lang::Zh, ActionSlot::Ping) => "连通性测试已完成。".into(),
-        (Lang::En, ActionSlot::Ping) => "Reachability test completed.".into(),
-        (Lang::Zh, ActionSlot::Help) => "远程支持信息已更新。".into(),
-        (Lang::En, ActionSlot::Help) => "Remote help updated.".into(),
+        (Lang::Zh, ActionSlot::Capabilities) => "协议能力已更新。".into(),
+        (Lang::En, ActionSlot::Capabilities) => "Protocol capabilities updated.".into(),
         (Lang::Zh, ActionSlot::RawSend) => "原始负载已写入 BLE 特征。".into(),
         (Lang::En, ActionSlot::RawSend) => "Raw payload written to BLE characteristic.".into(),
         (Lang::Zh, ActionSlot::LogsCopy) => "日志已复制。".into(),

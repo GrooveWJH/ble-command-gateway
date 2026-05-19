@@ -8,9 +8,14 @@ pub enum AdvertisingBackend {
 
 impl AdvertisingBackend {
     pub fn from_env() -> Self {
-        match env::var("YUNDRONE_BLE_ADV_BACKEND") {
-            Ok(value) if value.eq_ignore_ascii_case("legacy-hci") => Self::LegacyHci,
-            _ => Self::BluezDbus,
+        Self::from_value(env::var("YUNDRONE_BLE_ADV_BACKEND").ok().as_deref())
+    }
+
+    fn from_value(value: Option<&str>) -> Self {
+        if matches!(value, Some(value) if value.eq_ignore_ascii_case("legacy-hci")) {
+            Self::LegacyHci
+        } else {
+            Self::BluezDbus
         }
     }
 
@@ -28,17 +33,17 @@ mod tests {
 
     #[test]
     fn defaults_to_bluez_dbus_backend() {
-        std::env::remove_var("YUNDRONE_BLE_ADV_BACKEND");
-
-        assert_eq!(AdvertisingBackend::from_env(), AdvertisingBackend::BluezDbus);
+        assert_eq!(
+            AdvertisingBackend::from_value(None),
+            AdvertisingBackend::BluezDbus
+        );
     }
 
     #[test]
-    fn accepts_legacy_hci_backend_from_env() {
-        std::env::set_var("YUNDRONE_BLE_ADV_BACKEND", "legacy-hci");
-
-        assert_eq!(AdvertisingBackend::from_env(), AdvertisingBackend::LegacyHci);
-
-        std::env::remove_var("YUNDRONE_BLE_ADV_BACKEND");
+    fn accepts_legacy_hci_backend_from_value() {
+        assert_eq!(
+            AdvertisingBackend::from_value(Some("legacy-hci")),
+            AdvertisingBackend::LegacyHci
+        );
     }
 }

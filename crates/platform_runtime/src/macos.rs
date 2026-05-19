@@ -1,6 +1,8 @@
 use anyhow::Result;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
+#[cfg(any(target_os = "macos", test))]
+use std::path::PathBuf as ReplayPathBuf;
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
@@ -29,6 +31,8 @@ pub enum RuntimeLaunchOutcome {
 pub struct RelaunchCommand {
     pub program: String,
     pub args: Vec<String>,
+    pub replay_stdout: Option<ReplayPathBuf>,
+    pub replay_stderr: Option<ReplayPathBuf>,
 }
 
 pub fn prepare_gui_runtime(app: &AppRuntime) -> Result<RuntimeLaunchOutcome> {
@@ -87,18 +91,53 @@ fn build_relaunch_command(
 ) -> RelaunchCommand {
     let mut open_args = vec!["-n".to_string()];
     if mode == RuntimeMode::Cli {
-        open_args.push("-W".to_string());
+        let replay_stdout = relaunch_output_path("stdout");
+        let replay_stderr = relaunch_output_path("stderr");
+        open_args.extend([
+            "-W".to_string(),
+            "-o".to_string(),
+            replay_stdout.display().to_string(),
+            "--stderr".to_string(),
+            replay_stderr.display().to_string(),
+        ]);
+        open_args.push(bundle_root.to_string());
+        if !args.is_empty() {
+            open_args.push("--args".to_string());
+            open_args.extend(args.iter().cloned());
+        }
+        return RelaunchCommand {
+            program: "/usr/bin/open".to_string(),
+            args: open_args,
+            replay_stdout: Some(replay_stdout),
+            replay_stderr: Some(replay_stderr),
+        };
     }
     open_args.push(bundle_root.to_string());
-    if mode == RuntimeMode::Cli && !args.is_empty() {
-        open_args.push("--args".to_string());
-        open_args.extend(args.iter().cloned());
-    }
 
     RelaunchCommand {
         program: "/usr/bin/open".to_string(),
         args: open_args,
+        replay_stdout: None,
+        replay_stderr: None,
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn relaunch_output_path(stream_name: &str) -> ReplayPathBuf {
+    let unique = format!(
+        "yundrone-cli-{}-{}-{stream_name}.log",
+        std::process::id(),
+        uuid_like_timestamp()
+    );
+    std::env::temp_dir().join(unique)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn uuid_like_timestamp() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
 }
 
 #[cfg(target_os = "macos")]
@@ -172,14 +211,33 @@ fn run_relaunch_command(command: RelaunchCommand) -> Result<()> {
         .with_context(|| format!("launch {}", command.program))?;
 
     if status.success() {
+        replay_relaunch_output(&command)?;
         Ok(())
     } else {
+        let _ = replay_relaunch_output(&command);
         Err(anyhow::anyhow!(
             "{} failed with args {:?}",
             command.program,
             command.args
         ))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn replay_relaunch_output(command: &RelaunchCommand) -> Result<()> {
+    if let Some(path) = &command.replay_stdout {
+        if let Ok(output) = std::fs::read_to_string(path) {
+            print!("{output}");
+        }
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(path) = &command.replay_stderr {
+        if let Ok(output) = std::fs::read_to_string(path) {
+            eprint!("{output}");
+        }
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -193,17 +251,15 @@ mod tests {
 
     #[test]
     fn gui_relaunch_uses_open_without_cli_args() {
-        let command =
-            build_relaunch_command(RuntimeMode::Gui, "/tmp/YunDrone BLE Gateway.app", &[]);
+        let command = build_relaunch_command(RuntimeMode::Gui, "/tmp/yundrone-ble-client.app", &[]);
 
         assert_eq!(
             command,
             RelaunchCommand {
                 program: "/usr/bin/open".to_string(),
-                args: vec![
-                    "-n".to_string(),
-                    "/tmp/YunDrone BLE Gateway.app".to_string()
-                ],
+                args: vec!["-n".to_string(), "/tmp/yundrone-ble-client.app".to_string()],
+                replay_stdout: None,
+                replay_stderr: None,
             }
         );
     }
@@ -212,24 +268,23 @@ mod tests {
     fn cli_relaunch_passes_through_original_args() {
         let command = build_relaunch_command(
             RuntimeMode::Cli,
-            "/tmp/YunDrone BLE Client.app",
+            "/tmp/yundrone-ble-client.app",
             &["--target".to_string(), "Yundrone_UAV".to_string()],
         );
 
-        assert_eq!(
-            command,
-            RelaunchCommand {
-                program: "/usr/bin/open".to_string(),
-                args: vec![
-                    "-n".to_string(),
-                    "-W".to_string(),
-                    "/tmp/YunDrone BLE Client.app".to_string(),
-                    "--args".to_string(),
-                    "--target".to_string(),
-                    "Yundrone_UAV".to_string(),
-                ],
-            }
-        );
+        assert_eq!(command.program, "/usr/bin/open");
+        assert_eq!(command.args[0], "-n");
+        assert_eq!(command.args[1], "-W");
+        assert_eq!(command.args[2], "-o");
+        assert!(command.args[3].contains("yundrone-cli-"));
+        assert_eq!(command.args[4], "--stderr");
+        assert!(command.args[5].contains("yundrone-cli-"));
+        assert_eq!(command.args[6], "/tmp/yundrone-ble-client.app");
+        assert_eq!(command.args[7], "--args");
+        assert_eq!(command.args[8], "--target");
+        assert_eq!(command.args[9], "Yundrone_UAV");
+        assert!(command.replay_stdout.is_some());
+        assert!(command.replay_stderr.is_some());
     }
 
     #[cfg(target_os = "macos")]
@@ -243,11 +298,11 @@ mod tests {
     #[test]
     fn derives_bundle_root_next_to_debug_executable() {
         let executable = Path::new("/tmp/target/debug/gui");
-        let bundle_root = app_bundle_root(executable, "YunDrone BLE Gateway.app").unwrap();
+        let bundle_root = app_bundle_root(executable, "yundrone-ble-client.app").unwrap();
 
         assert_eq!(
             bundle_root,
-            Path::new("/tmp/target/debug/YunDrone BLE Gateway.app")
+            Path::new("/tmp/target/debug/yundrone-ble-client.app")
         );
     }
 }

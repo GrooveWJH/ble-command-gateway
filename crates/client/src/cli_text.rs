@@ -31,6 +31,8 @@ impl Lang {
             (Lang::Zh, "opt_scan") => "🔍 扫描周边 Wi-Fi 信号",
             (Lang::En, "opt_prov") => "🔑 Provision Wi-Fi",
             (Lang::Zh, "opt_prov") => "🔑 下发核心网配网卡",
+            (Lang::En, "opt_profiles") => "🧹 Manage saved Wi-Fi profiles",
+            (Lang::Zh, "opt_profiles") => "🧹 管理已保存 Wi-Fi",
             (Lang::En, "opt_exit") => "🚪 Exit",
             (Lang::Zh, "opt_exit") => "🚪 退出",
             (Lang::En, "prompt_menu") => "Select an operation:",
@@ -39,6 +41,14 @@ impl Lang {
             (Lang::Zh, "prmpt_ssid") => "请输入需连接到的 Wi-Fi 账号 (SSID):",
             (Lang::En, "prmpt_pwd") => "Enter Wi-Fi Password (hidden):",
             (Lang::Zh, "prmpt_pwd") => "请输入 Wi-Fi 密码 (隐藏输入不显示):",
+            (Lang::En, "profiles_empty") => "No saved Wi-Fi profiles were reported.",
+            (Lang::Zh, "profiles_empty") => "设备未返回已保存 Wi-Fi 记忆。",
+            (Lang::En, "profiles_no_deletable") => "Only active/protected profiles were found; nothing can be deleted from the CLI default flow.",
+            (Lang::Zh, "profiles_no_deletable") => "只发现当前活动或受保护的 Wi-Fi 记忆；CLI 默认流程不会删除它们。",
+            (Lang::En, "profiles_select_delete") => "Select saved Wi-Fi profiles to delete:",
+            (Lang::Zh, "profiles_select_delete") => "请选择要删除的已保存 Wi-Fi 记忆:",
+            (Lang::En, "profiles_delete_skipped") => "No profile selected; delete skipped.",
+            (Lang::Zh, "profiles_delete_skipped") => "未选择任何 Wi-Fi 记忆，已跳过删除。",
             _ => key,
         }
     }

@@ -2,36 +2,63 @@ use super::{
     command_runner::{run_command_with_timeout, CommandRunStatus},
     map_run_output,
     network::{finalize_wifi_provision, parse_nmcli_wifi_list},
-    run_payload_command, SystemExecResult,
+    run_payload_command,
+    wifi_profiles::{parse_nmcli_wifi_profiles, plan_wifi_profile_deletions},
+    SystemExecResult,
 };
 
+fn test_service_context() -> super::ServiceContext {
+    super::ServiceContext::new("yundrone-ytcwln")
+}
+
 #[tokio::test]
-async fn help_command_is_supported() {
-    let result = run_payload_command(&protocol::requests::CommandPayload::Help, 1.0).await;
-    let data: protocol::responses::HelpResponseData =
+async fn system_capabilities_command_is_supported() {
+    let result = run_payload_command(
+        &test_service_context(),
+        &protocol::requests::CommandPayload::SystemCapabilities,
+        1.0,
+    )
+    .await;
+    let data: protocol::responses::CapabilitiesResponseData =
         protocol::responses::from_map(result.data.as_ref().unwrap()).unwrap();
 
     assert!(result.ok);
     assert_eq!(result.code, protocol::codes::CODE_OK);
-    assert!(!data.commands.is_empty());
+    assert!(data
+        .commands
+        .contains(&protocol::commands::CMD_SYSTEM_STATUS.to_string()));
+    assert!(data.features.contains(&"response_events".to_string()));
 }
 
 #[tokio::test]
-async fn ping_command_is_supported() {
-    let result = run_payload_command(&protocol::requests::CommandPayload::Ping, 1.0).await;
+async fn link_heartbeat_command_is_supported() {
+    let result = run_payload_command(
+        &test_service_context(),
+        &protocol::requests::CommandPayload::LinkHeartbeat,
+        1.0,
+    )
+    .await;
+    let data: protocol::responses::HeartbeatResponseData =
+        protocol::responses::from_map(result.data.as_ref().unwrap()).unwrap();
 
     assert!(result.ok);
-    assert_eq!(result.text, "pong");
+    assert!(data.alive);
     assert_eq!(result.code, protocol::codes::CODE_OK);
 }
 
 #[tokio::test]
-async fn status_command_is_supported() {
-    let result = run_payload_command(&protocol::requests::CommandPayload::Status, 1.0).await;
+async fn system_status_command_is_supported() {
+    let result = run_payload_command(
+        &test_service_context(),
+        &protocol::requests::CommandPayload::SystemStatus,
+        1.0,
+    )
+    .await;
     let data: protocol::responses::StatusResponseData =
         protocol::responses::from_map(result.data.as_ref().unwrap()).unwrap();
 
     assert!(result.ok);
+    assert_eq!(data.device_name, "yundrone-ytcwln");
     assert!(!data.hostname.is_empty());
     assert!(!data.system.is_empty());
     assert!(!data.user.is_empty());
@@ -52,7 +79,7 @@ lo                  lo\n";
 #[test]
 fn ip_address_parser_prefers_first_non_loopback_ipv4() {
     let output = "\
-2: wlan0    inet 192.168.10.2/24 brd 192.168.10.255 scope global dynamic wlan0\n\
+2: wlan0    inet 192.0.2.2/24 brd 192.0.2.255 scope global dynamic wlan0\n\
 3: lo       inet 127.0.0.1/8 scope host lo\n";
 
     let ip =
@@ -64,28 +91,31 @@ fn ip_address_parser_prefers_first_non_loopback_ipv4() {
             )]),
         ));
 
-    assert_eq!(ip.as_deref(), Some("192.168.10.2"));
+    assert_eq!(ip.as_deref(), Some("192.0.2.2"));
 }
 
 #[test]
 fn parse_ipv4_interfaces_collects_all_global_addresses() {
     let output = "\
-2: eth0    inet 10.24.6.9/24 brd 10.24.6.255 scope global dynamic eth0\n\
-3: wlan0    inet 192.168.10.2/24 brd 192.168.10.255 scope global dynamic wlan0\n\
+2: eth0    inet 198.51.100.9/24 brd 10.24.6.255 scope global dynamic eth0\n\
+3: wlan0    inet 192.0.2.2/24 brd 192.0.2.255 scope global dynamic wlan0\n\
 4: lo       inet 127.0.0.1/8 scope host lo\n\
-5: docker0 inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\n";
+5: docker0 inet 203.0.113.1/16 brd 172.17.255.255 scope global docker0\n";
 
     let interfaces = super::system_commands::parse_ipv4_interfaces(output);
 
     assert_eq!(interfaces.len(), 3);
-    assert_eq!(interfaces[0], ("eth0".to_string(), "10.24.6.9".to_string()));
+    assert_eq!(
+        interfaces[0],
+        ("eth0".to_string(), "198.51.100.9".to_string())
+    );
     assert_eq!(
         interfaces[1],
-        ("wlan0".to_string(), "192.168.10.2".to_string())
+        ("wlan0".to_string(), "192.0.2.2".to_string())
     );
     assert_eq!(
         interfaces[2],
-        ("docker0".to_string(), "172.17.0.1".to_string())
+        ("docker0".to_string(), "203.0.113.1".to_string())
     );
 }
 
@@ -117,10 +147,10 @@ lo:loopback\n";
 fn build_status_interfaces_sorts_wifi_then_ethernet_then_other() {
     let interfaces = super::system_commands::build_status_interfaces(
         vec![
-            ("eth0".to_string(), "10.24.6.9".to_string()),
-            ("wlan1".to_string(), "172.16.0.22".to_string()),
-            ("docker0".to_string(), "172.17.0.1".to_string()),
-            ("wlan0".to_string(), "192.168.10.2".to_string()),
+            ("eth0".to_string(), "198.51.100.9".to_string()),
+            ("wlan1".to_string(), "203.0.113.22".to_string()),
+            ("docker0".to_string(), "203.0.113.1".to_string()),
+            ("wlan0".to_string(), "192.0.2.2".to_string()),
         ],
         std::collections::HashMap::from([
             (
@@ -151,33 +181,34 @@ fn preferred_ipv4_prefers_wifi_before_other_interfaces() {
         protocol::responses::StatusInterfaceIpv4 {
             ifname: "eth0".to_string(),
             kind: protocol::responses::StatusInterfaceKind::Ethernet,
-            ipv4: "10.24.6.9".to_string(),
+            ipv4: "198.51.100.9".to_string(),
         },
         protocol::responses::StatusInterfaceIpv4 {
             ifname: "wlan0".to_string(),
             kind: protocol::responses::StatusInterfaceKind::Wifi,
-            ipv4: "192.168.10.2".to_string(),
+            ipv4: "192.0.2.2".to_string(),
         },
     ]);
 
-    assert_eq!(ip.as_deref(), Some("192.168.10.2"));
+    assert_eq!(ip.as_deref(), Some("192.0.2.2"));
 }
 
 #[test]
 fn current_user_prefers_non_root_ssh_session() {
     let who_output = "\
-orangepi pts/0 2026-04-13 10:00 (192.168.10.20)\n\
-root     pts/1 2026-04-13 10:01 (192.168.10.30)\n";
+demo-user pts/0 2026-04-13 10:00 (192.0.2.20)\n\
+root     pts/1 2026-04-13 10:01 (192.0.2.30)\n";
 
     let user = super::system_commands::parse_preferred_login_user(who_output);
 
-    assert_eq!(user.as_deref(), Some("orangepi"));
+    assert_eq!(user.as_deref(), Some("demo-user"));
 }
 
 #[tokio::test]
 async fn provisioning_requires_ssid() {
     let result = run_payload_command(
-        &protocol::requests::CommandPayload::Provision {
+        &test_service_context(),
+        &protocol::requests::CommandPayload::WifiProvision {
             ssid: String::new(),
             pwd: None,
         },
@@ -187,6 +218,59 @@ async fn provisioning_requires_ssid() {
 
     assert!(!result.ok);
     assert_eq!(result.code, protocol::codes::CODE_BAD_REQUEST);
+}
+
+#[test]
+fn parse_nmcli_wifi_profiles_marks_active_connections() {
+    let connections = "\
+LabWiFi:11111111-1111-1111-1111-111111111111:802-11-wireless:yes\n\
+OldWiFi:22222222-2222-2222-2222-222222222222:802-11-wireless:no\n\
+Ethernet:33333333-3333-3333-3333-333333333333:802-3-ethernet:yes\n";
+    let active = "\
+LabWiFi:11111111-1111-1111-1111-111111111111:wlan0\n";
+
+    let profiles = parse_nmcli_wifi_profiles(connections, active);
+
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0].ssid, "LabWiFi");
+    assert!(profiles[0].active);
+    assert_eq!(profiles[0].device.as_deref(), Some("wlan0"));
+    assert!(profiles[0].autoconnect);
+    assert_eq!(profiles[1].ssid, "OldWiFi");
+    assert!(!profiles[1].active);
+}
+
+#[test]
+fn profile_delete_plan_protects_active_profiles_by_default() {
+    let profiles = vec![
+        protocol::responses::WifiProfile {
+            uuid: "active-uuid".to_string(),
+            name: "LabWiFi".to_string(),
+            ssid: "LabWiFi".to_string(),
+            active: true,
+            device: Some("wlan0".to_string()),
+            autoconnect: true,
+        },
+        protocol::responses::WifiProfile {
+            uuid: "old-uuid".to_string(),
+            name: "OldWiFi".to_string(),
+            ssid: "OldWiFi".to_string(),
+            active: false,
+            device: None,
+            autoconnect: false,
+        },
+    ];
+
+    let plan = plan_wifi_profile_deletions(
+        &profiles,
+        &["active-uuid".to_string(), "old-uuid".to_string()],
+        false,
+    );
+
+    assert_eq!(plan.to_delete.len(), 1);
+    assert_eq!(plan.to_delete[0].uuid, "old-uuid");
+    assert_eq!(plan.skipped.len(), 1);
+    assert_eq!(plan.skipped[0].reason, "active_profile");
 }
 
 #[test]
@@ -219,7 +303,7 @@ fn finalize_wifi_provision_success_is_machine_readable() {
     let result = finalize_wifi_provision(
         "LabWiFi",
         SystemExecResult::ok("connected", None),
-        Some("192.168.10.2".to_string()),
+        Some("192.0.2.2".to_string()),
     );
     let data: protocol::responses::ProvisionResponseData =
         protocol::responses::from_map(result.data.as_ref().unwrap()).unwrap();
@@ -227,7 +311,7 @@ fn finalize_wifi_provision_success_is_machine_readable() {
     assert!(result.ok);
     assert_eq!(result.code, protocol::codes::CODE_PROVISION_SUCCESS);
     assert_eq!(data.status, protocol::responses::ProvisionState::Connected);
-    assert_eq!(data.ip.as_deref(), Some("192.168.10.2"));
+    assert_eq!(data.ip.as_deref(), Some("192.0.2.2"));
 }
 
 #[test]

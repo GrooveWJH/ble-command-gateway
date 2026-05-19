@@ -9,9 +9,9 @@ use std::fmt;
 use tracing::info;
 
 use crate::cli_text::Lang;
-use crate::Args;
+use crate::InteractiveArgs;
 
-pub(crate) async fn run_cli(args: Args) -> Result<()> {
+pub(crate) async fn run_cli(args: InteractiveArgs) -> Result<()> {
     let lang = Lang::from_cli_arg(&args.lang);
     println!(">>> BLE Command Gateway Interactive CLI <<<");
     println!("{}", lang.scan_header(&args.target, args.timeout));
@@ -72,13 +72,14 @@ async fn run_menu_loop(session: &mut BleSession, lang: Lang) -> Result<()> {
             MenuAction::Status => run_status(session).await?,
             MenuAction::WifiScan => run_wifi_scan(session).await?,
             MenuAction::Provision => run_provision(session, &lang).await?,
+            MenuAction::WifiProfiles => crate::profiles::run_wifi_profiles(session, &lang).await?,
         }
     }
 }
 
 async fn run_status(session: &mut BleSession) -> Result<()> {
     println!(">> Sending Status Command...");
-    let response = execute_request(session, CommandPayload::Status, 10).await?;
+    let response = execute_request(session, CommandPayload::SystemStatus, 10).await?;
     let data: StatusResponseData = response.decode_data()?;
 
     let mut table = Table::new();
@@ -93,6 +94,7 @@ async fn run_status(session: &mut BleSession) -> Result<()> {
 
 fn status_rows(data: &StatusResponseData) -> Vec<(String, String)> {
     let mut rows = vec![
+        ("Device".to_string(), data.device_name.clone()),
         ("Hostname".to_string(), data.hostname.clone()),
         ("System".to_string(), data.system.clone()),
         ("User".to_string(), data.user.clone()),
@@ -146,7 +148,7 @@ async fn run_provision(session: &mut BleSession, lang: &Lang) -> Result<()> {
     let pwd = Password::new(lang.t("prmpt_pwd")).prompt()?;
     let response = execute_request(
         session,
-        CommandPayload::Provision {
+        CommandPayload::WifiProvision {
             ssid,
             pwd: (!pwd.is_empty()).then_some(pwd),
         },
@@ -158,14 +160,19 @@ async fn run_provision(session: &mut BleSession, lang: &Lang) -> Result<()> {
     Ok(())
 }
 
-async fn execute_request(
+pub(crate) async fn execute_request(
     session: &mut BleSession,
     payload: CommandPayload,
     timeout_secs: u64,
 ) -> Result<protocol::CommandResponse> {
     let request = prepare_request(payload)?;
-    session.send_request(&request).await?;
-    let response = session.next_response(timeout_secs).await?;
+    let response = session
+        .run_request_until_final(&request, timeout_secs, |event| {
+            if !event.final_flag {
+                println!(".. {}", event.text);
+            }
+        })
+        .await?;
     info!(
         device_name = %session.device_name(),
         rssi = ?session.device_rssi(),
@@ -193,6 +200,7 @@ fn prompt_menu_action(lang: &Lang) -> Result<MenuAction> {
             lang.t("opt_stat"),
             lang.t("opt_scan"),
             lang.t("opt_prov"),
+            lang.t("opt_profiles"),
             lang.t("opt_exit"),
         ],
     )
@@ -202,6 +210,7 @@ fn prompt_menu_action(lang: &Lang) -> Result<MenuAction> {
         value if value == lang.t("opt_stat") => MenuAction::Status,
         value if value == lang.t("opt_scan") => MenuAction::WifiScan,
         value if value == lang.t("opt_prov") => MenuAction::Provision,
+        value if value == lang.t("opt_profiles") => MenuAction::WifiProfiles,
         _ => MenuAction::Exit,
     })
 }
@@ -213,54 +222,55 @@ mod tests {
     #[test]
     fn status_rows_include_preferred_ip_and_interfaces() {
         let rows = status_rows(&protocol::responses::StatusResponseData {
-            hostname: "orin".to_string(),
+            device_name: "yundrone-ytcwln".to_string(),
+            hostname: "edge-gateway".to_string(),
             system: "Linux 6.1".to_string(),
             user: "yundrone".to_string(),
             network: Some("LabWiFi".to_string()),
-            ip: Some("192.168.10.2".to_string()),
+            ip: Some("192.0.2.2".to_string()),
             interfaces: vec![
                 protocol::responses::StatusInterfaceIpv4 {
                     ifname: "wlan0".to_string(),
                     kind: protocol::responses::StatusInterfaceKind::Wifi,
-                    ipv4: "192.168.10.2".to_string(),
+                    ipv4: "192.0.2.2".to_string(),
                 },
                 protocol::responses::StatusInterfaceIpv4 {
                     ifname: "eth0".to_string(),
                     kind: protocol::responses::StatusInterfaceKind::Ethernet,
-                    ipv4: "10.24.6.9".to_string(),
+                    ipv4: "198.51.100.9".to_string(),
                 },
             ],
         });
 
-        assert!(rows.contains(&("Preferred IP".to_string(), "192.168.10.2".to_string())));
+        assert!(rows.contains(&("Preferred IP".to_string(), "192.0.2.2".to_string())));
         assert!(rows.contains(&(
             "Interface".to_string(),
-            "wlan0 [wifi] -> 192.168.10.2".to_string()
+            "wlan0 [wifi] -> 192.0.2.2".to_string()
         )));
         assert!(rows.contains(&(
             "Interface".to_string(),
-            "eth0 [ethernet] -> 10.24.6.9".to_string()
+            "eth0 [ethernet] -> 198.51.100.9".to_string()
         )));
     }
 
     #[test]
     fn format_scan_candidate_label_shows_name_and_signal() {
         let label = format_scan_candidate_label(&client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-41),
         });
 
-        assert_eq!(label, "Yundrone_UAV-15-19-A7 (-41 dBm)");
+        assert_eq!(label, "yundrone-00a700 (-41 dBm)");
     }
 
     #[test]
     fn format_scan_candidate_label_handles_missing_signal() {
         let label = format_scan_candidate_label(&client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-UNK".to_string(),
+            name: "yundrone-000000".to_string(),
             rssi: None,
         });
 
-        assert_eq!(label, "Yundrone_UAV-15-19-UNK (RSSI unknown)");
+        assert_eq!(label, "yundrone-000000 (RSSI unknown)");
     }
 }
 
@@ -279,5 +289,6 @@ enum MenuAction {
     Status,
     WifiScan,
     Provision,
+    WifiProfiles,
     Exit,
 }

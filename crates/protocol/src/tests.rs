@@ -12,15 +12,15 @@ where
 #[test]
 fn every_typed_request_round_trips_through_wire_schema() {
     let requests = vec![
-        CommandRequest::new("req-help", requests::CommandPayload::Help),
-        CommandRequest::new("req-ping", requests::CommandPayload::Ping),
-        CommandRequest::new("req-status", requests::CommandPayload::Status),
-        CommandRequest::new("req-whoami", requests::CommandPayload::SysWhoAmI),
         CommandRequest::new(
-            "req-ifconfig",
-            requests::CommandPayload::NetIfconfig {
-                ifname: Some("wlan0".to_string()),
-            },
+            "req-capabilities",
+            requests::CommandPayload::SystemCapabilities,
+        ),
+        CommandRequest::new("req-heartbeat", requests::CommandPayload::LinkHeartbeat),
+        CommandRequest::new("req-status", requests::CommandPayload::SystemStatus),
+        CommandRequest::new(
+            "req-profiles-list",
+            requests::CommandPayload::WifiProfilesList,
         ),
         CommandRequest::new(
             "req-scan",
@@ -30,12 +30,18 @@ fn every_typed_request_round_trips_through_wire_schema() {
         ),
         CommandRequest::new(
             "req-provision",
-            requests::CommandPayload::Provision {
+            requests::CommandPayload::WifiProvision {
                 ssid: "LabWiFi".to_string(),
                 pwd: Some("secret".to_string()),
             },
         ),
-        CommandRequest::new("req-shutdown", requests::CommandPayload::Shutdown),
+        CommandRequest::new(
+            "req-profiles-delete",
+            requests::CommandPayload::WifiProfilesDelete {
+                uuids: vec!["profile-uuid".to_string()],
+                force: false,
+            },
+        ),
     ];
 
     for request in requests {
@@ -47,7 +53,7 @@ fn every_typed_request_round_trips_through_wire_schema() {
 
 #[test]
 fn parse_request_rejects_missing_id() {
-    let err = parse_request(br#"{"cmd":"status","args":{}}"#).unwrap_err();
+    let err = parse_request(br#"{"cmd":"system.status","args":{}}"#).unwrap_err();
 
     match err {
         ProtocolError::BadJson(message) => {
@@ -60,7 +66,8 @@ fn parse_request_rejects_missing_id() {
 
 #[test]
 fn parse_request_rejects_bad_command_args() {
-    let err = parse_request(br#"{"id":"req-1","cmd":"status","args":{"bad":true}}"#).unwrap_err();
+    let err =
+        parse_request(br#"{"id":"req-1","cmd":"system.status","args":{"bad":true}}"#).unwrap_err();
 
     match err {
         ProtocolError::BadRequest(message) => {
@@ -68,6 +75,46 @@ fn parse_request_rejects_bad_command_args() {
         }
         other => panic!("unexpected error: {other:?}"),
     }
+}
+
+#[test]
+fn parse_request_rejects_v1_command_names() {
+    let err = parse_request(br#"{"id":"req-old","cmd":"ping","args":{}}"#).unwrap_err();
+
+    match err {
+        ProtocolError::BadRequest(message) => {
+            assert!(message.contains("unknown command: ping"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn parse_request_rejects_v1_protocol_version() {
+    let err = parse_request(
+        br#"{"id":"req-old-version","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V1.0.0"}"#,
+    )
+    .unwrap_err();
+
+    match err {
+        ProtocolError::BadRequest(message) => {
+            assert!(message.contains("unsupported protocol version"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn parse_error_response_preserves_request_identity_for_debuggers() {
+    let raw = br#"{"id":"req-old","cmd":"ping","args":{},"v":"YundroneBT-V2.0.0"}"#;
+    let err = parse_request(raw).unwrap_err();
+    let response = parse_error_response(raw, &err).expect("id/cmd should be recoverable");
+
+    assert_eq!(response.id, "req-old");
+    assert_eq!(response.cmd.as_deref(), Some("ping"));
+    assert!(!response.ok);
+    assert_eq!(response.code, codes::CODE_UNKNOWN_COMMAND);
+    assert!(response.final_flag);
 }
 
 #[test]
@@ -85,31 +132,32 @@ fn parse_request_decodes_typed_wifi_scan() {
 
 #[test]
 fn every_typed_response_data_round_trips_through_json_maps() {
-    assert_response_data_round_trip(responses::HelpResponseData {
-        commands: vec!["status".to_string(), "wifi.scan".to_string()],
-    });
-    assert_response_data_round_trip(responses::PingResponseData { pong: true });
+    assert_response_data_round_trip(responses::HeartbeatResponseData { alive: true });
     assert_response_data_round_trip(responses::StatusResponseData {
-        hostname: "orin".to_string(),
+        device_name: "yundrone-15-19-a7f2".to_string(),
+        hostname: "edge-gateway".to_string(),
         system: "Ubuntu".to_string(),
-        user: "orangepi".to_string(),
+        user: "demo-user".to_string(),
         network: Some("LabWiFi".to_string()),
-        ip: Some("192.168.10.2".to_string()),
+        ip: Some("192.0.2.2".to_string()),
         interfaces: vec![
             responses::StatusInterfaceIpv4 {
                 ifname: "wlan0".to_string(),
                 kind: responses::StatusInterfaceKind::Wifi,
-                ipv4: "192.168.10.2".to_string(),
+                ipv4: "192.0.2.2".to_string(),
             },
             responses::StatusInterfaceIpv4 {
                 ifname: "eth0".to_string(),
                 kind: responses::StatusInterfaceKind::Ethernet,
-                ipv4: "10.0.0.8".to_string(),
+                ipv4: "198.51.100.8".to_string(),
             },
         ],
     });
-    assert_response_data_round_trip(responses::WhoAmIResponseData {
-        user: "root".to_string(),
+    assert_response_data_round_trip(responses::CapabilitiesResponseData {
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        commands: vec!["system.status".to_string()],
+        features: vec!["response_events".to_string()],
+        payload_limit: config::MAX_BLE_PAYLOAD_BYTES,
     });
     assert_response_data_round_trip(responses::WifiScanResponseData {
         ifname: Some("wlan0".to_string()),
@@ -130,33 +178,89 @@ fn every_typed_response_data_round_trips_through_json_maps() {
     assert_response_data_round_trip(responses::ProvisionResponseData {
         status: responses::ProvisionState::Connected,
         ssid: "LabWiFi".to_string(),
-        ip: Some("192.168.10.2".to_string()),
+        ip: Some("192.0.2.2".to_string()),
     });
+    assert_response_data_round_trip(responses::WifiProfilesResponseData {
+        profiles: vec![responses::WifiProfile {
+            uuid: "profile-uuid".to_string(),
+            name: "LabWiFi".to_string(),
+            ssid: "LabWiFi".to_string(),
+            active: true,
+            device: Some("wlan0".to_string()),
+            autoconnect: true,
+        }],
+    });
+    assert_response_data_round_trip(responses::WifiProfilesDeleteResponseData {
+        deleted: vec![responses::WifiProfileDeleteItem {
+            uuid: "deleted-uuid".to_string(),
+            name: "OldWiFi".to_string(),
+            ssid: "OldWiFi".to_string(),
+        }],
+        skipped: vec![responses::WifiProfileSkippedItem {
+            uuid: "active-uuid".to_string(),
+            name: "LabWiFi".to_string(),
+            ssid: "LabWiFi".to_string(),
+            reason: "active_profile".to_string(),
+        }],
+        failed: vec![responses::WifiProfileFailedItem {
+            uuid: "missing-uuid".to_string(),
+            name: "Missing".to_string(),
+            ssid: "Missing".to_string(),
+            error: "not found".to_string(),
+        }],
+    });
+}
+
+#[test]
+fn command_response_events_preserve_phase_metadata() {
+    let response = CommandResponse::progress(
+        "req-progress",
+        commands::CMD_WIFI_SCAN,
+        2,
+        "still scanning",
+        None,
+    );
+    let encoded = encode_response(&response).unwrap();
+    let decoded = parse_response(&encoded).unwrap();
+
+    assert_eq!(decoded.cmd.as_deref(), Some(commands::CMD_WIFI_SCAN));
+    assert_eq!(decoded.phase, ResponsePhase::Progress);
+    assert_eq!(decoded.seq, 2);
+    assert!(!decoded.final_flag);
+    assert_eq!(decoded.v, PROTOCOL_VERSION);
+}
+
+#[test]
+fn response_phase_as_str_matches_wire_names() {
+    assert_eq!(ResponsePhase::Accepted.as_str(), "accepted");
+    assert_eq!(ResponsePhase::Progress.as_str(), "progress");
+    assert_eq!(ResponsePhase::Result.as_str(), "result");
 }
 
 #[test]
 fn large_status_data_response_chunks_and_round_trips() {
     let response_data = responses::StatusResponseData {
-        hostname: "orin-nx-deployment-target".repeat(4),
+        device_name: "yundrone-15-19-a7f2".to_string(),
+        hostname: "edge-linux-deployment-target".repeat(4),
         system: "Linux 6.1.0-jetson aarch64".repeat(4),
         user: "yundrone".to_string(),
         network: Some("FieldOpsMesh".repeat(4)),
-        ip: Some("192.168.10.2".to_string()),
+        ip: Some("192.0.2.2".to_string()),
         interfaces: vec![
             responses::StatusInterfaceIpv4 {
                 ifname: "wlan0".to_string(),
                 kind: responses::StatusInterfaceKind::Wifi,
-                ipv4: "192.168.10.2".to_string(),
+                ipv4: "192.0.2.2".to_string(),
             },
             responses::StatusInterfaceIpv4 {
                 ifname: "wlan1".to_string(),
                 kind: responses::StatusInterfaceKind::Wifi,
-                ipv4: "172.16.0.22".to_string(),
+                ipv4: "203.0.113.22".to_string(),
             },
             responses::StatusInterfaceIpv4 {
                 ifname: "eth0".to_string(),
                 kind: responses::StatusInterfaceKind::Ethernet,
-                ipv4: "10.24.6.9".to_string(),
+                ipv4: "198.51.100.9".to_string(),
             },
         ],
     };

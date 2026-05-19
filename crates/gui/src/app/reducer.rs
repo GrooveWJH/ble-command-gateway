@@ -85,6 +85,31 @@ pub fn reduce(model: &mut AppModel, event: UiEvent) {
         UiEvent::WifiScanLoaded(networks) => {
             model.wifi_list = networks;
         }
+        UiEvent::WifiProfilesLoaded(profiles) => {
+            model.wifi_profiles = profiles;
+            model.selected_wifi_profile_uuids.retain(|uuid| {
+                model
+                    .wifi_profiles
+                    .iter()
+                    .any(|profile| &profile.uuid == uuid)
+            });
+        }
+        UiEvent::WifiProfileSelectionToggled(uuid) => {
+            if model
+                .selected_wifi_profile_uuids
+                .iter()
+                .any(|item| item == &uuid)
+            {
+                model
+                    .selected_wifi_profile_uuids
+                    .retain(|item| item != &uuid);
+            } else {
+                model.selected_wifi_profile_uuids.push(uuid);
+            }
+        }
+        UiEvent::WifiProfileSelectionCleared => {
+            model.selected_wifi_profile_uuids.clear();
+        }
         UiEvent::DiagnosticResult(result) => {
             model.diagnostic_result = Some(result);
         }

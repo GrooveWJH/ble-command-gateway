@@ -4,257 +4,194 @@
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?style=flat-square&logo=rust)](#)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#)
 
-YunDrone BLE Gateway 是一个基于低功耗蓝牙 (BLE) 的无头设备通讯网关，旨在为缺少网络和显示器的边缘 Linux 设备（如树莓派、Jetson）提供 Wi-Fi 配网与系统诊断能力。
+YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显示器、没有键盘的 Linux 设备。你可以用手机、桌面 GUI 或 CLI 给它配 Wi-Fi、查看系统状态，并管理已经保存过的 Wi-Fi 记忆。
 
-本项目完全采用 Rust 编写，支持跨平台运行，能够在不依赖云端网络的情况下完成物理穿透控制。
+目标 Linux 设备运行 BLE server。你的电脑运行 GUI 或 CLI client。
 
-## 核心特性
+## 选择你的入口
 
-- **协议分片 (Chunking)**：内置自定义分段重组算法，突破底层蓝牙硬件的 MTU 负载限制，可稳定传输千字节级大型 JSON。
-- **服务端 (Server)**：专为 Linux 平台优化的外设守护进程，结合 `bluer` 与 `nmcli` 实现网络配置与系统命令执行。
-- **客户端 (Client/GUI)**：提供终端命令行 (TUI) 与图形化视窗 (`egui`) 两种形态的跨平台控制端。
-- **可发现性优先的双层身份**：服务端主广播使用短 BLE 名如 `YD-A3FB`，同时保留完整动态实例名 `Yundrone_UAV-HH-MM-ABCD` 用于日志与连接后识别。
-- **并发与安全**：基于 Rust 与 `tokio` 构建，实现蓝牙底层 I/O 与前端渲染的隔离。
+| 目标 | 从这里开始 | 说明 |
+| --- | --- | --- |
+| 直接使用 macOS 桌面程序 | 下载 GitHub Release 里的 macOS 包 | 当前官方预编译包只提供 Apple Silicon 版本。 |
+| 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
+| 在 Linux 设备上部署 BLE 服务 | 构建 `yundrone-ble-server` 并安装 systemd 服务 | 目标设备需要 BlueZ 和 NetworkManager。 |
+| 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、notify 数据和可选分片。 |
 
-## 安装与部署
+## 快速使用
 
-这个项目分成两种角色：`server` 跑在目标 Linux 设备上，`client` / `gui` 跑在你的电脑上。推荐顺序是：先安装 Rust 工具链，再部署 Linux `server`，最后运行 `client` 或 `gui`。
+1. 在目标 Linux 设备上启动 server。
+2. 在电脑上打开 GUI 或 CLI。
+3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-ytcwln`。
+4. 选择对应设备并连接。
+5. 连接后执行 Wi-Fi 扫描、Wi-Fi 配网、系统状态或已保存 Wi-Fi 管理。
+6. 如果设备难找、连接慢、服务列表不出现或响应像被截断，先跑 debug CLI。
 
-### 1. 安装 Rust 工具链
+每台设备只使用一个公开 BLE 名字。这个名字保存在 `/var/lib/yundrone/ble-device-name`，所以正常重启 server 不会换名字，也不容易污染手机和调试工具的蓝牙缓存。
 
-#### macOS
+## Server 部署
 
-先装 Apple 命令行开发工具，再装 Rust：
+服务端 package 名是 `yundrone-ble-server`。它部署在 Linux ARM 开发板、Jetson、树莓派或类似边缘 Linux 设备上。
 
-```bash
-xcode-select --install
-curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-source "$HOME/.cargo/env"
-rustup default stable
-rustup component add rustfmt clippy
-rustc --version
-cargo --version
-```
-
-#### Ubuntu / Debian
-
-先装本机构建依赖，再装 Rust：
-
-```bash
-sudo apt update
-sudo apt install -y build-essential pkg-config libdbus-1-dev libudev-dev
-curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-source "$HOME/.cargo/env"
-rustup default stable
-rustup component add rustfmt clippy
-rustc --version
-cargo --version
-```
-
-#### Windows
-
-先安装带 C++ 工具链的 Visual Studio Build Tools，再安装 Rust：
-
-```powershell
-winget install Rustlang.Rustup
-rustup default stable-x86_64-pc-windows-msvc
-rustup component add rustfmt clippy
-rustc --version
-cargo --version
-```
-
-### 2. 拉取仓库
-
-```bash
-git clone https://github.com/GrooveWJH/ble-command-gateway.git
-cd ble-command-gateway
-```
-
-### 3. 部署 Linux 服务端
-
-`server` crate 只支持 Linux，适合部署在需要被配网和被诊断的无头设备上。
-
-#### 3.1 在目标设备安装运行依赖
-
-目标设备至少需要 BlueZ / `bluetoothd`、`NetworkManager` / `nmcli`；若要本机编译，还需要 `pkg-config` 和 `libdbus-1-dev`。Ubuntu 系设备可参考：
+在 Ubuntu / Debian 系目标设备上安装运行和构建依赖：
 
 ```bash
 sudo apt update
 sudo apt install -y bluetooth bluez network-manager pkg-config libdbus-1-dev
 ```
 
-#### 3.2 构建服务端
-
-如果是在目标设备本机编译：
+如果目标设备需要本机编译，安装 Rust：
 
 ```bash
-source "$HOME/.cargo/env"
-cargo build --release -p server
+curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+. "$HOME/.cargo/env"
+rustup default stable
+rustup component add rustfmt clippy
 ```
 
-构建产物路径为 `target/release/server`。
-
-#### 3.3 在挂 systemd 之前先手动启动一次
+构建并手动冒烟测试 server：
 
 ```bash
-sudo ./target/release/server
+cargo build --release -p yundrone-ble-server
+sudo ./target/release/yundrone-ble-server
 ```
 
-若启动正常，日志中至少应看到 `ble.server.starting`、`ble.advertising.ready`、`ble.gatt.ready`。日志里会同时打印完整实例名和短主广播名，例如：
+健康启动时，日志至少应包含：
 
 ```text
-advertised_name=Yundrone_UAV-15-19-A7F2 short_name=YD-A7F2
+ble.server.starting
+ble.gatt.ready
+ble.advertising.ready
+identity_name=yundrone-...
 ```
 
-#### 3.4 安装 systemd 服务
-
-仓库里已经带了一个可直接调整的 unit 文件：
-
-```text
-deploy/systemd/yundrone-ble-command-gateway.service
-```
-
-常见安装流程：
+安装 systemd 服务：
 
 ```bash
+sudo chmod +x deploy/systemd/prepare-ble-adapter.sh
 sudo cp deploy/systemd/yundrone-ble-command-gateway.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now yundrone-ble-command-gateway.service
 ```
 
-查看状态与日志：
+查看状态和适合人读的日志：
 
 ```bash
 sudo systemctl status yundrone-ble-command-gateway.service --no-pager
-sudo journalctl -u yundrone-ble-command-gateway.service -f
+sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-完整部署说明请看 [docs/systemd.md](./docs/systemd.md)。
+生产部署时，systemd 服务运行 `/opt/ble-command-gateway/target/release/yundrone-ble-server`。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
 
-### 4. 安装并运行客户端
+## Client 和 GUI
 
-客户端有两个入口：`gui` 是桌面图形配置端，`client` 是终端交互式 CLI。如需一起构建：
+从源码构建桌面 GUI 和 CLI：
 
 ```bash
-cargo build --release -p gui -p client
+cargo build --release -p gui -p yundrone-ble-client
 ```
 
-#### 4.1 运行 GUI
+开发态运行 GUI：
 
-开发态运行 GUI 用 `cargo run -p gui`，发布态运行用 `./target/release/gui`。
+```bash
+cargo run -p gui
+```
 
-打包成可在 Finder 中双击启动的 macOS `.app`：
+打包成可以在 macOS Finder 双击启动的 `.app`：
 
 ```bash
 chmod +x scripts/package-macos-gui.sh
 ./scripts/package-macos-gui.sh
-open "target/release/YunDrone BLE Gateway.app"
+open "target/release/yundrone-ble-client.app"
 ```
 
-这个命令会构建 release 版 GUI，再生成正式 `.app` 包目录、拷贝 `Info.plist`，并做一次 ad-hoc 签名，让 Finder 可以把它当成普通 macOS 应用启动。
-
-使用流程：
-
-1. 输入稳定前缀 `Yundrone_UAV`
-2. 点击扫描
-3. 从候选列表中点选匹配的 `YD-*` 或完整 `Yundrone_UAV-*` 实例
-4. 连接成功后再进入配网与诊断面板
-
-在 macOS 上，GUI 会先经由共享运行时层重启成签名 `.app`，再申请蓝牙权限。
-
-#### 4.2 运行 CLI
-
-开发态运行 CLI 用 `cargo run -p client -- --lang zh`。
-
-发布态运行：
+运行交互式 CLI：
 
 ```bash
-./target/release/client --lang zh
+cargo run -p yundrone-ble-client -- interactive --lang zh
 ```
 
-CLI 会按前缀扫描所有匹配的 BLE 实例，显示完整广播名与 RSSI，并要求你手动选择具体设备后再连接。
+直接运行 release CLI：
 
-在 macOS 上，CLI 也会先经过同一套运行时兼容层后再访问 CoreBluetooth。
+```bash
+./target/release/yundrone-ble-client interactive --lang zh
+```
 
-### 5. 部署后的推荐验收
+CLI 是显式子命令风格：
 
-当 `server` 和 `client/gui` 都安装完之后，建议按下面顺序验收：
+```bash
+cargo run -p yundrone-ble-client -- --help
+cargo run -p yundrone-ble-client -- interactive --help
+cargo run -p yundrone-ble-client -- debug-ble --help
+```
 
-1. 启动 Linux `server`
-2. 打开 `gui` 或 `client`
-3. 使用前缀 `Yundrone_UAV` 扫描
-4. 确认能看到完整广播实例名
-5. 连接后至少执行一次：
-   - Wi-Fi 扫描
-   - status
-   - ping
-6. 确认服务端日志能看到对应的 `request_id` 与响应日志
+使用 `cargo run` 时，`--` 用来分隔 Cargo 参数和程序参数。直接运行 `./target/release/yundrone-ble-client` 时不需要这个分隔符。
+
+## Debug 和开发
+
+当设备搜不到、连接很卡、服务列表不出现，或者怀疑响应被截断时，先用 debug CLI：
+
+```bash
+cargo run -p yundrone-ble-client -- debug-ble \
+  --target yundrone \
+  --timeout 30 \
+  --response-timeout 15 \
+  --trace-chunks \
+  --output /tmp/yundrone-ble-debug.log
+```
+
+开启 `--trace-chunks` 后，日志会显示：
+
+- `[RX:raw]`：每条 BLE notify 原始 JSON 帧。
+- `[RX:chunk]`：每个 `data.chunk` 分片，包含 `index/total`。
+- `[RX:assembled]`：所有分片合并后的完整响应 JSON。
+- `[OK] rx`：最终解码后的业务响应摘要。
+
+常用本地检查命令：
+
+```bash
+cargo fmt --all --check
+cargo test --workspace --exclude yundrone-ble-server
+cargo test -p yundrone-ble-server
+cargo clippy --workspace --all-targets --exclude yundrone-ble-server -- -D warnings
+cargo clippy -p yundrone-ble-server --all-targets -- -D warnings
+```
+
+Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产。
+
+## 文档导航
+
+- Server 部署和 systemd 运维：[docs/systemd.md](./docs/systemd.md)
+- BLE 调试器 JSON 指令指南：[docs/BLE_DEBUGGER_GUIDE_ZH.md](./docs/BLE_DEBUGGER_GUIDE_ZH.md)
+- 协议命令与响应结构：[docs/COMMANDS.md](./docs/COMMANDS.md)
+- 兼容 BLE server 实现说明：[docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md)
+- BLE MTU 分片中间件：[docs/MTU_CHUNKING_ZH.md](./docs/MTU_CHUNKING_ZH.md)
+- 微信小程序搜索方案：[docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md](./docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md)
+- Rust client library API：[docs/LIBRARY_API.md](./docs/LIBRARY_API.md)
+- 新增命令开发指南：[docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
+
+## Release 和平台支持
+
+GitHub Releases 当前只提供一个官方预编译资产：
+
+- macOS Apple Silicon：`yundrone-ble-client-macos-arm64.zip`，内含 `yundrone-ble-client.app`。
+
+平台状态：
+
+- macOS：正式 tag release 会附带官方 GUI app。
+- Linux：支持源码部署和 systemd 文档，但暂不附带官方预编译二进制。
+- Windows：CI 会验证桌面构建，但暂不附带官方预编译二进制。
 
 ## 项目结构
 
-本仓库使用 Cargo Workspace 管理，切分为以下五个子模块：
+本仓库是一个 Cargo workspace：
 
-- `protocol/`: 核心数据协议层，包含分段算法与指令映射（无第三方依赖）。
-- `platform_runtime/`: 统一的平台运行时兼容层，负责 macOS app bundle 启动准备以及 Linux/Windows 空实现。
-- `server/`: 搭载在目标设备上的接收端（仅限 Linux 编译）。
-- `client/`: 基于 `btleplug` 的蓝牙发送端 API 与命令行 TUI 工具。
-- `gui/`: 基于 `egui` 构建的全平台图形交互客户端。
+- `crates/protocol`：wire schema、typed request/response 和响应分片。
+- `crates/server`：Linux BLE peripheral 和 NetworkManager 集成。Cargo package 与二进制名是 `yundrone-ble-server`。
+- `crates/client`：BLE central library 和 CLI。Cargo package 与二进制名是 `yundrone-ble-client`。
+- `crates/gui`：基于 `egui` 的原生桌面 GUI。
+- `crates/platform_runtime`：平台启动辅助，主要服务 macOS app bundle 行为。
 
-## 扩展与文档
-
-- 若要为网关增加新的自定义指令，请参阅：[COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
-- 命令返回结构说明：[COMMANDS.md](./docs/COMMANDS.md)
-- Rust 客户端库接口说明：[LIBRARY_API.md](./docs/LIBRARY_API.md)
-- 项目开发计划：[TODO.md](./TODO.md)
-
-仓库中的旧 Python 服务入口已移除；当前部署路径不再依赖 Python 运行时代码。
-
-## 排障提示
-
-### Linux 服务端：发现优先广播要求 `bluetoothd --experimental`
-
-Linux 服务端现在按发现优先策略工作：
-
-- 快刀 interval：`25 ms`
-- 快刀持续时间：`300 s`
-- 稳态 interval：`152.5 ms`
-- 主广播短名：`YD-XXXX`
-
-我们在以下环境中实际观测到过这个问题：
-
-- `OrangePi 4 Pro`
-- BlueZ `5.64`
-- `bluetoothd` 未带 `--experimental` 启动
-
-在这套环境里，BlueZ 会在 D-Bus 广告对象上看到 `MinInterval` / `MaxInterval`，但在继续下发到 mgmt/HCI 前静默忽略它们。给 `bluetoothd` 加上：
-
-```ini
-ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
-```
-
-之后，这台机器上的广告 interval 已经能够正确下发到 mgmt/HCI。
-
-请注意：
-
-- 这已经是发现优先部署配置的正式要求。
-- 如果你看到服务端日志声称自己在 `25 ms` 广播，但设备依然很难被扫描到，请优先抓 `btmon` 看真实 HCI 参数，而不要只看应用日志。
-- 不要把“完整动态实例名一定出现在 scan response”当作基础前提；可靠的空口身份是短主名。
-
-针对受影响机器的推荐应对方案：
-
-1. 为 `bluetooth.service` 添加 systemd override，让 `bluetoothd` 以 `--experimental` 启动
-2. 重启 `bluetooth.service`
-3. 重启 `yundrone-ble-command-gateway.service`
-4. 用 `btmon` 验证 `LE Set Extended Advertising Parameters` 是否已变为目标间隔
-5. 同时确认主广播 local name 是短身份，例如 `YD-A3FB`
-
-示例 override：
-
-```ini
-[Service]
-ExecStart=
-ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
-```
+旧 Python 服务入口已经移除。当前部署路径使用 Rust server。
 
 ## 开源协议
 

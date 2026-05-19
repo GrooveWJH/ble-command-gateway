@@ -14,14 +14,34 @@ async fn main() -> anyhow::Result<()> {
         Application, Characteristic, CharacteristicNotify, CharacteristicNotifyMethod,
         CharacteristicWrite, CharacteristicWriteMethod, Service,
     };
-    let runtime = server::runtime::build_runtime_context()?;
+    server::logging::init_logging();
+    let args = server::config::parse_args();
+    let runtime = server::runtime::build_runtime_context(args)?;
 
-    tracing_subscriber::fmt::init();
     info!("Starting YunDrone BLE Command Gateway (Linux Server)...");
 
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
+    if let Err(err) =
+        server::adapter_identity::apply_and_log_public_identity(&adapter, &runtime.identity.name)
+            .await
+    {
+        warn!(
+            adapter_name = %adapter.name(),
+            identity_name = %runtime.identity.name,
+            error = %err,
+            "ble.adapter.identity_apply_failed"
+        );
+    }
+    if let Err(err) = server::adapter_pairing::disable_and_log_pairing(&adapter).await {
+        warn!(
+            adapter_name = %adapter.name(),
+            error = %err,
+            "ble.adapter.pairing_disable_failed"
+        );
+    }
+    let _pairing_guard = server::adapter_pairing::spawn_pairing_guard(adapter.clone());
     let advertising_capabilities = server::advertising::probe_capabilities(&adapter).await;
     let bluetoothd_environment = server::bluetoothd::inspect_bluetoothd_environment().await;
     server::runtime::log_advertising_environment(
@@ -35,6 +55,10 @@ async fn main() -> anyhow::Result<()> {
     let (notify_tx, _) = broadcast::channel::<Vec<u8>>(32);
     let write_notify_tx = notify_tx.clone();
     let read_notify_tx = notify_tx.clone();
+    let command_events = server::command_events::CommandEventSender::new(
+        write_notify_tx,
+        server::services::ServiceContext::new(runtime.identity.name.clone()),
+    );
 
     // We process incoming writes here. Because we used Io method, bluer will actually provide a stream of writes.
     // However, writing an async handler in bluer requires registering an Io handler, but for simplicity we can use Fun.
@@ -45,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
             write: true,
             write_without_response: true,
             method: CharacteristicWriteMethod::Fun(Box::new(move |new_value, _req| {
-                let tx = write_notify_tx.clone();
+                let command_events = command_events.clone();
                 Box::pin(async move {
                     match protocol::parse_request(&new_value) {
                         Ok(req) => {
@@ -58,60 +82,22 @@ async fn main() -> anyhow::Result<()> {
                                 "ble.request.received"
                             );
 
-                            let result =
-                                server::services::run_payload_command(&req.payload, 30.0).await;
-
-                            let resp = protocol::CommandResponse {
-                                id: req.id.clone(),
-                                ok: result.ok,
-                                code: result.code,
-                                text: result.text,
-                                data: result.data,
-                                v: protocol::PROTOCOL_VERSION.into(),
-                            };
-
-                            let response_code = resp.code.clone();
-                            let response_ok = resp.ok;
-                            let response_bytes = protocol::encode_response(&resp)
-                                .map(|value| value.len())
-                                .ok();
-                            let chunks = protocol::chunking::chunk_response(resp);
-                            let chunk_count = chunks.len();
-                            let mut max_chunk_bytes = 0usize;
-
-                            for chunk in chunks {
-                                match protocol::encode_response(&chunk) {
-                                    Ok(ser) => {
-                                        max_chunk_bytes = max_chunk_bytes.max(ser.len());
-                                        let _ = tx.send(ser);
-                                    }
-                                    Err(err) => {
-                                        warn!(
-                                            request_id = %req.id,
-                                            cmd = %command_name,
-                                            error = %err,
-                                            "ble.response.encode_failed"
-                                        );
-                                    }
-                                }
-                            }
-
-                            info!(
-                                request_id = %req.id,
-                                cmd = %command_name,
-                                response_code = %response_code,
-                                response_ok,
-                                chunk_count,
-                                response_bytes,
-                                max_chunk_bytes,
-                                "ble.response.sent"
-                            );
+                            command_events.handle_request(req, command_name).await;
                         }
-                        Err(e) => warn!(
-                            error = %e,
-                            payload_bytes = new_value.len(),
-                            "ble.request.parse_failed"
-                        ),
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                payload_bytes = new_value.len(),
+                                "ble.request.parse_failed"
+                            );
+                            if let Some(response) = protocol::parse_error_response(&new_value, &e) {
+                                let command_name = response
+                                    .cmd
+                                    .clone()
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                command_events.send_response_event(response, &command_name);
+                            }
+                        }
                     }
                     Ok(())
                 })
@@ -163,14 +149,6 @@ async fn main() -> anyhow::Result<()> {
         }],
         ..Default::default()
     };
-    let mut advertising_session = server::runtime::start_advertising(
-        &adapter,
-        &advertising_capabilities,
-        &runtime,
-        server::advertising::AdvertisingPhase::FastStart,
-    )
-    .await?;
-
     let _app_handle = adapter.serve_gatt_application(app).await?;
     info!(
         adapter_name = %adapter.name(),
@@ -179,6 +157,14 @@ async fn main() -> anyhow::Result<()> {
         read_uuid = %runtime.read_uuid,
         "ble.gatt.ready"
     );
+
+    let mut advertising_session = server::runtime::start_advertising(
+        &adapter,
+        &advertising_capabilities,
+        &runtime,
+        server::advertising::AdvertisingPhase::FastStart,
+    )
+    .await?;
 
     let reset_delay = tokio::time::sleep(runtime.advertising_policy.fast_duration);
     tokio::pin!(reset_delay);

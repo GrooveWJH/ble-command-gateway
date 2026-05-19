@@ -5,15 +5,18 @@ pub mod chunking;
 pub mod requests;
 pub mod responses;
 
-pub const PROTOCOL_VERSION: &str = "YundroneBT-V1.0.0";
+pub const PROTOCOL_VERSION: &str = "YundroneBT-V2.0.0";
 
 pub mod codes {
     pub const CODE_OK: &str = "OK";
+    pub const CODE_ACCEPTED: &str = "ACCEPTED";
     pub const CODE_BAD_JSON: &str = "BAD_JSON";
     pub const CODE_BAD_REQUEST: &str = "BAD_REQUEST";
     pub const CODE_UNKNOWN_COMMAND: &str = "UNKNOWN_COMMAND";
     pub const CODE_BUSY: &str = "BUSY";
     pub const CODE_IN_PROGRESS: &str = "IN_PROGRESS";
+    pub const CODE_PARTIAL_SUCCESS: &str = "PARTIAL_SUCCESS";
+    pub const CODE_PROTECTED_PROFILE: &str = "PROTECTED_PROFILE";
     pub const CODE_PROVISION_SUCCESS: &str = "PROVISION_SUCCESS";
     pub const CODE_PROVISION_FAIL: &str = "PROVISION_FAIL";
     pub const CODE_INTERNAL_ERROR: &str = "INTERNAL_ERROR";
@@ -21,14 +24,43 @@ pub mod codes {
 }
 
 pub mod commands {
-    pub const CMD_HELP: &str = "help";
-    pub const CMD_PING: &str = "ping";
-    pub const CMD_STATUS: &str = "status";
-    pub const CMD_PROVISION: &str = "provision";
-    pub const CMD_SHUTDOWN: &str = "shutdown";
-    pub const CMD_SYS_WHOAMI: &str = "sys.whoami";
-    pub const CMD_NET_IFCONFIG: &str = "net.ifconfig";
+    pub const CMD_LINK_HEARTBEAT: &str = "link.heartbeat";
+    pub const CMD_SYSTEM_STATUS: &str = "system.status";
+    pub const CMD_SYSTEM_CAPABILITIES: &str = "system.capabilities";
     pub const CMD_WIFI_SCAN: &str = "wifi.scan";
+    pub const CMD_WIFI_PROVISION: &str = "wifi.provision";
+    pub const CMD_WIFI_PROFILES_LIST: &str = "wifi.profiles.list";
+    pub const CMD_WIFI_PROFILES_DELETE: &str = "wifi.profiles.delete";
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponsePhase {
+    Accepted,
+    Progress,
+    Result,
+}
+
+impl ResponsePhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Progress => "progress",
+            Self::Result => "result",
+        }
+    }
+}
+
+fn default_response_phase() -> ResponsePhase {
+    ResponsePhase::Result
+}
+
+fn default_seq() -> u64 {
+    1
+}
+
+fn default_final_flag() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +91,14 @@ impl CommandRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CommandResponse {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cmd: Option<String>,
+    #[serde(default = "default_response_phase")]
+    pub phase: ResponsePhase,
+    #[serde(default = "default_seq")]
+    pub seq: u64,
+    #[serde(default = "default_final_flag", rename = "final")]
+    pub final_flag: bool,
     pub ok: bool,
     pub code: String,
     pub text: String,
@@ -74,10 +114,25 @@ impl CommandResponse {
         text: impl Into<String>,
         data: Option<serde_json::Map<String, Value>>,
     ) -> Self {
+        Self::result(id, None, true, codes::CODE_OK, text, data)
+    }
+
+    pub fn result(
+        id: impl Into<String>,
+        cmd: Option<String>,
+        ok: bool,
+        code: impl Into<String>,
+        text: impl Into<String>,
+        data: Option<serde_json::Map<String, Value>>,
+    ) -> Self {
         Self {
             id: id.into(),
-            ok: true,
-            code: codes::CODE_OK.to_string(),
+            cmd,
+            phase: ResponsePhase::Result,
+            seq: 1,
+            final_flag: true,
+            ok,
+            code: code.into(),
             text: text.into(),
             data,
             v: default_version(),
@@ -87,6 +142,10 @@ impl CommandResponse {
     pub fn error(id: impl Into<String>, code: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            cmd: None,
+            phase: ResponsePhase::Result,
+            seq: 1,
+            final_flag: true,
             ok: false,
             code: code.into(),
             text: text.into(),
@@ -95,25 +154,43 @@ impl CommandResponse {
         }
     }
 
-    pub fn status(
+    pub fn accepted(
         id: impl Into<String>,
-        code: impl Into<String>,
+        cmd: impl Into<String>,
         text: impl Into<String>,
-        final_flag: bool,
         data: Option<serde_json::Map<String, Value>>,
     ) -> Self {
-        let code_str = code.into();
-        let is_ok = code_str != codes::CODE_PROVISION_FAIL;
-
-        let mut body = data.unwrap_or_default();
-        body.insert("final".to_string(), Value::Bool(final_flag));
-
         Self {
             id: id.into(),
-            ok: is_ok,
-            code: code_str,
+            cmd: Some(cmd.into()),
+            phase: ResponsePhase::Accepted,
+            seq: 1,
+            final_flag: false,
+            ok: true,
+            code: codes::CODE_ACCEPTED.to_string(),
             text: text.into(),
-            data: Some(body),
+            data,
+            v: default_version(),
+        }
+    }
+
+    pub fn progress(
+        id: impl Into<String>,
+        cmd: impl Into<String>,
+        seq: u64,
+        text: impl Into<String>,
+        data: Option<serde_json::Map<String, Value>>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            cmd: Some(cmd.into()),
+            phase: ResponsePhase::Progress,
+            seq,
+            final_flag: false,
+            ok: true,
+            code: codes::CODE_IN_PROGRESS.to_string(),
+            text: text.into(),
+            data,
             v: default_version(),
         }
     }
@@ -138,11 +215,35 @@ pub enum ProtocolError {
 pub fn parse_request(raw: &[u8]) -> Result<CommandRequest, ProtocolError> {
     let wire: WireCommandRequest =
         serde_json::from_slice(raw).map_err(|e| ProtocolError::BadJson(e.to_string()))?;
+    if wire.v != PROTOCOL_VERSION {
+        return Err(ProtocolError::BadRequest(format!(
+            "unsupported protocol version: {}",
+            wire.v
+        )));
+    }
     Ok(CommandRequest {
         id: wire.id,
         payload: requests::CommandPayload::from_wire(&wire.cmd, wire.args)?,
         v: wire.v,
     })
+}
+
+pub fn parse_error_response(raw: &[u8], err: &ProtocolError) -> Option<CommandResponse> {
+    let value = serde_json::from_slice::<Value>(raw).ok()?;
+    let object = value.as_object()?;
+    let id = object.get("id")?.as_str()?.to_string();
+    let cmd = object
+        .get("cmd")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let (code, text) = match err {
+        ProtocolError::BadRequest(message) if message.starts_with("unknown command:") => {
+            (codes::CODE_UNKNOWN_COMMAND, message.clone())
+        }
+        ProtocolError::BadRequest(message) => (codes::CODE_BAD_REQUEST, message.clone()),
+        ProtocolError::BadJson(message) => (codes::CODE_BAD_JSON, message.clone()),
+    };
+    Some(CommandResponse::result(id, cmd, false, code, text, None))
 }
 
 pub fn encode_request(req: &CommandRequest) -> Result<Vec<u8>, ProtocolError> {
@@ -165,7 +266,7 @@ pub fn encode_response(res: &CommandResponse) -> Result<Vec<u8>, ProtocolError> 
 
 pub mod config {
     pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
-    pub const DEFAULT_DEVICE_NAME: &str = "Yundrone_UAV";
+    pub const DEFAULT_DEVICE_NAME: &str = "yundrone";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

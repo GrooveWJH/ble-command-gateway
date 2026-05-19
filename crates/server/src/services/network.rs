@@ -109,7 +109,7 @@ pub(super) fn parse_nmcli_wifi_list(list_output: &str) -> Vec<protocol::response
         .collect()
 }
 
-fn split_nmcli_fields(line: &str) -> Vec<String> {
+pub(super) fn split_nmcli_fields(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut current = String::new();
     let mut escaping = false;

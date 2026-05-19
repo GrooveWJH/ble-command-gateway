@@ -1,7 +1,14 @@
 [package]
+name = "yundrone-ble-client"
+version.workspace = true
+edition.workspace = true
+
+[lib]
 name = "client"
-version = "2026.3.22"
-edition = "2021"
+
+[[bin]]
+name = "yundrone-ble-client"
+path = "src/main.rs"
 
 [dependencies]
 protocol = { path = "../protocol" }

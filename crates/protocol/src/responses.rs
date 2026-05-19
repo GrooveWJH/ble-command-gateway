@@ -4,13 +4,16 @@ use serde_json::{Map, Value};
 use crate::ProtocolError;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HelpResponseData {
+pub struct CapabilitiesResponseData {
+    pub protocol_version: String,
     pub commands: Vec<String>,
+    pub features: Vec<String>,
+    pub payload_limit: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PingResponseData {
-    pub pong: bool,
+pub struct HeartbeatResponseData {
+    pub alive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +49,8 @@ impl StatusInterfaceIpv4 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusResponseData {
+    #[serde(default)]
+    pub device_name: String,
     pub hostname: String,
     pub system: String,
     pub user: String,
@@ -55,11 +60,6 @@ pub struct StatusResponseData {
     pub ip: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interfaces: Vec<StatusInterfaceIpv4>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WhoAmIResponseData {
-    pub user: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,6 +89,52 @@ pub struct ProvisionResponseData {
     pub ssid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ip: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfile {
+    pub uuid: String,
+    pub name: String,
+    pub ssid: String,
+    pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
+    pub autoconnect: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfilesResponseData {
+    pub profiles: Vec<WifiProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfileDeleteItem {
+    pub uuid: String,
+    pub name: String,
+    pub ssid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfileSkippedItem {
+    pub uuid: String,
+    pub name: String,
+    pub ssid: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfileFailedItem {
+    pub uuid: String,
+    pub name: String,
+    pub ssid: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WifiProfilesDeleteResponseData {
+    pub deleted: Vec<WifiProfileDeleteItem>,
+    pub skipped: Vec<WifiProfileSkippedItem>,
+    pub failed: Vec<WifiProfileFailedItem>,
 }
 
 pub fn to_map<T: Serialize>(value: &T) -> Result<Map<String, Value>, ProtocolError> {

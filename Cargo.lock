@@ -810,25 +810,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "client"
-version = "2026.3.22"
-dependencies = [
- "anyhow",
- "btleplug",
- "clap",
- "comfy-table",
- "futures",
- "inquire",
- "platform_runtime",
- "protocol",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1884,11 +1865,10 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "2026.3.22"
+version = "2026.2.0"
 dependencies = [
  "anyhow",
  "chrono",
- "client",
  "directories",
  "eframe",
  "egui",
@@ -1900,6 +1880,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "yundrone-ble-client",
 ]
 
 [[package]]
@@ -3063,7 +3044,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "platform_runtime"
-version = "2026.3.22"
+version = "2026.2.0"
 dependencies = [
  "anyhow",
  "tracing",
@@ -3156,7 +3137,7 @@ checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 
 [[package]]
 name = "protocol"
-version = "2026.3.22"
+version = "2026.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3446,23 +3427,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "server"
-version = "2026.3.22"
-dependencies = [
- "anyhow",
- "bluer",
- "chrono",
- "futures",
- "protocol",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -5279,6 +5243,43 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "synstructure",
+]
+
+[[package]]
+name = "yundrone-ble-client"
+version = "2026.2.0"
+dependencies = [
+ "anyhow",
+ "btleplug",
+ "clap",
+ "comfy-table",
+ "futures",
+ "inquire",
+ "platform_runtime",
+ "protocol",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "yundrone-ble-server"
+version = "2026.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bluer",
+ "clap",
+ "futures",
+ "protocol",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

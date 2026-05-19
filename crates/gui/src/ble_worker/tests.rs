@@ -45,21 +45,22 @@ fn non_wifi_response_events_skip_wifi_network_loading() {
         "status collected",
         Some(
             protocol::responses::to_map(&protocol::responses::StatusResponseData {
-                hostname: "orangepi4pro".to_string(),
+                device_name: "yundrone-ytcwln".to_string(),
+                hostname: "edge-gateway".to_string(),
                 system: "Linux 6.1".to_string(),
-                user: "orangepi".to_string(),
+                user: "demo-user".to_string(),
                 network: Some("LabWiFi".to_string()),
-                ip: Some("192.168.10.2".to_string()),
+                ip: Some("192.0.2.2".to_string()),
                 interfaces: vec![
                     protocol::responses::StatusInterfaceIpv4 {
                         ifname: "wlan0".to_string(),
                         kind: protocol::responses::StatusInterfaceKind::Wifi,
-                        ipv4: "192.168.10.2".to_string(),
+                        ipv4: "192.0.2.2".to_string(),
                     },
                     protocol::responses::StatusInterfaceIpv4 {
                         ifname: "eth0".to_string(),
                         kind: protocol::responses::StatusInterfaceKind::Ethernet,
-                        ipv4: "10.24.6.9".to_string(),
+                        ipv4: "198.51.100.9".to_string(),
                     },
                 ],
             })
@@ -68,18 +69,21 @@ fn non_wifi_response_events_skip_wifi_network_loading() {
     );
 
     let events =
-        command_response_events(&protocol::requests::CommandPayload::Status, &response).unwrap();
+        command_response_events(&protocol::requests::CommandPayload::SystemStatus, &response)
+            .unwrap();
 
     assert_eq!(events.len(), 3);
     assert!(matches!(
         &events[0],
         UiEvent::DiagnosticResult(result)
             if result.title == "System Status"
+            && result.lines.iter().any(|line| line.contains("Device: yundrone-ytcwln"))
+            && result.lines.iter().any(|line| line.contains("Hostname: edge-gateway"))
             && result.lines.iter().any(|line| line.contains("Network: LabWiFi"))
-            && result.lines.iter().any(|line| line.contains("Preferred IP: 192.168.10.2"))
-            && result.lines.iter().any(|line| line.contains("wlan0 [wifi] -> 192.168.10.2"))
-            && result.lines.iter().any(|line| line.contains("eth0 [ethernet] -> 10.24.6.9"))
-            && result.lines.iter().any(|line| line.contains("User: orangepi"))
+            && result.lines.iter().any(|line| line.contains("Preferred IP: 192.0.2.2"))
+            && result.lines.iter().any(|line| line.contains("wlan0 [wifi] -> 192.0.2.2"))
+            && result.lines.iter().any(|line| line.contains("eth0 [ethernet] -> 198.51.100.9"))
+            && result.lines.iter().any(|line| line.contains("User: demo-user"))
     ));
     assert!(matches!(
         &events[1],
@@ -95,12 +99,12 @@ fn worker_log_helpers_use_consistent_text() {
         "[SYS] Found 5 named device(s); 3 candidate device(s) match the prefix."
     );
     assert_eq!(
-        command_sent_log("status", "req-1"),
-        ">> TX CMD: status (req-1)"
+        command_sent_log("system.status", "req-1"),
+        ">> TX CMD: system.status (req-1)"
     );
     assert_eq!(
-        raw_payload_log("{\"cmd\":\"ping\"}"),
-        ">> TX RAW: {\"cmd\":\"ping\"}"
+        raw_payload_log("{\"cmd\":\"link.heartbeat\"}"),
+        ">> TX RAW: {\"cmd\":\"link.heartbeat\"}"
     );
     assert_eq!(
         response_log_line(&protocol::CommandResponse::ok("req-3", "done", None)),
@@ -117,14 +121,14 @@ fn provision_response_emits_provision_result_event() {
             protocol::responses::to_map(&protocol::responses::ProvisionResponseData {
                 status: protocol::responses::ProvisionState::Connected,
                 ssid: "LabWiFi".to_string(),
-                ip: Some("192.168.1.23".to_string()),
+                ip: Some("192.0.2.23".to_string()),
             })
             .unwrap(),
         ),
     );
 
     let events = command_response_events(
-        &protocol::requests::CommandPayload::Provision {
+        &protocol::requests::CommandPayload::WifiProvision {
             ssid: "LabWiFi".to_string(),
             pwd: Some("12345678".to_string()),
         },
@@ -141,12 +145,12 @@ fn provision_response_emits_provision_result_event() {
 #[test]
 fn scan_progress_log_marks_matching_devices() {
     let line = scan_progress_log(&client::ScanProgressEvent {
-        device_name: "Yundrone_UAV-15-19-A7".to_string(),
+        device_name: "yundrone-00a700".to_string(),
         rssi: Some(-48),
         matches_prefix: true,
     });
 
-    assert_eq!(line, "[SCAN][MATCH] Yundrone_UAV-15-19-A7 (-48 dBm)");
+    assert_eq!(line, "[SCAN][MATCH] yundrone-00a700 (-48 dBm)");
 }
 
 #[test]
@@ -164,16 +168,16 @@ fn scan_progress_log_handles_unknown_signal() {
 fn scan_control_logs_are_operator_friendly() {
     assert_eq!(scan_stopped_log(), "[SYS] Scan stopped by user.");
     assert_eq!(
-        connect_selected_log("Yundrone_UAV-03-17-5433"),
-        "[SYS] Candidate selected, stopping scan and connecting to Yundrone_UAV-03-17-5433..."
+        connect_selected_log("yundrone-031733"),
+        "[SYS] Candidate selected, stopping scan and connecting to yundrone-031733..."
     );
     assert_eq!(
-        manual_disconnect_log("Yundrone_UAV-03-17-5433"),
-        "[SYS] Disconnected from Yundrone_UAV-03-17-5433."
+        manual_disconnect_log("yundrone-031733"),
+        "[SYS] Disconnected from yundrone-031733."
     );
     assert_eq!(
-        heartbeat_disconnected_log("Yundrone_UAV-03-17-5433", 3, true),
-        "[ERR] Heartbeat failed 3 times for Yundrone_UAV-03-17-5433, grace window elapsed and connection was marked as disconnected."
+        heartbeat_disconnected_log("yundrone-031733", 3, true),
+        "[ERR] Heartbeat failed 3 times for yundrone-031733, grace window elapsed and connection was marked as disconnected."
     );
 }
 
@@ -217,8 +221,8 @@ fn request_success_detail_summarizes_wifi_scan_results() {
 fn action_summary_helpers_cover_device_and_raw_actions() {
     assert_eq!(scan_completed_detail(3), Some("3".to_string()));
     assert_eq!(
-        disconnect_success_detail("Yundrone_UAV-03-17-5433"),
-        Some("Yundrone_UAV-03-17-5433".to_string())
+        disconnect_success_detail("yundrone-031733"),
+        Some("yundrone-031733".to_string())
     );
     assert_eq!(raw_payload_success_detail(), Some("written".to_string()));
 }

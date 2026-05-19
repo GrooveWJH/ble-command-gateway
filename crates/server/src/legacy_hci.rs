@@ -15,14 +15,14 @@ pub struct LegacyAdvertisingSession {
 #[cfg(target_os = "linux")]
 pub async fn start_legacy_advertising(
     adapter_name: &str,
-    short_name: &str,
-    full_name: &str,
+    identity_name: &str,
     service_uuid: Uuid,
     interval: crate::advertising::AdvertisingInterval,
 ) -> anyhow::Result<LegacyAdvertisingSession> {
+    let _ = set_legacy_enabled(adapter_name, false);
     apply_legacy_interval(adapter_name, interval)?;
-    set_legacy_adv_data(adapter_name, &build_primary_payload(short_name, service_uuid)?)?;
-    set_legacy_scan_response(adapter_name, &build_scan_response_payload(full_name)?)?;
+    set_legacy_adv_data(adapter_name, &build_primary_payload(identity_name)?)?;
+    set_legacy_scan_response(adapter_name, &build_scan_response_payload(service_uuid)?)?;
     set_legacy_enabled(adapter_name, true)?;
     Ok(LegacyAdvertisingSession {
         adapter_name: adapter_name.to_string(),
@@ -116,8 +116,8 @@ fn format_interval_args(interval: crate::advertising::AdvertisingInterval) -> Ve
     let [min_lo, min_hi] = interval_units(interval.min).to_le_bytes();
     let [max_lo, max_hi] = interval_units(interval.max).to_le_bytes();
     [
-        min_lo, min_hi, max_lo, max_hi, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x07, 0x00,
+        min_lo, min_hi, max_lo, max_hi, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
+        0x00,
     ]
     .into_iter()
     .map(|byte| format!("{byte:02X}"))
@@ -127,8 +127,12 @@ fn format_interval_args(interval: crate::advertising::AdvertisingInterval) -> Ve
 #[cfg(target_os = "linux")]
 fn format_data_args(payload: &[u8]) -> anyhow::Result<Vec<String>> {
     let len = u8::try_from(payload.len()).context("payload too large for HCI command")?;
+    if payload.len() > 31 {
+        bail!("legacy advertising data exceeds 31 bytes");
+    }
     let mut args = vec![format!("{len:02X}")];
     args.extend(payload.iter().map(|byte| format!("{byte:02X}")));
+    args.extend(std::iter::repeat_n("00".to_string(), 31 - payload.len()));
     Ok(args)
 }
 
@@ -140,12 +144,11 @@ fn interval_units(duration: Duration) -> u16 {
 }
 
 #[cfg(target_os = "linux")]
-fn build_primary_payload(short_name: &str, service_uuid: Uuid) -> anyhow::Result<Vec<u8>> {
-    let name = short_name.as_bytes();
-    let mut payload = vec![0x02, 0x01, 0x06, 0x11, 0x07];
-    payload.extend_from_slice(&service_uuid.to_bytes_le());
+fn build_primary_payload(identity_name: &str) -> anyhow::Result<Vec<u8>> {
+    let name = identity_name.as_bytes();
+    let mut payload = vec![0x02, 0x01, 0x06];
     payload.push(
-        u8::try_from(name.len() + 1).context("short name too long for advertising payload")?,
+        u8::try_from(name.len() + 1).context("identity name too long for advertising payload")?,
     );
     payload.push(0x09);
     payload.extend_from_slice(name);
@@ -156,14 +159,9 @@ fn build_primary_payload(short_name: &str, service_uuid: Uuid) -> anyhow::Result
 }
 
 #[cfg(target_os = "linux")]
-fn build_scan_response_payload(full_name: &str) -> anyhow::Result<Vec<u8>> {
-    let name = full_name.as_bytes();
-    let mut payload = Vec::with_capacity(name.len() + 2);
-    payload.push(
-        u8::try_from(name.len() + 1).context("full name too long for scan response payload")?,
-    );
-    payload.push(0x09);
-    payload.extend_from_slice(name);
+fn build_scan_response_payload(service_uuid: Uuid) -> anyhow::Result<Vec<u8>> {
+    let mut payload = vec![0x11, 0x07];
+    payload.extend_from_slice(&service_uuid.to_bytes_le());
     if payload.len() > 31 {
         bail!("scan response payload exceeds 31 bytes");
     }
@@ -179,47 +177,65 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn formats_legacy_interval_command_for_twenty_five_ms() {
+    fn formats_legacy_interval_command_for_twenty_ms() {
         let args = format_interval_args(crate::advertising::AdvertisingInterval {
-            min: Duration::from_millis(25),
-            max: Duration::from_millis(25),
+            min: Duration::from_millis(20),
+            max: Duration::from_millis(20),
         });
 
         assert_eq!(
             args,
             vec![
-                "28", "00", "28", "00", "00", "00", "00", "00", "00", "00", "00", "00",
-                "00", "07", "00"
+                "20", "00", "20", "00", "00", "00", "00", "00", "00", "00", "00", "00", "00", "07",
+                "00"
             ]
         );
     }
 
     #[test]
-    fn primary_payload_keeps_uuid_and_short_name_in_primary_adv() {
-        let payload = build_primary_payload(
-            "YD-A3FB",
+    fn formats_legacy_interval_command_for_steady_211_25_ms() {
+        let args = format_interval_args(crate::advertising::AdvertisingInterval {
+            min: Duration::from_micros(211_250),
+            max: Duration::from_micros(211_250),
+        });
+
+        assert_eq!(
+            args,
+            vec![
+                "52", "01", "52", "01", "00", "00", "00", "00", "00", "00", "00", "00", "00", "07",
+                "00"
+            ]
+        );
+    }
+
+    #[test]
+    fn primary_payload_carries_single_identity_name() {
+        let payload = build_primary_payload("yundrone-ytcwln").unwrap();
+
+        assert_eq!(&payload[..3], &[0x02, 0x01, 0x06]);
+        assert_eq!(payload[3], 20);
+        assert_eq!(payload[4], 0x09);
+        assert_eq!(&payload[5..], b"yundrone-ytcwln");
+        assert_eq!(payload.len(), 24);
+    }
+
+    #[test]
+    fn scan_response_payload_carries_uart_service_uuid() {
+        let payload = build_scan_response_payload(
             Uuid::parse_str("6E400001-B5A3-F393-E0A9-E50E24DCCA9E").unwrap(),
         )
         .unwrap();
 
-        assert_eq!(payload.len(), 30);
-        assert_eq!(&payload[..5], &[0x02, 0x01, 0x06, 0x11, 0x07]);
-        assert_eq!(*payload.last().unwrap(), b'B');
-    }
-
-    #[test]
-    fn scan_response_payload_carries_full_dynamic_name() {
-        let payload = build_scan_response_payload("Yundrone_UAV-23-51-A3FB").unwrap();
-
-        assert_eq!(payload.len(), 25);
-        assert_eq!(payload[0], 24);
-        assert_eq!(payload[1], 0x09);
+        assert_eq!(payload.len(), 18);
+        assert_eq!(&payload[..2], &[0x11, 0x07]);
     }
 
     #[test]
     fn formats_hci_data_args_with_length_prefix() {
         let args = format_data_args(&[0x02, 0x01, 0x06]).unwrap();
 
-        assert_eq!(args, vec!["03", "02", "01", "06"]);
+        assert_eq!(&args[..4], &["03", "02", "01", "06"]);
+        assert_eq!(args.len(), 32);
+        assert!(args[4..].iter().all(|value| value == "00"));
     }
 }

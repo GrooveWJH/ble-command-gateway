@@ -9,10 +9,7 @@ pub struct BluetoothdEnvironment {
 
 #[cfg(target_os = "linux")]
 pub async fn inspect_bluetoothd_environment() -> BluetoothdEnvironment {
-    let output = Command::new("ps")
-        .args(["-eo", "args="])
-        .output()
-        .await;
+    let output = Command::new("ps").args(["-eo", "args="]).output().await;
 
     let command_line = output
         .ok()

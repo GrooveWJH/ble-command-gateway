@@ -98,6 +98,10 @@ impl BleSession {
     }
 
     pub async fn next_response(&mut self, timeout_secs: u64) -> Result<protocol::CommandResponse> {
+        self.next_event(timeout_secs).await
+    }
+
+    pub async fn next_event(&mut self, timeout_secs: u64) -> Result<protocol::CommandResponse> {
         tokio::time::timeout(Duration::from_secs(timeout_secs), async {
             while let Some(notification) = self.notifications.next().await {
                 if notification.uuid != self.read_char.uuid {
@@ -127,6 +131,26 @@ impl BleSession {
         })
         .await
         .map_err(|_| anyhow!("Timed out waiting for BLE response after {}s", timeout_secs))?
+    }
+
+    pub async fn run_request_until_final<F>(
+        &mut self,
+        request: &crate::PreparedRequest,
+        timeout_secs: u64,
+        mut on_event: F,
+    ) -> Result<protocol::CommandResponse>
+    where
+        F: FnMut(&protocol::CommandResponse),
+    {
+        self.send_request(request).await?;
+        loop {
+            let response = self.next_event(timeout_secs).await?;
+            let matches_request = response.id == request.request.id;
+            on_event(&response);
+            if matches_request && response.final_flag {
+                return Ok(response);
+            }
+        }
     }
 
     pub async fn disconnect(&self) -> Result<()> {

@@ -133,11 +133,7 @@ impl BleClient {
         info!("Starting scan for device with prefix '{}'...", prefix);
         info!(scan_prefix = %prefix, timeout_secs, "ble.scan.started");
         let mut events = self.adapter.events().await?;
-        self.adapter
-            .start_scan(ScanFilter {
-                services: vec![criteria.service_uuid],
-            })
-            .await?;
+        self.adapter.start_scan(raw_identity_scan_filter()).await?;
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
         let mut live_state = LiveScanState::new();
@@ -236,6 +232,12 @@ pub(crate) fn progress_event(
         rssi,
         matches_prefix,
     }
+}
+
+pub(crate) fn raw_identity_scan_filter() -> ScanFilter {
+    // Raw Logs are an observation surface, so do not ask the OS to pre-filter
+    // by our UART service UUID. Candidate selection still happens below.
+    ScanFilter { services: vec![] }
 }
 
 pub fn sort_scan_candidates(candidates: &mut [ScanCandidateInfo]) {

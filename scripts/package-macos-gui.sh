@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${PROFILE:-release}"
-APP_NAME="YunDrone BLE Gateway.app"
+APP_NAME="yundrone-ble-client.app"
 APP_DIR="$ROOT_DIR/target/$PROFILE/$APP_NAME"
 BINARY_PATH="$ROOT_DIR/target/$PROFILE/gui"
 PLIST_PATH="$ROOT_DIR/crates/gui/macos/Info.plist"

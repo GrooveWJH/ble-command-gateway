@@ -2,35 +2,44 @@ use super::{run_system_command, SystemExecResult};
 use protocol::responses::{StatusInterfaceIpv4, StatusInterfaceKind};
 use std::collections::HashMap;
 
-pub(super) fn run_help() -> SystemExecResult {
-    let data = protocol::responses::HelpResponseData {
+pub(super) fn run_capabilities() -> SystemExecResult {
+    let data = protocol::responses::CapabilitiesResponseData {
+        protocol_version: protocol::PROTOCOL_VERSION.to_string(),
         commands: vec![
-            protocol::commands::CMD_HELP.to_string(),
-            protocol::commands::CMD_PING.to_string(),
-            protocol::commands::CMD_STATUS.to_string(),
-            protocol::commands::CMD_PROVISION.to_string(),
-            protocol::commands::CMD_SHUTDOWN.to_string(),
-            protocol::commands::CMD_SYS_WHOAMI.to_string(),
-            protocol::commands::CMD_NET_IFCONFIG.to_string(),
+            protocol::commands::CMD_LINK_HEARTBEAT.to_string(),
+            protocol::commands::CMD_SYSTEM_STATUS.to_string(),
+            protocol::commands::CMD_SYSTEM_CAPABILITIES.to_string(),
             protocol::commands::CMD_WIFI_SCAN.to_string(),
+            protocol::commands::CMD_WIFI_PROVISION.to_string(),
+            protocol::commands::CMD_WIFI_PROFILES_LIST.to_string(),
+            protocol::commands::CMD_WIFI_PROFILES_DELETE.to_string(),
         ],
+        features: vec![
+            "response_events".to_string(),
+            "response_json_chunking".to_string(),
+            "wifi_profile_management".to_string(),
+        ],
+        payload_limit: protocol::config::MAX_BLE_PAYLOAD_BYTES,
     };
 
     SystemExecResult::ok(
-        "supported commands listed",
-        Some(protocol::responses::to_map(&data).expect("help response serializes")),
+        "capabilities listed",
+        Some(protocol::responses::to_map(&data).expect("capabilities response serializes")),
     )
 }
 
-pub(super) fn run_ping() -> SystemExecResult {
-    let data = protocol::responses::PingResponseData { pong: true };
+pub(super) fn run_heartbeat() -> SystemExecResult {
+    let data = protocol::responses::HeartbeatResponseData { alive: true };
     SystemExecResult::ok(
-        "pong",
-        Some(protocol::responses::to_map(&data).expect("ping response serializes")),
+        "alive",
+        Some(protocol::responses::to_map(&data).expect("heartbeat response serializes")),
     )
 }
 
-pub(super) async fn run_status(timeout_sec: f64) -> SystemExecResult {
+pub(super) async fn run_status(
+    context: &super::ServiceContext,
+    timeout_sec: f64,
+) -> SystemExecResult {
     let hostname = run_system_command(vec!["hostname"], timeout_sec).await;
     if !hostname.ok {
         return hostname;
@@ -51,6 +60,7 @@ pub(super) async fn run_status(timeout_sec: f64) -> SystemExecResult {
     let ip = preferred_ipv4(&interfaces);
 
     let data = protocol::responses::StatusResponseData {
+        device_name: context.device_name.clone(),
         hostname: hostname.text.clone(),
         system: system.text.clone(),
         user: user.text.clone(),
@@ -69,49 +79,27 @@ pub(super) async fn run_effective_user(timeout_sec: f64) -> SystemExecResult {
     if let Ok(user) = std::env::var("BLE_GATEWAY_USER") {
         let user = user.trim();
         if !user.is_empty() && user != "root" {
-            let data = protocol::responses::WhoAmIResponseData {
-                user: user.to_string(),
-            };
-            return SystemExecResult::ok(
-                user,
-                Some(protocol::responses::to_map(&data).expect("whoami response serializes")),
-            );
+            return SystemExecResult::ok(user, None);
         }
     }
 
     if let Ok(user) = std::env::var("SUDO_USER") {
         let user = user.trim();
         if !user.is_empty() && user != "root" {
-            let data = protocol::responses::WhoAmIResponseData {
-                user: user.to_string(),
-            };
-            return SystemExecResult::ok(
-                user,
-                Some(protocol::responses::to_map(&data).expect("whoami response serializes")),
-            );
+            return SystemExecResult::ok(user, None);
         }
     }
 
     let who = run_system_command(vec!["who"], timeout_sec).await;
     if who.ok {
         if let Some(user) = parse_preferred_login_user(&who.text) {
-            let data = protocol::responses::WhoAmIResponseData { user: user.clone() };
-            return SystemExecResult::ok(
-                user,
-                Some(protocol::responses::to_map(&data).expect("whoami response serializes")),
-            );
+            return SystemExecResult::ok(user, None);
         }
     }
 
     let result = run_system_command(vec!["whoami"], timeout_sec).await;
     if result.ok {
-        let data = protocol::responses::WhoAmIResponseData {
-            user: result.text.clone(),
-        };
-        SystemExecResult::ok(
-            result.text,
-            Some(protocol::responses::to_map(&data).expect("whoami response serializes")),
-        )
+        SystemExecResult::ok(result.text, None)
     } else {
         result
     }
@@ -298,12 +286,4 @@ pub(super) fn parse_preferred_login_user(output: &str) -> Option<String> {
         }
         Some(user.to_string())
     })
-}
-
-pub(super) async fn run_ifconfig(ifname: Option<&str>, timeout_sec: f64) -> SystemExecResult {
-    let mut cmd = vec!["ifconfig"];
-    if let Some(ifname) = ifname {
-        cmd.push(ifname);
-    }
-    run_system_command(cmd, timeout_sec).await
 }

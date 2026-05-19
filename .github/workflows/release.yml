@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Release (macOS arm64)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="$(cat VERSION)"
+          test "$TAG" = "v$VERSION"
+
+      - name: Check Cargo package versions
+        shell: bash
+        run: python3 scripts/release/check_version_consistency.py
+
+      - name: Find previous release tag
+        id: previous_tag
+        shell: bash
+        run: |
+          current_tag="${GITHUB_REF_NAME}"
+          previous_tag="$(git tag --sort=-creatordate | grep -v "^${current_tag}$" | head -n 1 || true)"
+          echo "value=${previous_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          python3 scripts/release/extract_changelog.py \
+            --version "$(cat VERSION)" \
+            --changelog CHANGELOG \
+            --repo "${GITHUB_REPOSITORY}" \
+            --output release-notes.md \
+            --previous-tag "${{ steps.previous_tag.outputs.value }}" \
+            --current-tag "${GITHUB_REF_NAME}"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build macOS app bundle
+        shell: bash
+        run: |
+          chmod +x scripts/package-macos-gui.sh
+          ./scripts/package-macos-gui.sh
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "target/release/yundrone-ble-client.app"
+
+      - name: Archive macOS app bundle
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "target/release/yundrone-ble-client.app" \
+            "yundrone-ble-client-macos-arm64.zip"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME#v}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME#v}" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Upload macOS release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "yundrone-ble-client-macos-arm64.zip" \
+            --clobber

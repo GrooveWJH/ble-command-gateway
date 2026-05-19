@@ -1,10 +1,10 @@
 [package]
 name = "gui"
-version = "2026.3.22"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-client = { path = "../client" }
+client = { package = "yundrone-ble-client", path = "../client" }
 protocol = { path = "../protocol" }
 platform_runtime = { path = "../platform_runtime" }
 tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread"] }

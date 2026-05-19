@@ -51,7 +51,11 @@ where
     ) -> ScanObservation {
         let progress = if mark_peripheral_seen(&mut self.named_peripherals, peripheral_id.clone()) {
             self.named_device_count += 1;
-            Some(progress_event(display_name.to_string(), rssi, matches_identity))
+            Some(progress_event(
+                display_name.to_string(),
+                rssi,
+                matches_identity,
+            ))
         } else {
             None
         };
@@ -102,15 +106,15 @@ mod tests {
 
         let first = state.observe(
             "dev-1".to_string(),
-            "YD-A3FB",
-            Some("YD-A3FB".to_string()),
+            "yundrone-ytcwln",
+            Some("yundrone-ytcwln".to_string()),
             true,
             Some(-11),
         );
         let second = state.observe(
             "dev-1".to_string(),
-            "YD-A3FB",
-            Some("YD-A3FB".to_string()),
+            "yundrone-ytcwln",
+            Some("yundrone-ytcwln".to_string()),
             true,
             Some(-10),
         );

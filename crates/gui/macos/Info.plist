@@ -10,9 +10,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleName</key>
-  <string>YunDrone BLE Gateway</string>
+  <string>yundrone-ble-client</string>
   <key>CFBundleDisplayName</key>
-  <string>YunDrone BLE Gateway</string>
+  <string>yundrone-ble-client</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>This app scans for and connects to YunDrone BLE gateways.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>

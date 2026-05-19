@@ -1,0 +1,24 @@
+2026.2.0 - 2026-05-19
+
+- 升级 BLE 通讯协议到 V2，统一命令命名为 `领域.动作` 风格，并引入 `accepted / progress / result` 事件式响应。
+- 新增 Wi-Fi 记忆管理能力，支持列出 NetworkManager 已保存 profiles，并按 UUID 批量删除非 active profile。
+- 重构 BLE 公开身份治理，使用持久化单一 local name `yundrone-<base36_6>`，同步应用到 advertising Local Name、Adapter Alias 和状态展示字段。
+- 修复 Bluefruit / WebBluetooth UART 过滤场景，确保广播元数据携带 Nordic UART Service UUID，同时保持只有一个 BLE 名字。
+- 统一 client/server Cargo package 与二进制命名为 `yundrone-ble-client`、`yundrone-ble-server`，并整理 Typer-like CLI help、examples 与调试命令。
+- 完善 server systemd 日志、分片观测、配对关闭、设备名持久化、公开部署文档与兼容 BLE server 对接文档。
+- 重写 README / README_ZH 为快速使用、server 部署、client 调试和文档导航入口，并清理开源前不应公开的本地脚本、生成物和私有示例。
+
+2026.1.1 - 2026-05-18
+
+- 切换 Linux server 到可发现性优先的 BLE identity 模型，并引入更明确的广播策略与部署验收口径。
+- 新增可选择的 Linux advertising backend，为 BlueZ D-Bus interval 不可靠的设备提供 legacy HCI 路径。
+- 更新 client 扫描发现逻辑，使 GUI/CLI 能更稳定识别 YunDrone BLE gateway 候选设备。
+- 将 Linux systemd 服务统一命名为 `yundrone-ble-command-gateway.service`。
+- 更新部署、Release 和调试文档，说明 macOS app 资产、Linux/Windows 当前预编译支持范围与 BLE 广播排障方式。
+
+2026.1.0 - 2026-05-17
+
+- 新增结构化多网卡 IPv4 状态、首选 Wi-Fi IP 展示，并同步到 CLI 与 GUI 诊断结果。
+- 增加 GUI 心跳异常后的自动断开恢复、手动断开反馈和前台动作状态提示。
+- 增加 GUI Light、Dark、System 主题偏好持久化。
+- 扩展 CI 构建验证覆盖 Ubuntu x64、Ubuntu arm64、macOS arm64 与 Windows x64。

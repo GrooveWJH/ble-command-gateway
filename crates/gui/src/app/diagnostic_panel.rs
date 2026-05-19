@@ -20,21 +20,17 @@ impl GatewayApp {
                 .add_enabled(!busy, egui::Button::new(self.model.lang.t("cmd_status")))
                 .clicked()
             {
-                self.send_command(ActionSlot::Status, CommandPayload::Status);
+                self.send_command(ActionSlot::Status, CommandPayload::SystemStatus);
             }
             ui.add_space(5.0);
             if ui
-                .add_enabled(!busy, egui::Button::new(self.model.lang.t("cmd_ping")))
+                .add_enabled(
+                    !busy,
+                    egui::Button::new(self.model.lang.t("cmd_capabilities")),
+                )
                 .clicked()
             {
-                self.send_command(ActionSlot::Ping, CommandPayload::Ping);
-            }
-            ui.add_space(5.0);
-            if ui
-                .add_enabled(!busy, egui::Button::new(self.model.lang.t("cmd_help")))
-                .clicked()
-            {
-                self.send_command(ActionSlot::Help, CommandPayload::Help);
+                self.send_command(ActionSlot::Capabilities, CommandPayload::SystemCapabilities);
             }
         });
 

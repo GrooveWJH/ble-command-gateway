@@ -115,6 +115,10 @@ impl ChunkAssembler {
             let completed = self.sessions.remove(&response_id).unwrap();
             return Ok(Some(CommandResponse {
                 id: response_id,
+                cmd: resp.cmd,
+                phase: resp.phase,
+                seq: resp.seq,
+                final_flag: resp.final_flag,
                 ok: completed.legacy_original_ok,
                 code: completed.legacy_original_code,
                 text: completed.parts.join(""),
@@ -122,7 +126,6 @@ impl ChunkAssembler {
                 v: completed.response_version,
             }));
         }
-
         Ok(None)
     }
 }
@@ -170,11 +173,19 @@ fn next_payload_fragment(resp: &CommandResponse, chars: &[char], start: usize) -
         }
     }
 
+    while best > 1 {
+        let payload: String = chars[start..start + best].iter().collect();
+        if chunk_fits_limit(resp, &payload) {
+            return payload;
+        }
+        best -= 1;
+    }
+
     chars[start..start + best].iter().collect()
 }
 
 fn chunk_fits_limit(resp: &CommandResponse, payload: &str) -> bool {
-    let chunk = build_response_json_chunk(resp, payload.to_string(), 1, 1);
+    let chunk = build_response_json_chunk(resp, payload.to_string(), 999, 999);
     crate::encode_response(&chunk)
         .map(|encoded| encoded.len() <= MAX_BLE_PAYLOAD_BYTES)
         .unwrap_or(false)
@@ -200,6 +211,10 @@ fn build_response_json_chunk(
 
     CommandResponse {
         id: resp.id.clone(),
+        cmd: resp.cmd.clone(),
+        phase: resp.phase.clone(),
+        seq: resp.seq,
+        final_flag: resp.final_flag,
         ok: resp.ok,
         code: resp.code.clone(),
         text: String::new(),

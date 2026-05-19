@@ -11,9 +11,34 @@ pub(super) fn command_response_events(
 ) -> Result<Vec<UiEvent>> {
     let mut events = Vec::new();
 
+    if !response.final_flag {
+        return Ok(vec![
+            UiEvent::CommandCompleted(CommandResultSummary {
+                request_id: response.id.clone(),
+                code: response.code.clone(),
+                text: response.text.clone(),
+                ok: response.ok,
+            }),
+            UiEvent::Log(response_log_line(response)),
+        ]);
+    }
+
     if matches!(payload, protocol::requests::CommandPayload::WifiScan { .. }) {
         let data: protocol::responses::WifiScanResponseData = response.decode_data()?;
         events.push(UiEvent::WifiScanLoaded(data.networks));
+    }
+    if matches!(
+        payload,
+        protocol::requests::CommandPayload::WifiProfilesList
+    ) {
+        let data: protocol::responses::WifiProfilesResponseData = response.decode_data()?;
+        events.push(UiEvent::WifiProfilesLoaded(data.profiles));
+    }
+    if matches!(
+        payload,
+        protocol::requests::CommandPayload::WifiProfilesDelete { .. }
+    ) {
+        events.push(UiEvent::WifiProfileSelectionCleared);
     }
     if let Some(result_card) = diagnostic_result(payload, response)? {
         events.push(UiEvent::DiagnosticResult(result_card));
@@ -38,7 +63,7 @@ fn provision_result(
 ) -> Result<Option<ProvisionResultCard>> {
     if !matches!(
         payload,
-        protocol::requests::CommandPayload::Provision { .. }
+        protocol::requests::CommandPayload::WifiProvision { .. }
     ) {
         return Ok(None);
     }
@@ -59,11 +84,12 @@ fn diagnostic_result(
     response: &protocol::CommandResponse,
 ) -> Result<Option<DiagnosticResultCard>> {
     match payload {
-        protocol::requests::CommandPayload::Status => {
+        protocol::requests::CommandPayload::SystemStatus => {
             let data: protocol::responses::StatusResponseData = response.decode_data()?;
             let network = data.network.unwrap_or_else(|| "Not connected".to_string());
             let ip = data.ip.unwrap_or_else(|| "Unavailable".to_string());
             let mut lines = vec![
+                format!("Device: {}", data.device_name),
                 format!("Hostname: {}", data.hostname),
                 format!("System: {}", data.system),
                 format!("User: {}", data.user),
@@ -87,34 +113,22 @@ fn diagnostic_result(
                 lines,
             }))
         }
-        protocol::requests::CommandPayload::Ping => {
-            let data = response
-                .decode_data::<protocol::responses::PingResponseData>()
-                .ok();
-            let pong = data.map(|value| value.pong).unwrap_or(response.ok);
-            Ok(Some(DiagnosticResultCard {
-                title: "Ping Test".to_string(),
-                ok: response.ok,
-                code: response.code.clone(),
-                lines: vec![format!(
-                    "Reachability: {}",
-                    if pong { "pong" } else { "failed" }
-                )],
-            }))
-        }
-        protocol::requests::CommandPayload::Help => {
-            let data: protocol::responses::HelpResponseData = response.decode_data()?;
+        protocol::requests::CommandPayload::SystemCapabilities => {
+            let data: protocol::responses::CapabilitiesResponseData = response.decode_data()?;
             let commands = if data.commands.is_empty() {
                 "none".to_string()
             } else {
                 data.commands.join(", ")
             };
             Ok(Some(DiagnosticResultCard {
-                title: "Remote Help".to_string(),
+                title: "Protocol Capabilities".to_string(),
                 ok: response.ok,
                 code: response.code.clone(),
                 lines: vec![
+                    format!("Protocol: {}", data.protocol_version),
                     format!("Supported commands: {}", data.commands.len()),
+                    format!("Features: {}", data.features.join(", ")),
+                    format!("Payload limit: {} bytes", data.payload_limit),
                     commands,
                 ],
             }))
@@ -223,15 +237,19 @@ pub(super) fn request_success_detail(
             let data: protocol::responses::ProvisionResponseData = response.decode_data()?;
             Ok(Some(format!("{:?}", data.status)))
         }
+        ActionSlot::WifiProfilesList => {
+            let data: protocol::responses::WifiProfilesResponseData = response.decode_data()?;
+            Ok(Some(data.profiles.len().to_string()))
+        }
+        ActionSlot::WifiProfilesDelete => Ok(Some(response.code.clone())),
         ActionSlot::Status => {
             let data: protocol::responses::StatusResponseData = response.decode_data()?;
-            Ok(Some(data.hostname))
+            Ok(Some(data.device_name))
         }
-        ActionSlot::Help => {
-            let data: protocol::responses::HelpResponseData = response.decode_data()?;
+        ActionSlot::Capabilities => {
+            let data: protocol::responses::CapabilitiesResponseData = response.decode_data()?;
             Ok(Some(data.commands.len().to_string()))
         }
-        ActionSlot::Ping => Ok(Some(response.code.clone())),
         _ => Ok(None),
     }
 }

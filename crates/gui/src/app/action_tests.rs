@@ -11,7 +11,7 @@ fn action_started_marks_model_busy_without_clearing_previous_result_cards() {
             code: "PROVISION_SUCCESS".to_string(),
             status: "Connected".to_string(),
             ssid: "LabWiFi".to_string(),
-            ip: Some("192.168.10.2".to_string()),
+            ip: Some("192.0.2.2".to_string()),
             text: "connected".to_string(),
         }),
         ..AppModel::default()
@@ -99,13 +99,14 @@ fn latest_feedback_prefers_most_recent_slot_within_same_panel() {
     reduce(
         &mut model,
         UiEvent::ActionSucceeded {
-            slot: ActionSlot::Ping,
+            slot: ActionSlot::Capabilities,
             request_id: Some("req-5".to_string()),
-            detail: Some("ping".to_string()),
+            detail: Some("capabilities".to_string()),
         },
     );
 
-    let feedback = latest_feedback_for_slots(&model, &[ActionSlot::Status, ActionSlot::Ping])
-        .expect("latest feedback should exist");
-    assert_eq!(feedback.slot, ActionSlot::Ping);
+    let feedback =
+        latest_feedback_for_slots(&model, &[ActionSlot::Status, ActionSlot::Capabilities])
+            .expect("latest feedback should exist");
+    assert_eq!(feedback.slot, ActionSlot::Capabilities);
 }

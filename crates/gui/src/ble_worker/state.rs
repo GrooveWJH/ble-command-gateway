@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 const HEARTBEAT_DISCONNECT_GRACE_SECS: u64 = 12;
+const HEARTBEAT_FAILURE_DISCONNECT_THRESHOLD: u8 = 3;
 
 #[derive(Default)]
 pub(crate) struct WorkerState {
@@ -134,6 +135,10 @@ impl WorkerState {
         self.heartbeat_disconnect_deadline
             .map(|deadline| now >= deadline)
             .unwrap_or(false)
+    }
+
+    pub(crate) fn heartbeat_failure_threshold_reached(&self) -> bool {
+        self.heartbeat_failures >= HEARTBEAT_FAILURE_DISCONNECT_THRESHOLD
     }
 
     pub(super) fn reset_to_idle(&mut self) {

@@ -12,8 +12,8 @@
 
 ```rust
 pub enum CommandPayload {
-    Help,
-    Ping,
+    LinkHeartbeat,
+    SystemStatus,
     MyNewThing { param1: String },
 }
 ```
@@ -62,15 +62,27 @@ let response = session.next_response(10).await?;
 let data: protocol::responses::MyNewThingResponseData = response.decode_data()?;
 ```
 
+如果命令可能耗时较久，推荐把它纳入 V2 事件流：服务端先回 `accepted`，执行期间每秒回 `progress`，最后回 `result`。客户端统一使用：
+
+```rust
+let response = session
+    .run_request_until_final(&request, 30, |event| {
+        if !event.final_flag {
+            println!("{}: {}", event.phase.as_str(), event.text);
+        }
+    })
+    .await?;
+```
+
 ## 5. 补齐回归测试
 
 至少补这三类测试：
 
 - `cargo test -p protocol`
   验证请求编解码和响应数据 round-trip
-- `cargo test -p server`
+- `cargo test -p yundrone-ble-server`
   验证 typed dispatch 与 handler 行为
-- `cargo test -p client`
+- `cargo test -p yundrone-ble-client`
   如果 client/GUI 新增了解码或展示辅助逻辑，补对应纯函数测试
 
 如果命令会暴露在 GUI 中，再补 `cargo test -p gui` 相关状态流转测试。

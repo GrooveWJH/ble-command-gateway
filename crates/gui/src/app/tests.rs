@@ -24,6 +24,53 @@ fn wifi_scan_loaded_updates_model_without_parsing_logs() {
 }
 
 #[test]
+fn wifi_profiles_loaded_prunes_stale_selection() {
+    let mut model = AppModel {
+        selected_wifi_profile_uuids: vec!["old-uuid".to_string(), "keep-uuid".to_string()],
+        ..Default::default()
+    };
+
+    reduce(
+        &mut model,
+        UiEvent::WifiProfilesLoaded(vec![protocol::responses::WifiProfile {
+            uuid: "keep-uuid".to_string(),
+            name: "LabWiFi".to_string(),
+            ssid: "LabWiFi".to_string(),
+            active: false,
+            device: None,
+            autoconnect: true,
+        }]),
+    );
+
+    assert_eq!(model.wifi_profiles.len(), 1);
+    assert_eq!(model.selected_wifi_profile_uuids, vec!["keep-uuid"]);
+}
+
+#[test]
+fn wifi_profile_selection_toggles_and_clears() {
+    let mut model = AppModel::default();
+
+    reduce(
+        &mut model,
+        UiEvent::WifiProfileSelectionToggled("profile-1".to_string()),
+    );
+    reduce(
+        &mut model,
+        UiEvent::WifiProfileSelectionToggled("profile-2".to_string()),
+    );
+    reduce(
+        &mut model,
+        UiEvent::WifiProfileSelectionToggled("profile-1".to_string()),
+    );
+
+    assert_eq!(model.selected_wifi_profile_uuids, vec!["profile-2"]);
+
+    reduce(&mut model, UiEvent::WifiProfileSelectionCleared);
+
+    assert!(model.selected_wifi_profile_uuids.is_empty());
+}
+
+#[test]
 fn scan_results_keep_model_disconnected_until_device_is_selected() {
     let mut model = AppModel::default();
 
@@ -31,7 +78,7 @@ fn scan_results_keep_model_disconnected_until_device_is_selected() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
@@ -40,7 +87,7 @@ fn scan_results_keep_model_disconnected_until_device_is_selected() {
     assert!(!model.is_scanning);
     assert!(!model.is_connected);
     assert_eq!(model.scan_candidates.len(), 1);
-    assert_eq!(model.scan_candidates[0].name, "Yundrone_UAV-15-19-A7");
+    assert_eq!(model.scan_candidates[0].name, "yundrone-00a700");
 }
 
 #[test]
@@ -51,14 +98,14 @@ fn scan_candidate_discovered_appends_without_replacing_existing_items() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-20-B1".to_string(),
+            name: "yundrone-00b100".to_string(),
             rssi: Some(-60),
         }),
     );
@@ -66,8 +113,8 @@ fn scan_candidate_discovered_appends_without_replacing_existing_items() {
     assert!(model.is_scanning);
     assert!(!model.is_connected);
     assert_eq!(model.scan_candidates.len(), 2);
-    assert_eq!(model.scan_candidates[0].name, "Yundrone_UAV-15-19-A7");
-    assert_eq!(model.scan_candidates[1].name, "Yundrone_UAV-15-20-B1");
+    assert_eq!(model.scan_candidates[0].name, "yundrone-00a700");
+    assert_eq!(model.scan_candidates[1].name, "yundrone-00b100");
 }
 
 #[test]
@@ -78,7 +125,7 @@ fn scan_finished_preserves_incremental_candidates() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
@@ -86,7 +133,7 @@ fn scan_finished_preserves_incremental_candidates() {
 
     assert!(!model.is_scanning);
     assert_eq!(model.scan_candidates.len(), 1);
-    assert_eq!(model.scan_candidates[0].name, "Yundrone_UAV-15-19-A7");
+    assert_eq!(model.scan_candidates[0].name, "yundrone-00a700");
 }
 
 #[test]
@@ -96,20 +143,20 @@ fn connect_started_sets_connecting_state_until_connected() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
     reduce(
         &mut model,
-        UiEvent::ConnectingToCandidate("Yundrone_UAV-15-19-A7".to_string()),
+        UiEvent::ConnectingToCandidate("yundrone-00a700".to_string()),
     );
 
     assert!(model.is_connecting);
     assert!(!model.is_connected);
     assert_eq!(
         model.connected_device_name.as_deref(),
-        Some("Yundrone_UAV-15-19-A7")
+        Some("yundrone-00a700")
     );
 }
 
@@ -121,13 +168,13 @@ fn connect_failed_clears_candidates_and_returns_to_idle() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
     reduce(
         &mut model,
-        UiEvent::ConnectingToCandidate("Yundrone_UAV-15-19-A7".to_string()),
+        UiEvent::ConnectingToCandidate("yundrone-00a700".to_string()),
     );
     reduce(
         &mut model,
@@ -149,7 +196,7 @@ fn scan_stopped_keeps_already_discovered_candidates() {
     reduce(
         &mut model,
         UiEvent::ScanCandidateDiscovered(client::ScanCandidateInfo {
-            name: "Yundrone_UAV-15-19-A7".to_string(),
+            name: "yundrone-00a700".to_string(),
             rssi: Some(-48),
         }),
     );
@@ -191,7 +238,7 @@ fn diagnostic_result_event_updates_dedicated_panel_state() {
             ok: true,
             code: "OK".to_string(),
             lines: vec![
-                "Hostname: orangepi4pro".to_string(),
+                "Hostname: edge-gateway".to_string(),
                 "System: Linux 6.1".to_string(),
             ],
         }),
@@ -218,7 +265,7 @@ fn provision_result_event_updates_provision_panel_state() {
             code: "PROVISION_SUCCESS".to_string(),
             status: "Connected".to_string(),
             ssid: "LabWiFi".to_string(),
-            ip: Some("192.168.1.23".to_string()),
+            ip: Some("192.0.2.23".to_string()),
             text: "connected".to_string(),
         }),
     );
@@ -229,7 +276,7 @@ fn provision_result_event_updates_provision_panel_state() {
         .expect("result should exist");
     assert!(result.ok);
     assert_eq!(result.ssid, "LabWiFi");
-    assert_eq!(result.ip.as_deref(), Some("192.168.1.23"));
+    assert_eq!(result.ip.as_deref(), Some("192.0.2.23"));
 }
 
 #[test]

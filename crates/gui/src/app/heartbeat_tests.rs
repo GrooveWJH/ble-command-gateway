@@ -11,7 +11,7 @@ fn heartbeat_ok_resets_failure_counter_and_records_timestamp() {
 
     reduce(
         &mut model,
-        UiEvent::ConnectedDeviceSelected("Yundrone_UAV-15-19-A7".to_string()),
+        UiEvent::ConnectedDeviceSelected("yundrone-00a700".to_string()),
     );
     reduce(&mut model, UiEvent::HeartbeatMissed(2));
     reduce(
@@ -33,7 +33,7 @@ fn heartbeat_disconnect_keeps_existing_result_cards() {
 
     reduce(
         &mut model,
-        UiEvent::ConnectedDeviceSelected("Yundrone_UAV-15-19-A7".to_string()),
+        UiEvent::ConnectedDeviceSelected("yundrone-00a700".to_string()),
     );
     reduce(
         &mut model,
@@ -41,7 +41,7 @@ fn heartbeat_disconnect_keeps_existing_result_cards() {
             title: "System Status".to_string(),
             ok: true,
             code: "OK".to_string(),
-            lines: vec!["Hostname: orangepi4pro".to_string()],
+            lines: vec!["Hostname: edge-gateway".to_string()],
         }),
     );
     reduce(
@@ -51,7 +51,7 @@ fn heartbeat_disconnect_keeps_existing_result_cards() {
             code: "PROVISION_SUCCESS".to_string(),
             status: "Connected".to_string(),
             ssid: "LabWiFi".to_string(),
-            ip: Some("192.168.10.2".to_string()),
+            ip: Some("192.0.2.2".to_string()),
             text: "connected".to_string(),
         }),
     );
@@ -76,7 +76,7 @@ fn manual_disconnect_returns_to_idle_without_clearing_results() {
 
     reduce(
         &mut model,
-        UiEvent::ConnectedDeviceSelected("Yundrone_UAV-15-19-A7".to_string()),
+        UiEvent::ConnectedDeviceSelected("yundrone-00a700".to_string()),
     );
     reduce(
         &mut model,
@@ -126,4 +126,18 @@ fn worker_state_keeps_original_disconnect_deadline_during_grace_window() {
     state.record_heartbeat_failure(started + Duration::from_secs(5));
 
     assert_eq!(state.heartbeat_disconnect_deadline(), Some(deadline));
+}
+
+#[test]
+fn worker_state_marks_disconnect_after_three_heartbeat_failures() {
+    let mut state = WorkerState::default();
+    let started = Instant::now();
+
+    state.record_heartbeat_failure(started);
+    state.record_heartbeat_failure(started + Duration::from_secs(5));
+    assert!(!state.heartbeat_failure_threshold_reached());
+
+    state.record_heartbeat_failure(started + Duration::from_secs(10));
+
+    assert!(state.heartbeat_failure_threshold_reached());
 }

@@ -30,10 +30,13 @@ mod tests {
 
     #[test]
     fn build_request_populates_id_and_defaults() {
-        let request = build_request(protocol::requests::CommandPayload::Status);
+        let request = build_request(protocol::requests::CommandPayload::SystemStatus);
 
         assert!(!request.id.is_empty());
-        assert_eq!(request.payload, protocol::requests::CommandPayload::Status);
+        assert_eq!(
+            request.payload,
+            protocol::requests::CommandPayload::SystemStatus
+        );
         assert_eq!(request.v, protocol::PROTOCOL_VERSION);
     }
 
@@ -53,10 +56,13 @@ mod tests {
 
     #[test]
     fn prepare_request_keeps_request_id_inside_encoded_bytes() {
-        let prepared = prepare_request(protocol::requests::CommandPayload::Ping).unwrap();
+        let prepared = prepare_request(protocol::requests::CommandPayload::LinkHeartbeat).unwrap();
         let decoded = protocol::parse_request(&prepared.bytes).unwrap();
 
         assert_eq!(decoded.id, prepared.request.id);
-        assert_eq!(decoded.payload, protocol::requests::CommandPayload::Ping);
+        assert_eq!(
+            decoded.payload,
+            protocol::requests::CommandPayload::LinkHeartbeat
+        );
     }
 }

@@ -8,7 +8,7 @@ use eframe::egui;
 use std::sync::mpsc::channel;
 
 const GUI_RUNTIME: platform_runtime::AppRuntime = platform_runtime::AppRuntime {
-    bundle_name: "YunDrone BLE Gateway.app",
+    bundle_name: "yundrone-ble-client.app",
     executable_name: "gui",
     info_plist: include_bytes!("../macos/Info.plist"),
 };
@@ -113,7 +113,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "YunDrone BLE Gateway",
+        "yundrone-ble-client",
         options,
         Box::new(|cc| {
             setup_custom_fonts(&cc.egui_ctx);

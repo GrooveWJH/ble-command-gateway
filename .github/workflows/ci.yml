@@ -47,20 +47,26 @@ jobs:
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Check version consistency
+        run: python3 scripts/release/check_version_consistency.py
+
+      - name: Run release script tests
+        run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
+
       - name: Check formatting
         run: cargo fmt --all --check
 
       - name: Run workspace tests (client/gui/protocol/platform_runtime)
-        run: cargo test --locked --workspace --exclude server
+        run: cargo test --locked --workspace --exclude yundrone-ble-server
 
       - name: Run server tests
-        run: cargo test --locked -p server
+        run: cargo test --locked -p yundrone-ble-server
 
       - name: Run clippy on workspace (excluding server)
-        run: cargo clippy --locked --workspace --all-targets --exclude server -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --exclude yundrone-ble-server -- -D warnings
 
       - name: Run clippy on server
-        run: cargo clippy --locked -p server --all-targets -- -D warnings
+        run: cargo clippy --locked -p yundrone-ble-server --all-targets -- -D warnings
 
   build:
     name: Build (${{ matrix.name }})
@@ -115,11 +121,11 @@ jobs:
 
       - name: Build desktop workspace on macOS and Windows
         if: matrix.build_scope == 'desktop'
-        run: cargo build --locked -p protocol -p platform_runtime -p client -p gui
+        run: cargo build --locked -p protocol -p platform_runtime -p yundrone-ble-client -p gui
 
       - name: Validate macOS app packaging
         if: matrix.name == 'macos-arm64'
         run: |
           chmod +x scripts/package-macos-gui.sh
           ./scripts/package-macos-gui.sh
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "target/release/YunDrone BLE Gateway.app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "target/release/yundrone-ble-client.app"

@@ -21,6 +21,8 @@ impl GatewayApp {
             ui.add_space(14.0);
             render_wifi_table(ui, self);
             ui.add_space(12.0);
+            render_wifi_profiles(ui, self);
+            ui.add_space(12.0);
             render_provision_result(ui, self);
         });
     }
@@ -56,7 +58,7 @@ fn render_provision_buttons(ui: &mut egui::Ui, app: &mut GatewayApp) {
         {
             app.send_command(
                 ActionSlot::Provision,
-                CommandPayload::Provision {
+                CommandPayload::WifiProvision {
                     ssid: app.model.ssid_input.clone(),
                     pwd: if app.model.pwd_input.is_empty() {
                         None
@@ -66,6 +68,102 @@ fn render_provision_buttons(ui: &mut egui::Ui, app: &mut GatewayApp) {
                 },
             );
         }
+        if ui
+            .add_enabled(
+                !busy,
+                egui::Button::new(app.model.lang.t("profiles_refresh_btn")),
+            )
+            .clicked()
+        {
+            app.send_command(
+                ActionSlot::WifiProfilesList,
+                CommandPayload::WifiProfilesList,
+            );
+        }
+        if ui
+            .add_enabled(
+                !busy && !app.model.selected_wifi_profile_uuids.is_empty(),
+                egui::Button::new(app.model.lang.t("profiles_delete_btn")),
+            )
+            .clicked()
+        {
+            app.send_command(
+                ActionSlot::WifiProfilesDelete,
+                CommandPayload::WifiProfilesDelete {
+                    uuids: app.model.selected_wifi_profile_uuids.clone(),
+                    force: false,
+                },
+            );
+        }
+    });
+}
+
+fn render_wifi_profiles(ui: &mut egui::Ui, app: &mut GatewayApp) {
+    ui.label(egui::RichText::new(app.model.lang.t("profiles_title")).strong());
+    if app.model.wifi_profiles.is_empty() {
+        ui.small(app.model.lang.t("profiles_empty"));
+        return;
+    }
+
+    panel_frame(ui).show(ui, |ui| {
+        let width = ui.available_width();
+        egui::ScrollArea::vertical()
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .auto_shrink([false, false])
+            .max_height(180.0)
+            .show(ui, |ui| {
+                ui.set_width(width);
+                for profile in app.model.wifi_profiles.clone() {
+                    render_wifi_profile_row(ui, app, &profile, width);
+                }
+            });
+    });
+}
+
+fn render_wifi_profile_row(
+    ui: &mut egui::Ui,
+    app: &mut GatewayApp,
+    profile: &protocol::responses::WifiProfile,
+    width: f32,
+) {
+    let selected = app
+        .model
+        .selected_wifi_profile_uuids
+        .iter()
+        .any(|uuid| uuid == &profile.uuid);
+    let can_select = !profile.active;
+    ui.horizontal(|ui| {
+        let mut checked = selected;
+        if ui
+            .add_enabled(can_select, egui::Checkbox::new(&mut checked, ""))
+            .changed()
+        {
+            app.dispatch(super::model::UiEvent::WifiProfileSelectionToggled(
+                profile.uuid.clone(),
+            ));
+        }
+        let label = if profile.active {
+            format!(
+                "{} ({})",
+                profile.ssid,
+                profile.device.as_deref().unwrap_or("active")
+            )
+        } else {
+            profile.ssid.clone()
+        };
+        ui.add_sized([width * 0.45, 22.0], egui::Label::new(label));
+        ui.add_sized(
+            [width * 0.22, 22.0],
+            egui::Label::new(if profile.autoconnect {
+                "autoconnect"
+            } else {
+                "manual"
+            }),
+        );
+        ui.add_sized(
+            [width * 0.25, 22.0],
+            egui::Label::new(egui::RichText::new(&profile.uuid).monospace().size(11.0)),
+        );
     });
 }
 

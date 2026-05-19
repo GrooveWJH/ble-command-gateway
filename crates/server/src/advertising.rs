@@ -6,8 +6,6 @@ use bluer::{
     Adapter,
 };
 #[cfg(target_os = "linux")]
-use std::collections::BTreeSet;
-#[cfg(target_os = "linux")]
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,13 +51,13 @@ pub struct AppliedAdvertisingConfig {
 pub fn default_policy() -> AdvertisingPolicy {
     AdvertisingPolicy {
         fast_interval: AdvertisingInterval {
-            min: Duration::from_millis(25),
-            max: Duration::from_millis(25),
+            min: Duration::from_millis(20),
+            max: Duration::from_millis(20),
         },
-        fast_duration: Duration::from_secs(300),
+        fast_duration: Duration::from_secs(600),
         steady_interval: AdvertisingInterval {
-            min: Duration::from_micros(152_500),
-            max: Duration::from_micros(152_500),
+            min: Duration::from_micros(211_250),
+            max: Duration::from_micros(211_250),
         },
         discoverable: true,
     }
@@ -85,14 +83,12 @@ pub fn applied_config(
 }
 
 pub fn payload_risk_hint(
-    advertised_name: &str,
-    short_name: &str,
+    identity_name: &str,
     capabilities: &AdvertisingCapabilitiesSnapshot,
 ) -> String {
     format!(
-        "full_name_len={} short_name_len={} max_adv_len={:?} max_scan_rsp_len={:?}; keep primary identity short and do not rely on scan response for full instance identity",
-        advertised_name.len(),
-        short_name.len(),
+        "identity_name_len={} max_adv_len={:?} max_scan_rsp_len={:?}; advertising uses one BLE local name and also declares the UART service UUID for scanner filters",
+        identity_name.len(),
         capabilities.max_advertisement_length,
         capabilities.max_scan_response_length
     )
@@ -110,7 +106,11 @@ pub fn interval_ms_text(value: Duration) -> String {
     if millis.fract() == 0.0 {
         format!("{millis:.0} ms")
     } else {
-        format!("{millis:.1} ms")
+        let value = format!("{millis:.2}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string();
+        format!("{value} ms")
     }
 }
 
@@ -160,15 +160,15 @@ pub async fn probe_capabilities(adapter: &Adapter) -> AdvertisingCapabilitiesSna
 
 #[cfg(target_os = "linux")]
 pub fn build_advertisement(
-    short_name: &str,
+    identity_name: &str,
     service_uuid: Uuid,
     config: AppliedAdvertisingConfig,
 ) -> Advertisement {
     Advertisement {
         advertisement_type: bluer::adv::Type::Peripheral,
+        service_uuids: [service_uuid].into_iter().collect(),
         discoverable: Some(config.discoverable),
-        local_name: Some(short_name.to_string()),
-        service_uuids: [service_uuid].into_iter().collect::<BTreeSet<_>>(),
+        local_name: Some(identity_name.to_string()),
         min_interval: Some(config.interval.min),
         max_interval: Some(config.interval.max),
         tx_power: config.tx_power,
@@ -179,12 +179,12 @@ pub fn build_advertisement(
 #[cfg(target_os = "linux")]
 pub async fn advertise_phase(
     adapter: &Adapter,
-    short_name: &str,
+    identity_name: &str,
     service_uuid: Uuid,
     config: AppliedAdvertisingConfig,
 ) -> bluer::Result<AdvertisementHandle> {
     adapter
-        .advertise(build_advertisement(short_name, service_uuid, config))
+        .advertise(build_advertisement(identity_name, service_uuid, config))
         .await
 }
 
@@ -197,16 +197,28 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn fast_phase_uses_twenty_five_millisecond_interval() {
+    fn default_policy_uses_discoverability_first_intervals() {
+        let policy = super::default_policy();
+
+        assert_eq!(policy.fast_interval.min, Duration::from_millis(20));
+        assert_eq!(policy.fast_interval.max, Duration::from_millis(20));
+        assert_eq!(policy.fast_duration, Duration::from_secs(600));
+        assert_eq!(policy.steady_interval.min, Duration::from_micros(211_250));
+        assert_eq!(policy.steady_interval.max, Duration::from_micros(211_250));
+        assert!(policy.discoverable);
+    }
+
+    #[test]
+    fn fast_phase_uses_twenty_millisecond_interval() {
         let policy = AdvertisingPolicy {
             fast_interval: AdvertisingInterval {
-                min: Duration::from_millis(25),
-                max: Duration::from_millis(25),
+                min: Duration::from_millis(20),
+                max: Duration::from_millis(20),
             },
-            fast_duration: Duration::from_secs(300),
+            fast_duration: Duration::from_secs(600),
             steady_interval: AdvertisingInterval {
-                min: Duration::from_micros(152_500),
-                max: Duration::from_micros(152_500),
+                min: Duration::from_micros(211_250),
+                max: Duration::from_micros(211_250),
             },
             discoverable: true,
         };
@@ -236,13 +248,13 @@ mod tests {
     fn steady_phase_drops_tx_power_when_unsupported() {
         let policy = AdvertisingPolicy {
             fast_interval: AdvertisingInterval {
-                min: Duration::from_millis(25),
-                max: Duration::from_millis(25),
+                min: Duration::from_millis(20),
+                max: Duration::from_millis(20),
             },
-            fast_duration: Duration::from_secs(300),
+            fast_duration: Duration::from_secs(600),
             steady_interval: AdvertisingInterval {
-                min: Duration::from_micros(152_500),
-                max: Duration::from_micros(152_500),
+                min: Duration::from_micros(211_250),
+                max: Duration::from_micros(211_250),
             },
             discoverable: true,
         };
@@ -281,19 +293,45 @@ mod tests {
             platform_features: vec![],
         };
 
-        let hint = super::payload_risk_hint("Yundrone_UAV-14-20-5433", "YD-5433", &caps);
+        let hint = super::payload_risk_hint("yundrone-14201a", &caps);
 
-        assert!(hint.contains("full_name_len=23"));
-        assert!(hint.contains("short_name_len=7"));
+        assert!(hint.contains("identity_name_len=15"));
         assert!(hint.contains("max_adv_len=Some(31)"));
-        assert!(hint.contains("scan response"));
+        assert!(hint.contains("one BLE local name"));
+        assert!(hint.contains("service UUID"));
     }
 
     #[test]
-    fn interval_text_keeps_half_millisecond_precision() {
+    fn interval_text_keeps_fractional_millisecond_precision() {
+        assert_eq!(
+            super::interval_ms_text(Duration::from_micros(211_250)),
+            "211.25 ms"
+        );
         assert_eq!(
             super::interval_ms_text(Duration::from_micros(152_500)),
             "152.5 ms"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn advertisement_carries_single_identity_name_and_uart_service_uuid() {
+        let service_uuid = uuid::Uuid::parse_str("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+            .expect("valid UART service UUID");
+        let config = AppliedAdvertisingConfig {
+            phase: AdvertisingPhase::FastStart,
+            interval: AdvertisingInterval {
+                min: Duration::from_millis(20),
+                max: Duration::from_millis(20),
+            },
+            discoverable: true,
+            tx_power: Some(8),
+        };
+
+        let advertisement = super::build_advertisement("yundrone-ytcwln", service_uuid, config);
+
+        assert_eq!(advertisement.local_name.as_deref(), Some("yundrone-ytcwln"));
+        assert!(advertisement.service_uuids.contains(&service_uuid));
+        assert_eq!(advertisement.service_uuids.len(), 1);
     }
 }

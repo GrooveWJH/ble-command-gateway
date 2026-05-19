@@ -63,6 +63,10 @@ impl GatewayApp {
         });
     }
 
+    fn dispatch(&mut self, event: UiEvent) {
+        reducer::reduce(&mut self.model, event);
+    }
+
     fn record_local_success(&mut self, slot: ActionSlot, detail: Option<String>) {
         reducer::reduce(
             &mut self.model,
