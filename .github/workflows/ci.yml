@@ -40,33 +40,13 @@ jobs:
             libxcb-xfixes0-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check version consistency
-        run: python3 scripts/release/check_version_consistency.py
-
-      - name: Run release script tests
-        run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run workspace tests (client/gui/protocol/platform_runtime)
-        run: cargo test --locked --workspace --exclude yundrone-ble-server
-
-      - name: Run server tests
-        run: cargo test --locked -p yundrone-ble-server
-
-      - name: Run clippy on workspace (excluding server)
-        run: cargo clippy --locked --workspace --all-targets --exclude yundrone-ble-server -- -D warnings
-
-      - name: Run clippy on server
-        run: cargo clippy --locked -p yundrone-ble-server --all-targets -- -D warnings
+      - name: Run CI quality checks
+        run: scripts/ci/check.sh quality
 
   build:
     name: Build (${{ matrix.name }})
@@ -110,22 +90,19 @@ jobs:
             libxcb-xfixes0-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
 
       - name: Build full workspace on Ubuntu
         if: matrix.build_scope == 'full'
-        run: cargo build --locked --workspace
+        run: scripts/ci/check.sh build-full
 
       - name: Build desktop workspace on macOS and Windows
         if: matrix.build_scope == 'desktop'
-        run: cargo build --locked -p protocol -p platform_runtime -p yundrone-ble-client -p gui
+        run: scripts/ci/check.sh build-desktop
 
       - name: Validate macOS app packaging
         if: matrix.name == 'macos-arm64'
-        run: |
-          chmod +x scripts/package-macos-gui.sh
-          ./scripts/package-macos-gui.sh
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "target/release/yundrone-ble-client.app"
+        run: scripts/ci/check.sh package-macos

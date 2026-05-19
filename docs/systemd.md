@@ -18,6 +18,7 @@ sudo apt install -y pkg-config libdbus-1-dev
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 . "$HOME/.cargo/env"
+rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 ```
 
 ## 2) 构建服务端二进制

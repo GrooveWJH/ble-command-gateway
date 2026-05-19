@@ -53,17 +53,14 @@ jobs:
             --current-tag "${GITHUB_REF_NAME}"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 
       - name: Restore cargo cache
         uses: Swatinem/rust-cache@v2
 
       - name: Build macOS app bundle
         shell: bash
-        run: |
-          chmod +x scripts/package-macos-gui.sh
-          ./scripts/package-macos-gui.sh
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "target/release/yundrone-ble-client.app"
+        run: scripts/ci/check.sh package-macos
 
       - name: Archive macOS app bundle
         shell: bash

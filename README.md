@@ -44,8 +44,7 @@ Install Rust if the target device builds from source:
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 . "$HOME/.cargo/env"
-rustup default stable
-rustup component add rustfmt clippy
+rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 ```
 
 Build and smoke-test the server:
@@ -149,12 +148,10 @@ With `--trace-chunks`, the log shows:
 Common local checks:
 
 ```bash
-cargo fmt --all --check
-cargo test --workspace --exclude yundrone-ble-server
-cargo test -p yundrone-ble-server
-cargo clippy --workspace --all-targets --exclude yundrone-ble-server -- -D warnings
-cargo clippy -p yundrone-ble-server --all-targets -- -D warnings
+scripts/ci/check.sh quality
 ```
+
+This script is the same entry point used by GitHub Actions for formatting, tests, clippy, release script tests, and version checks. The Rust version is pinned by [rust-toolchain.toml](./rust-toolchain.toml), so local checks and CI use the same toolchain. Build parity commands are also available: `scripts/ci/check.sh build-full`, `scripts/ci/check.sh build-desktop`, and `scripts/ci/check.sh package-macos`.
 
 Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG). Tagged releases use the release workflow to publish the macOS app asset.
 

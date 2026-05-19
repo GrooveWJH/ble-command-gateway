@@ -44,8 +44,7 @@ sudo apt install -y bluetooth bluez network-manager pkg-config libdbus-1-dev
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 . "$HOME/.cargo/env"
-rustup default stable
-rustup component add rustfmt clippy
+rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 ```
 
 构建并手动冒烟测试 server：
@@ -149,12 +148,10 @@ cargo run -p yundrone-ble-client -- debug-ble \
 常用本地检查命令：
 
 ```bash
-cargo fmt --all --check
-cargo test --workspace --exclude yundrone-ble-server
-cargo test -p yundrone-ble-server
-cargo clippy --workspace --all-targets --exclude yundrone-ble-server -- -D warnings
-cargo clippy -p yundrone-ble-server --all-targets -- -D warnings
+scripts/ci/check.sh quality
 ```
+
+这个脚本就是 GitHub Actions 里格式化、测试、clippy、release 脚本测试和版本一致性检查使用的同一个入口。Rust 版本由 [rust-toolchain.toml](./rust-toolchain.toml) 固定，因此本地检查和 CI 会使用同一套工具链。构建对齐命令也在同一个脚本里：`scripts/ci/check.sh build-full`、`scripts/ci/check.sh build-desktop`、`scripts/ci/check.sh package-macos`。
 
 Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产。
 
