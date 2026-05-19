@@ -27,7 +27,11 @@ async fn system_capabilities_command_is_supported() {
     assert!(data
         .commands
         .contains(&protocol::commands::CMD_SYSTEM_STATUS.to_string()));
+    assert!(data
+        .commands
+        .contains(&protocol::commands::CMD_LINK_ACK.to_string()));
     assert!(data.features.contains(&"response_events".to_string()));
+    assert!(data.features.contains(&"qos_ack_retry".to_string()));
 }
 
 #[tokio::test]

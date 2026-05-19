@@ -64,6 +64,10 @@ pub async fn run_payload_command(
     timeout_sec: f64,
 ) -> SystemExecResult {
     match payload {
+        protocol::requests::CommandPayload::LinkAck(_) => SystemExecResult::error(
+            protocol::codes::CODE_ACK_BAD_REQUEST,
+            "link.ack is handled by the transport layer",
+        ),
         protocol::requests::CommandPayload::SystemCapabilities => {
             system_commands::run_capabilities()
         }

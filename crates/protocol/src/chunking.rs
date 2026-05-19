@@ -23,6 +23,8 @@ struct ResponseJsonChunkMeta {
     index: usize,
     total: usize,
     payload: String,
+    #[serde(default)]
+    ack_required: bool,
 }
 
 impl ChunkAssembler {
@@ -205,6 +207,7 @@ fn build_response_json_chunk(
             index,
             total,
             payload,
+            ack_required: true,
         })
         .expect("chunk metadata should serialize"),
     );

@@ -60,6 +60,7 @@ ble.advertising.ready
 ```bash
 cargo run -p yundrone-ble-client -- debug-ble \
   --target yundrone --timeout 20 --response-timeout 10 \
+  --trace-chunks --trace-qos \
   --output /tmp/yundrone-ble-debug.log
 cat /tmp/yundrone-ble-debug.log
 ```
@@ -74,6 +75,8 @@ service 6e400001-b5a3-f393-e0a9-e50e24dcca9e primary=true <- UART service
 char 6e400002-b5a3-f393-e0a9-e50e24dcca9e props=...
 char 6e400003-b5a3-f393-e0a9-e50e24dcca9e props=...
 [OK] subscribe
+[QOS:ack]
+[QOS:event-ack]
 [OK] rx                 link.heartbeat ... text=alive
 [OK] rx                 system.capabilities ... text=capabilities listed
 ```
@@ -113,7 +116,7 @@ UUID: Nordic UART Service
 请求固定是：
 
 ```json
-{"id":"debug-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 响应是事件模型：
@@ -131,7 +134,7 @@ UUID: Nordic UART Service
   "data": {
     "alive": true
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -150,7 +153,7 @@ UUID: Nordic UART Service
 写入：
 
 ```json
-{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 期望返回：
@@ -168,7 +171,7 @@ UUID: Nordic UART Service
   "data": {
     "alive": true
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -179,7 +182,7 @@ UUID: Nordic UART Service
 写入：
 
 ```json
-{"id":"debug-cap-001","cmd":"system.capabilities","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-cap-001","cmd":"system.capabilities","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 期望看到：
@@ -195,7 +198,7 @@ UUID: Nordic UART Service
   "code": "OK",
   "text": "capabilities listed",
   "data": {
-    "protocol_version": "YundroneBT-V2.0.0",
+    "protocol_version": "YundroneBT-V2.1.0",
     "commands": [
       "link.heartbeat",
       "system.status",
@@ -212,7 +215,7 @@ UUID: Nordic UART Service
     ],
     "payload_limit": 360
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -221,7 +224,7 @@ UUID: Nordic UART Service
 写入：
 
 ```json
-{"id":"debug-status-001","cmd":"system.status","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-status-001","cmd":"system.status","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 重点看返回里的：
@@ -241,23 +244,23 @@ UUID: Nordic UART Service
 写入：
 
 ```json
-{"id":"debug-wifi-001","cmd":"wifi.scan","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-wifi-001","cmd":"wifi.scan","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 可选指定网卡：
 
 ```json
-{"id":"debug-wifi-wlan0-001","cmd":"wifi.scan","args":{"ifname":"wlan0"},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-wifi-wlan0-001","cmd":"wifi.scan","args":{"ifname":"wlan0"},"v":"YundroneBT-V2.1.0"}
 ```
 
 典型事件流：
 
 ```json
-{"id":"debug-wifi-001","cmd":"wifi.scan","phase":"accepted","seq":1,"final":false,"ok":true,"code":"ACCEPTED","text":"accepted","v":"YundroneBT-V2.0.0"}
+{"id":"debug-wifi-001","cmd":"wifi.scan","phase":"accepted","seq":1,"final":false,"ok":true,"code":"ACCEPTED","text":"accepted","v":"YundroneBT-V2.1.0"}
 ```
 
 ```json
-{"id":"debug-wifi-001","cmd":"wifi.scan","phase":"progress","seq":2,"final":false,"ok":true,"code":"IN_PROGRESS","text":"please wait","v":"YundroneBT-V2.0.0"}
+{"id":"debug-wifi-001","cmd":"wifi.scan","phase":"progress","seq":2,"final":false,"ok":true,"code":"IN_PROGRESS","text":"please wait","v":"YundroneBT-V2.1.0"}
 ```
 
 最后会收到 `final=true` 的结果，可能因为较大而被分片。完整结果重组后类似：
@@ -283,7 +286,7 @@ UUID: Nordic UART Service
       }
     ]
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -292,13 +295,13 @@ UUID: Nordic UART Service
 开放网络：
 
 ```json
-{"id":"debug-prov-open-001","cmd":"wifi.provision","args":{"ssid":"YourSSID"},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-prov-open-001","cmd":"wifi.provision","args":{"ssid":"YourSSID"},"v":"YundroneBT-V2.1.0"}
 ```
 
 有密码网络：
 
 ```json
-{"id":"debug-prov-psk-001","cmd":"wifi.provision","args":{"ssid":"YourSSID","pwd":"example-password"},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-prov-psk-001","cmd":"wifi.provision","args":{"ssid":"YourSSID","pwd":"example-password"},"v":"YundroneBT-V2.1.0"}
 ```
 
 它也是耗时命令，会先返回 `accepted/progress`。最终成功类似：
@@ -317,7 +320,7 @@ UUID: Nordic UART Service
     "ssid": "YourSSID",
     "ip": "192.0.2.x"
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -328,7 +331,7 @@ UUID: Nordic UART Service
 写入：
 
 ```json
-{"id":"debug-profiles-list-001","cmd":"wifi.profiles.list","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-profiles-list-001","cmd":"wifi.profiles.list","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 期望返回：
@@ -354,7 +357,7 @@ UUID: Nordic UART Service
       }
     ]
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -365,7 +368,7 @@ UUID: Nordic UART Service
 默认安全删除非 active profile：
 
 ```json
-{"id":"debug-profiles-delete-001","cmd":"wifi.profiles.delete","args":{"uuids":["11111111-2222-3333-4444-555555555555"]},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-profiles-delete-001","cmd":"wifi.profiles.delete","args":{"uuids":["11111111-2222-3333-4444-555555555555"]},"v":"YundroneBT-V2.1.0"}
 ```
 
 如果选中了当前 active profile，且没有 `force=true`，服务端会跳过：
@@ -391,7 +394,7 @@ UUID: Nordic UART Service
     ],
     "failed": []
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -419,7 +422,7 @@ UUID: Nordic UART Service
       "payload": "{\"id\":\"debug-wifi-001\",..."
     }
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -437,7 +440,7 @@ GUI / CLI 会自动重组，调试工具通常不会。
 旧命令会被拒绝：
 
 ```json
-{"id":"debug-old-ping","cmd":"ping","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-old-ping","cmd":"ping","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 期望错误：
@@ -451,7 +454,7 @@ GUI / CLI 会自动重组，调试工具通常不会。
   "ok": false,
   "code": "UNKNOWN_COMMAND",
   "text": "unknown command: ping",
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -492,12 +495,12 @@ ble.response.sent request_id=debug-heartbeat-001 cmd=link.heartbeat response_cod
 6. JSON 是否写进了 Write Characteristic。
 7. 写入格式是否是 UTF-8 文本。
 8. 请求是否包含 `id/cmd/args/v`。
-9. `v` 是否是 `YundroneBT-V2.0.0`。
+9. `v` 是否是 `YundroneBT-V2.1.0`。
 10. 服务端日志是否出现 `ble.request.received` 或 `ble.request.parse_failed`。
 11. 大响应是否只是被分片，而不是没返回。
 
 最小可用测试永远是：
 
 ```json
-{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.1.0"}
 ```

@@ -17,6 +17,14 @@ fn every_typed_request_round_trips_through_wire_schema() {
             requests::CommandPayload::SystemCapabilities,
         ),
         CommandRequest::new("req-heartbeat", requests::CommandPayload::LinkHeartbeat),
+        CommandRequest::new(
+            "req-ack",
+            requests::CommandPayload::LinkAck(requests::LinkAckArgs {
+                ack_type: requests::AckType::Chunk,
+                response_seq: 3,
+                chunk_index: Some(2),
+            }),
+        ),
         CommandRequest::new("req-status", requests::CommandPayload::SystemStatus),
         CommandRequest::new(
             "req-profiles-list",
@@ -105,8 +113,55 @@ fn parse_request_rejects_v1_protocol_version() {
 }
 
 #[test]
+fn parse_request_rejects_v20_protocol_version() {
+    let err = parse_request(
+        br#"{"id":"req-old-version","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}"#,
+    )
+    .unwrap_err();
+
+    match err {
+        ProtocolError::BadRequest(message) => {
+            assert!(message.contains("unsupported protocol version"));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn parse_request_decodes_link_ack() {
+    let decoded = parse_request(
+        br#"{"id":"req-ack","cmd":"link.ack","args":{"ack_type":"chunk","response_seq":7,"chunk_index":3}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        decoded.payload,
+        requests::CommandPayload::LinkAck(requests::LinkAckArgs {
+            ack_type: requests::AckType::Chunk,
+            response_seq: 7,
+            chunk_index: Some(3),
+        })
+    );
+}
+
+#[test]
+fn parse_request_rejects_bad_link_ack_args() {
+    let missing_seq = parse_request(
+        br#"{"id":"req-ack","cmd":"link.ack","args":{"ack_type":"chunk","chunk_index":3}}"#,
+    )
+    .unwrap_err();
+    assert!(missing_seq.to_string().contains("response_seq"));
+
+    let bad_index = parse_request(
+        br#"{"id":"req-ack","cmd":"link.ack","args":{"ack_type":"chunk","response_seq":7,"chunk_index":0}}"#,
+    )
+    .unwrap_err();
+    assert!(bad_index.to_string().contains("chunk_index"));
+}
+
+#[test]
 fn parse_error_response_preserves_request_identity_for_debuggers() {
-    let raw = br#"{"id":"req-old","cmd":"ping","args":{},"v":"YundroneBT-V2.0.0"}"#;
+    let raw = br#"{"id":"req-old","cmd":"ping","args":{},"v":"YundroneBT-V2.1.0"}"#;
     let err = parse_request(raw).unwrap_err();
     let response = parse_error_response(raw, &err).expect("id/cmd should be recoverable");
 
@@ -286,6 +341,25 @@ fn large_status_data_response_chunks_and_round_trips() {
     let decoded_data: responses::StatusResponseData = assembled.decode_data().unwrap();
     assert_eq!(assembled, response);
     assert_eq!(decoded_data, response_data);
+}
+
+#[test]
+fn chunk_metadata_marks_ack_required() {
+    let response = CommandResponse::ok("req-chunk", "x".repeat(500), None);
+    let chunks = chunking::chunk_response(response);
+    let encoded = encode_response(&chunks[0]).unwrap();
+    let decoded = parse_response(&encoded).unwrap();
+    let chunk = decoded
+        .data
+        .as_ref()
+        .and_then(|data| data.get("chunk"))
+        .and_then(|value| value.as_object())
+        .expect("chunk metadata should be present");
+
+    assert_eq!(
+        chunk.get("ack_required").and_then(|value| value.as_bool()),
+        Some(true)
+    );
 }
 
 #[test]

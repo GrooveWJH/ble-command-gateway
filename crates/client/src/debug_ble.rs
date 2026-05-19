@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context as _, Result};
 use btleplug::api::{
     Central, CentralEvent, CharPropFlags, Manager as _, Peripheral as _, PeripheralProperties,
-    ScanFilter, WriteType,
+    ScanFilter,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
 use futures::StreamExt;
@@ -70,9 +70,16 @@ pub fn format_peripheral_summary(summary: &DebugPeripheralSummary) -> String {
     )
 }
 
-struct DebugLog {
+pub(crate) struct DebugLog {
     lines: Vec<String>,
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeOptions {
+    timeout_secs: u64,
+    trace_chunks: bool,
+    trace_qos: bool,
 }
 
 impl DebugLog {
@@ -83,7 +90,7 @@ impl DebugLog {
         }
     }
 
-    fn line(&mut self, line: impl Into<String>) {
+    pub(crate) fn line(&mut self, line: impl Into<String>) {
         let line = line.into();
         println!("{line}");
         self.lines.push(line);
@@ -105,6 +112,7 @@ pub async fn run(
     response_timeout_secs: u64,
     output: Option<PathBuf>,
     trace_chunks: bool,
+    trace_qos: bool,
 ) -> Result<()> {
     let mut log = DebugLog::new(output);
     match run_with_log(
@@ -112,6 +120,7 @@ pub async fn run(
         timeout_secs,
         response_timeout_secs,
         trace_chunks,
+        trace_qos,
         &mut log,
     )
     .await
@@ -129,6 +138,7 @@ async fn run_with_log(
     timeout_secs: u64,
     response_timeout_secs: u64,
     trace_chunks: bool,
+    trace_qos: bool,
     log: &mut DebugLog,
 ) -> Result<()> {
     let criteria = DiscoveryCriteria::for_prefix(prefix);
@@ -238,8 +248,11 @@ async fn run_with_log(
         &write_char,
         &mut notifications,
         protocol::requests::CommandPayload::LinkHeartbeat,
-        response_timeout_secs,
-        trace_chunks,
+        ProbeOptions {
+            timeout_secs: response_timeout_secs,
+            trace_chunks,
+            trace_qos,
+        },
         log,
     )
     .await?;
@@ -248,8 +261,11 @@ async fn run_with_log(
         &write_char,
         &mut notifications,
         protocol::requests::CommandPayload::SystemCapabilities,
-        response_timeout_secs,
-        trace_chunks,
+        ProbeOptions {
+            timeout_secs: response_timeout_secs,
+            trace_chunks,
+            trace_qos,
+        },
         log,
     )
     .await?;
@@ -366,8 +382,7 @@ async fn run_probe_command(
         Box<dyn futures::Stream<Item = btleplug::api::ValueNotification> + Send>,
     >,
     payload: protocol::requests::CommandPayload,
-    timeout_secs: u64,
-    trace_chunks: bool,
+    options: ProbeOptions,
     log: &mut DebugLog,
 ) -> Result<()> {
     let command_name = payload.command_name();
@@ -384,20 +399,45 @@ async fn run_probe_command(
         )
         .line(),
     );
-    peripheral
-        .write(write_char, &prepared.bytes, WriteType::WithoutResponse)
-        .await
-        .with_context(|| format!("write {command_name} request"))?;
+    crate::debug_qos::write_with_qos(
+        peripheral,
+        write_char,
+        &prepared.bytes,
+        "request",
+        options.trace_qos,
+        log,
+    )
+    .await
+    .with_context(|| format!("write {command_name} request"))?;
 
     let mut decoder = client::response::ResponseDecoder::new();
-    let response = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
+    let response = tokio::time::timeout(Duration::from_secs(options.timeout_secs), async {
         while let Some(notification) = notifications.next().await {
-            if trace_chunks {
+            if options.trace_chunks {
                 log_notification(&notification.value, log);
             }
-            match decoder.decode(&notification.value)? {
+            let event = decoder.decode_event(&notification.value)?;
+            if let Some(receipt) = event.chunk_receipt {
+                crate::debug_qos::send_debug_chunk_ack(
+                    peripheral,
+                    write_char,
+                    &receipt,
+                    options.trace_qos,
+                    log,
+                )
+                .await?;
+            }
+            match event.response {
                 Some(response) if response.id == prepared.request.id => {
-                    if trace_chunks {
+                    crate::debug_qos::send_debug_event_ack(
+                        peripheral,
+                        write_char,
+                        &response,
+                        options.trace_qos,
+                        log,
+                    )
+                    .await?;
+                    if options.trace_chunks {
                         log_reassembled_response(&response, log);
                     }
                     return Ok(response);
@@ -416,7 +456,10 @@ async fn run_probe_command(
     })
     .await
     .map_err(|_| {
-        anyhow!("Timed out waiting for {command_name} response after {timeout_secs}s")
+        anyhow!(
+            "Timed out waiting for {command_name} response after {}s",
+            options.timeout_secs
+        )
     })??;
 
     log.line(

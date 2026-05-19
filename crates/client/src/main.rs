@@ -1,5 +1,6 @@
 mod cli_text;
 mod debug_ble;
+mod debug_qos;
 mod interactive;
 mod profiles;
 
@@ -151,6 +152,9 @@ pub(crate) struct DebugBleArgs {
         help = "Trace response_json chunks and the final assembled response"
     )]
     pub(crate) trace_chunks: bool,
+
+    #[arg(long, help = "Trace QoS writes, chunk ACKs, and event ACKs")]
+    pub(crate) trace_qos: bool,
 }
 
 #[tokio::main]
@@ -179,6 +183,7 @@ async fn main() -> Result<()> {
                 debug_args.response_timeout,
                 debug_args.output.clone(),
                 debug_args.trace_chunks,
+                debug_args.trace_qos,
             )
             .await
         }

@@ -1,5 +1,6 @@
 pub mod ble;
 pub mod discovery;
+pub mod qos;
 pub mod request;
 pub mod response;
 pub mod scan_state;

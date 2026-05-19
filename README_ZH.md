@@ -15,7 +15,7 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 | 直接使用 macOS 桌面程序 | 下载 GitHub Release 里的 macOS 包 | 当前官方预编译包只提供 Apple Silicon 版本。 |
 | 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
 | 在 Linux 设备上部署 BLE 服务 | 构建 `yundrone-ble-server` 并安装 systemd 服务 | 目标设备需要 BlueZ 和 NetworkManager。 |
-| 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、notify 数据和可选分片。 |
+| 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、notify 数据、分片和 QoS ACK。 |
 
 ## 快速使用
 
@@ -135,14 +135,16 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --timeout 30 \
   --response-timeout 15 \
   --trace-chunks \
+  --trace-qos \
   --output /tmp/yundrone-ble-debug.log
 ```
 
-开启 `--trace-chunks` 后，日志会显示：
+开启 `--trace-chunks` 和 `--trace-qos` 后，日志会显示：
 
 - `[RX:raw]`：每条 BLE notify 原始 JSON 帧。
 - `[RX:chunk]`：每个 `data.chunk` 分片，包含 `index/total`。
 - `[RX:assembled]`：所有分片合并后的完整响应 JSON。
+- `[QOS:ack]` / `[QOS:event-ack]`：客户端发出的传输层确认。
 - `[OK] rx`：最终解码后的业务响应摘要。
 
 常用本地检查命令：

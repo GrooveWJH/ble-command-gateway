@@ -1,6 +1,6 @@
 # BLE Command Contracts V2
 
-This document defines the wire commands and typed response data for protocol `YundroneBT-V2.0.0`.
+This document defines the wire commands and typed response data for protocol `YundroneBT-V2.1.0`.
 
 V2 is a breaking protocol. Legacy commands such as `ping`, `help`, `status`, `sys.whoami`, `net.ifconfig`, `provision`, and `shutdown` are not formal commands anymore.
 
@@ -11,14 +11,14 @@ V2 is a breaking protocol. Legacy commands such as `ping`, `help`, `status`, `sy
   "id": "request-id",
   "cmd": "domain.action",
   "args": {},
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
 - `id`: caller-generated request ID. Every response event for the request reuses it.
 - `cmd`: V2 command name.
 - `args`: command-specific object. Use `{}` when the command has no arguments.
-- `v`: protocol version. The current server expects `YundroneBT-V2.0.0`.
+- `v`: protocol version. The current server expects `YundroneBT-V2.1.0`.
 
 ## Response Event Schema
 
@@ -33,7 +33,7 @@ V2 is a breaking protocol. Legacy commands such as `ping`, `help`, `status`, `sy
   "code": "OK",
   "text": "human readable summary",
   "data": {},
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -51,6 +51,8 @@ Fast commands usually return one `result` event. Slow foreground commands return
 
 The response chunking middleware can split any oversized event into multiple BLE notifications. GUI/CLI clients reassemble this transparently.
 
+V2.1 adds lightweight transport acknowledgements. Clients ACK every reliable chunk and every completed response event with `link.ack`; applications should not expose `link.ack` as a user-facing command.
+
 ## Commands
 
 ### `link.heartbeat`
@@ -63,6 +65,18 @@ Response:
 
 - `code`: `OK`
 - `data.alive`: boolean
+
+### `link.ack`
+
+Purpose: transport-level acknowledgement for response chunks and completed response events.
+
+Arguments:
+
+- `ack_type`: `chunk` or `event`
+- `response_seq`: response event sequence number being acknowledged
+- `chunk_index`: required for `ack_type=chunk`, omitted for `ack_type=event`
+
+Response: none. The server consumes this command in the transport layer and does not emit a business response.
 
 ### `system.status`
 

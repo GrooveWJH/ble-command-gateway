@@ -5,13 +5,14 @@ pub mod chunking;
 pub mod requests;
 pub mod responses;
 
-pub const PROTOCOL_VERSION: &str = "YundroneBT-V2.0.0";
+pub const PROTOCOL_VERSION: &str = "YundroneBT-V2.1.0";
 
 pub mod codes {
     pub const CODE_OK: &str = "OK";
     pub const CODE_ACCEPTED: &str = "ACCEPTED";
     pub const CODE_BAD_JSON: &str = "BAD_JSON";
     pub const CODE_BAD_REQUEST: &str = "BAD_REQUEST";
+    pub const CODE_ACK_BAD_REQUEST: &str = "ACK_BAD_REQUEST";
     pub const CODE_UNKNOWN_COMMAND: &str = "UNKNOWN_COMMAND";
     pub const CODE_BUSY: &str = "BUSY";
     pub const CODE_IN_PROGRESS: &str = "IN_PROGRESS";
@@ -20,10 +21,13 @@ pub mod codes {
     pub const CODE_PROVISION_SUCCESS: &str = "PROVISION_SUCCESS";
     pub const CODE_PROVISION_FAIL: &str = "PROVISION_FAIL";
     pub const CODE_INTERNAL_ERROR: &str = "INTERNAL_ERROR";
+    pub const CODE_REQUEST_EXPIRED: &str = "REQUEST_EXPIRED";
+    pub const CODE_DELIVERY_TIMEOUT: &str = "DELIVERY_TIMEOUT";
     pub const CODE_TIMEOUT: &str = "TIMEOUT";
 }
 
 pub mod commands {
+    pub const CMD_LINK_ACK: &str = "link.ack";
     pub const CMD_LINK_HEARTBEAT: &str = "link.heartbeat";
     pub const CMD_SYSTEM_STATUS: &str = "system.status";
     pub const CMD_SYSTEM_CAPABILITIES: &str = "system.capabilities";

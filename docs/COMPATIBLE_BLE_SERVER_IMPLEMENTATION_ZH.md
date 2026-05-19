@@ -190,7 +190,7 @@ UUID: Nordic UART Service
 当前协议版本固定为：
 
 ```text
-YundroneBT-V2.0.0
+YundroneBT-V2.1.0
 ```
 
 请求是一个 JSON 对象：
@@ -200,7 +200,7 @@ YundroneBT-V2.0.0
   "id": "request-id",
   "cmd": "domain.action",
   "args": {},
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -211,7 +211,7 @@ YundroneBT-V2.0.0
 | `id` | string | 是 | 客户端生成的请求 ID，响应必须原样带回 |
 | `cmd` | string | 是 | 命令名 |
 | `args` | object | 是 | 参数对象，没有参数就传 `{}` |
-| `v` | string | 是 | 必须是 `YundroneBT-V2.0.0` |
+| `v` | string | 是 | 必须是 `YundroneBT-V2.1.0` |
 
 响应也是 JSON 对象。V2 响应是“事件”，也就是一个请求可能收到多条响应。
 
@@ -226,7 +226,7 @@ YundroneBT-V2.0.0
   "code": "OK",
   "text": "human readable summary",
   "data": {},
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -243,7 +243,7 @@ YundroneBT-V2.0.0
 | `code` | string | 是 | 机器可读结果码 |
 | `text` | string | 是 | 人可读摘要 |
 | `data` | object | 否 | 命令返回数据 |
-| `v` | string | 是 | `YundroneBT-V2.0.0` |
+| `v` | string | 是 | `YundroneBT-V2.1.0` |
 
 快速命令只返回一个 `phase=result, final=true` 事件。耗时命令返回三类事件：
 
@@ -284,7 +284,7 @@ end
 请求：
 
 ```json
-{"id":"req-1","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"req-1","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 响应：
@@ -302,7 +302,7 @@ end
   "data": {
     "alive": true
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -315,7 +315,7 @@ end
 请求：
 
 ```json
-{"id":"req-status","cmd":"system.status","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"req-status","cmd":"system.status","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 响应数据：
@@ -353,14 +353,14 @@ end
 请求：
 
 ```json
-{"id":"req-cap","cmd":"system.capabilities","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"req-cap","cmd":"system.capabilities","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 响应数据：
 
 ```json
 {
-  "protocol_version": "YundroneBT-V2.0.0",
+  "protocol_version": "YundroneBT-V2.1.0",
   "commands": [
     "link.heartbeat",
     "system.status",
@@ -386,7 +386,7 @@ end
 请求：
 
 ```json
-{"id":"req-wifi-scan","cmd":"wifi.scan","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"req-wifi-scan","cmd":"wifi.scan","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 可选参数：
@@ -431,7 +431,7 @@ end
 请求：
 
 ```json
-{"id":"req-prov","cmd":"wifi.provision","args":{"ssid":"LabWiFi","pwd":"password"},"v":"YundroneBT-V2.0.0"}
+{"id":"req-prov","cmd":"wifi.provision","args":{"ssid":"LabWiFi","pwd":"password"},"v":"YundroneBT-V2.1.0"}
 ```
 
 开放网络可省略 `pwd`：
@@ -473,7 +473,7 @@ end
 请求：
 
 ```json
-{"id":"req-profile-list","cmd":"wifi.profiles.list","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"req-profile-list","cmd":"wifi.profiles.list","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 响应数据：
@@ -525,7 +525,7 @@ end
     ],
     "force": false
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -587,7 +587,7 @@ end
   "ok": true,
   "code": "ACCEPTED",
   "text": "accepted",
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -601,7 +601,7 @@ end
   "ok": true,
   "code": "IN_PROGRESS",
   "text": "please wait",
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -620,7 +620,7 @@ end
     "count": 0,
     "networks": []
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -695,14 +695,67 @@ end
       "mode": "response_json",
       "index": 1,
       "total": 4,
-      "payload": "{\"id\":\"req-wifi-scan\",..."
+      "payload": "{\"id\":\"req-wifi-scan\",...",
+      "ack_required": true
     }
   },
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
-### 10.1 反斜杠到底是什么
+### 10.1 V2.1 可靠传输 ACK
+
+V2.1 在原来的分片机制上增加了一层很轻的确认机制。它不是新的业务命令，也不是让用户点击的功能，而是客户端和服务端之间的传输层确认。
+
+核心规则：
+
+- 服务端发出的每个 `response_json` chunk 都应带 `ack_required: true`。
+- 客户端每收到一个 chunk，立刻向 write characteristic 写入 `link.ack`，确认这一片已经收到。
+- 客户端把一个完整 response event 重组完成并交给业务层后，再发一次 `link.ack`，确认整个事件已经完成交付。
+- 服务端如果在短时间内没有收到 chunk ACK，可以重发对应 chunk。
+- 服务端如果收齐了 chunk ACK，但没有收到 event ACK，可以重发整个事件，防止“分片到了但客户端业务层没拿到”的半成功状态。
+
+chunk ACK 示例：
+
+```json
+{
+  "id": "req-wifi-scan",
+  "cmd": "link.ack",
+  "args": {
+    "ack_type": "chunk",
+    "response_seq": 8,
+    "chunk_index": 1
+  },
+  "v": "YundroneBT-V2.1.0"
+}
+```
+
+event ACK 示例：
+
+```json
+{
+  "id": "req-wifi-scan",
+  "cmd": "link.ack",
+  "args": {
+    "ack_type": "event",
+    "response_seq": 8
+  },
+  "v": "YundroneBT-V2.1.0"
+}
+```
+
+`id + response_seq + chunk_index` 唯一定位一个 chunk。`id + response_seq` 唯一定位一个完整 response event。
+
+建议服务端参数：
+
+- chunk ACK 超时：`750 ms`
+- 每片最多重发：`5` 次
+- 未确认事件缓存 TTL：`60 s`
+- 同时缓存未确认事件数：`32`
+
+`link.ack` 不应该产生业务响应。服务端收到它以后只更新传输状态，不要再 notify 一个 `OK`，否则会制造无意义的响应风暴。
+
+### 10.2 反斜杠到底是什么
 
 上面示例里的 `payload` 看起来像这样：
 
@@ -895,14 +948,14 @@ end
   "ok": false,
   "code": "BAD_REQUEST",
   "text": "unsupported protocol version: YundroneBT-V1.0.0",
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
 未知命令示例：
 
 ```json
-{"id":"old-ping","cmd":"ping","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"old-ping","cmd":"ping","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 建议返回：
@@ -917,7 +970,7 @@ end
   "ok": false,
   "code": "UNKNOWN_COMMAND",
   "text": "unknown command: ping",
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 
@@ -941,7 +994,7 @@ GATT：
 
 协议：
 
-- 只接受 `YundroneBT-V2.0.0`。
+- 只接受 `YundroneBT-V2.1.0`。
 - 所有响应带回同一个 `id`。
 - 快速命令返回单个 `result`。
 - 耗时命令返回 `accepted/progress/result`。
@@ -978,7 +1031,7 @@ GATT：
 最小测试请求：
 
 ```json
-{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.0.0"}
+{"id":"debug-heartbeat-001","cmd":"link.heartbeat","args":{},"v":"YundroneBT-V2.1.0"}
 ```
 
 如果这个请求不能返回，先不要调 Wi-Fi 功能。优先检查 notify 是否开启、write UUID 是否正确、JSON 是否按 UTF-8 写入。
@@ -1003,7 +1056,7 @@ GATT：
 Service: 6e400001-b5a3-f393-e0a9-e50e24dcca9e
 Write:   6e400002-b5a3-f393-e0a9-e50e24dcca9e
 Notify:  6e400003-b5a3-f393-e0a9-e50e24dcca9e
-协议:    YundroneBT-V2.0.0
+协议:    YundroneBT-V2.1.0
 单帧:    <= 360 bytes
 长任务:  accepted -> progress -> result
 ```

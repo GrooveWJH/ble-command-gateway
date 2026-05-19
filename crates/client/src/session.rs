@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use btleplug::api::{CharPropFlags, Characteristic, Peripheral as _, ValueNotification, WriteType};
+use btleplug::api::{CharPropFlags, Characteristic, Peripheral as _, ValueNotification};
 use btleplug::platform::Peripheral;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
@@ -79,10 +79,14 @@ impl BleSession {
     }
 
     pub async fn send_payload(&self, payload: &[u8]) -> Result<()> {
-        self.device
-            .write(&self.write_char, payload, WriteType::WithoutResponse)
-            .await?;
-        Ok(())
+        crate::qos::write_payload(
+            &self.device,
+            &self.write_char,
+            &self.device_name,
+            self.device_rssi,
+            payload,
+        )
+        .await
     }
 
     pub async fn send_request(&self, request: &crate::PreparedRequest) -> Result<()> {
@@ -108,8 +112,29 @@ impl BleSession {
                     continue;
                 }
 
-                match self.response_decoder.decode(&notification.value) {
-                    Ok(Some(response)) => {
+                match self.response_decoder.decode_event(&notification.value) {
+                    Ok(event) => {
+                        if let Some(receipt) = &event.chunk_receipt {
+                            crate::qos::send_chunk_ack(
+                                &self.device,
+                                &self.write_char,
+                                &self.device_name,
+                                self.device_rssi,
+                                receipt,
+                            )
+                            .await?;
+                        }
+                        let Some(response) = event.response else {
+                            continue;
+                        };
+                        crate::qos::send_event_ack(
+                            &self.device,
+                            &self.write_char,
+                            &self.device_name,
+                            self.device_rssi,
+                            &response,
+                        )
+                        .await?;
                         info!(
                             device_name = %self.device_name,
                             rssi = ?self.device_rssi,
@@ -120,7 +145,6 @@ impl BleSession {
                         );
                         return Ok(response);
                     }
-                    Ok(None) => continue,
                     Err(err) => return Err(anyhow!(err.to_string())),
                 }
             }
@@ -142,7 +166,14 @@ impl BleSession {
     where
         F: FnMut(&protocol::CommandResponse),
     {
-        self.send_request(request).await?;
+        let first_response = self.send_request_reliably(request, timeout_secs).await?;
+        if let Some(response) = first_response {
+            let matches_request = response.id == request.request.id;
+            on_event(&response);
+            if matches_request && response.final_flag {
+                return Ok(response);
+            }
+        }
         loop {
             let response = self.next_event(timeout_secs).await?;
             let matches_request = response.id == request.request.id;
@@ -151,6 +182,52 @@ impl BleSession {
                 return Ok(response);
             }
         }
+    }
+
+    async fn send_request_reliably(
+        &mut self,
+        request: &crate::PreparedRequest,
+        timeout_secs: u64,
+    ) -> Result<Option<protocol::CommandResponse>> {
+        let mut last_error = None;
+        for attempt in 1..=crate::qos::REQUEST_ACCEPT_RETRIES {
+            self.send_request(request).await?;
+            let wait_secs = crate::qos::REQUEST_ACCEPT_TIMEOUT_SECS.min(timeout_secs);
+            match self.next_event(wait_secs).await {
+                Ok(response) if response.id == request.request.id => {
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        attempt,
+                        phase = ?response.phase,
+                        "qos.request.accepted"
+                    );
+                    return Ok(Some(response));
+                }
+                Ok(response) => {
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        response_id = %response.id,
+                        "qos.request.ignored_other_response"
+                    );
+                }
+                Err(err) => {
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        attempt,
+                        error = %err,
+                        "qos.request.retry"
+                    );
+                    last_error = Some(err);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("request was not accepted")))
     }
 
     pub async fn disconnect(&self) -> Result<()> {

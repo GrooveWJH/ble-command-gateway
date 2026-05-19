@@ -6,6 +6,7 @@ pub(super) fn run_capabilities() -> SystemExecResult {
     let data = protocol::responses::CapabilitiesResponseData {
         protocol_version: protocol::PROTOCOL_VERSION.to_string(),
         commands: vec![
+            protocol::commands::CMD_LINK_ACK.to_string(),
             protocol::commands::CMD_LINK_HEARTBEAT.to_string(),
             protocol::commands::CMD_SYSTEM_STATUS.to_string(),
             protocol::commands::CMD_SYSTEM_CAPABILITIES.to_string(),
@@ -17,6 +18,7 @@ pub(super) fn run_capabilities() -> SystemExecResult {
         features: vec![
             "response_events".to_string(),
             "response_json_chunking".to_string(),
+            "qos_ack_retry".to_string(),
             "wifi_profile_management".to_string(),
         ],
         payload_limit: protocol::config::MAX_BLE_PAYLOAD_BYTES,

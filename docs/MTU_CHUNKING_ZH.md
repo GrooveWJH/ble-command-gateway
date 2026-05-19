@@ -85,7 +85,7 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
   "phase": "result",
   "seq": 8,
   "final": true,
-  "v": "YundroneBT-V2.0.0"
+  "v": "YundroneBT-V2.1.0"
 }
 ```
 

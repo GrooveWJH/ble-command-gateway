@@ -15,7 +15,7 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 | Use the desktop app on macOS | Download the macOS release asset | Current official prebuilt asset is Apple Silicon only. |
 | Run from source on your workstation | Build `gui` or `yundrone-ble-client` | Best for development and debugging. |
 | Deploy the BLE server on Linux | Build `yundrone-ble-server` and install systemd | Target device needs BlueZ and NetworkManager. |
-| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, notify frames, and optional chunks. |
+| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, notify frames, chunks, and QoS ACKs. |
 
 ## Quick Use
 
@@ -135,14 +135,16 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --timeout 30 \
   --response-timeout 15 \
   --trace-chunks \
+  --trace-qos \
   --output /tmp/yundrone-ble-debug.log
 ```
 
-With `--trace-chunks`, the log shows:
+With `--trace-chunks` and `--trace-qos`, the log shows:
 
 - `[RX:raw]`: each raw BLE notify JSON frame.
 - `[RX:chunk]`: each `data.chunk` frame with `index/total`.
 - `[RX:assembled]`: the fully reassembled response JSON.
+- `[QOS:ack]` / `[QOS:event-ack]`: transport acknowledgements sent by the client.
 - `[OK] rx`: the decoded final response summary.
 
 Common local checks:

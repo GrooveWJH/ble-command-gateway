@@ -10,5 +10,8 @@ pub mod device_name;
 pub mod legacy_hci;
 pub mod log_view;
 pub mod logging;
+pub mod qos;
+pub mod request_cache;
+pub mod response_events;
 pub mod runtime;
 pub mod services;

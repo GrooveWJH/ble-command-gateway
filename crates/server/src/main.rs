@@ -82,7 +82,14 @@ async fn main() -> anyhow::Result<()> {
                                 "ble.request.received"
                             );
 
-                            command_events.handle_request(req, command_name).await;
+                            match req.payload.clone() {
+                                protocol::requests::CommandPayload::LinkAck(ack) => {
+                                    command_events.handle_ack(ack, &req.id).await;
+                                }
+                                _ => {
+                                    command_events.handle_request(req, command_name).await;
+                                }
+                            }
                         }
                         Err(e) => {
                             warn!(

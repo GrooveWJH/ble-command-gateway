@@ -1,71 +1,110 @@
-#[cfg(target_os = "linux")]
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-#[cfg(target_os = "linux")]
 use tokio::sync::{broadcast, Mutex};
-#[cfg(target_os = "linux")]
-use tracing::{info, warn};
 
-#[cfg(target_os = "linux")]
 #[derive(Clone)]
 pub struct CommandEventSender {
-    tx: broadcast::Sender<Vec<u8>>,
+    tx: crate::qos::ReliableEventSender,
     foreground_lock: Arc<Mutex<()>>,
+    request_cache: Arc<Mutex<crate::request_cache::RequestCache>>,
     service_context: crate::services::ServiceContext,
 }
 
-#[cfg(target_os = "linux")]
 impl CommandEventSender {
     pub fn new(
         tx: broadcast::Sender<Vec<u8>>,
         service_context: crate::services::ServiceContext,
     ) -> Self {
         Self {
-            tx,
+            tx: crate::qos::ReliableEventSender::new(tx),
             foreground_lock: Arc::new(Mutex::new(())),
+            request_cache: Arc::new(Mutex::new(crate::request_cache::RequestCache::new())),
             service_context,
         }
     }
 
+    pub async fn handle_ack(&self, ack: protocol::requests::LinkAckArgs, request_id: &str) {
+        match ack.ack_type {
+            protocol::requests::AckType::Chunk => {
+                if let Some(chunk_index) = ack.chunk_index {
+                    self.tx
+                        .ack_chunk(request_id, ack.response_seq, chunk_index)
+                        .await;
+                }
+            }
+            protocol::requests::AckType::Event => {
+                self.tx.ack_event(request_id, ack.response_seq).await;
+            }
+        }
+    }
+
     pub async fn handle_request(&self, req: protocol::CommandRequest, command_name: String) {
+        let cacheable = is_cacheable_request(&req.payload);
+        if cacheable {
+            if let Some(cached) = self.cached_response_for_duplicate(&req.id).await {
+                self.send_response_event(cached, &command_name);
+                return;
+            }
+            self.mark_request_started(&req.id, &command_name).await;
+        }
         if is_long_running(&req.payload) {
             self.spawn_long_running(req, command_name);
         } else {
             let result =
                 crate::services::run_payload_command(&self.service_context, &req.payload, 30.0)
                     .await;
-            self.send_response_event(
-                result_response(&req, &command_name, 1, result),
-                &command_name,
-            );
+            let response = result_response(&req, &command_name, 1, result);
+            self.mark_request_final(&response).await;
+            self.send_response_event(response, &command_name);
         }
+    }
+
+    async fn cached_response_for_duplicate(
+        &self,
+        request_id: &str,
+    ) -> Option<protocol::CommandResponse> {
+        let mut cache = self.request_cache.lock().await;
+        cache.duplicate_response(request_id)
+    }
+
+    async fn mark_request_started(&self, request_id: &str, command_name: &str) {
+        let mut cache = self.request_cache.lock().await;
+        cache.mark_started(request_id, command_name);
+    }
+
+    async fn mark_request_final(&self, response: &protocol::CommandResponse) {
+        let mut cache = self.request_cache.lock().await;
+        cache.mark_final(response);
     }
 
     fn spawn_long_running(&self, req: protocol::CommandRequest, command_name: String) {
         let tx = self.tx.clone();
         let lock = self.foreground_lock.clone();
+        let cache = self.request_cache.clone();
         let service_context = self.service_context.clone();
         tokio::spawn(async move {
             let Ok(_guard) = lock.try_lock() else {
-                send_response_event(
-                    &tx,
-                    protocol::CommandResponse::result(
-                        req.id,
-                        Some(command_name.clone()),
-                        false,
-                        protocol::codes::CODE_BUSY,
-                        "another foreground command is already running",
-                        None,
-                    ),
-                    &command_name,
+                let response = protocol::CommandResponse::result(
+                    req.id,
+                    Some(command_name.clone()),
+                    false,
+                    protocol::codes::CODE_BUSY,
+                    "another foreground command is already running",
+                    None,
                 );
+                {
+                    let mut cache = cache.lock().await;
+                    cache.mark_final(&response);
+                }
+                crate::response_events::send_response_event(tx.clone(), response, &command_name)
+                    .await;
                 return;
             };
 
-            send_response_event(
-                &tx,
+            crate::response_events::send_response_event(
+                tx.clone(),
                 protocol::CommandResponse::accepted(
                     req.id.clone(),
                     command_name.clone(),
@@ -73,7 +112,8 @@ impl CommandEventSender {
                     None,
                 ),
                 &command_name,
-            );
+            )
+            .await;
 
             let next_seq = Arc::new(AtomicU64::new(2));
             let progress_task = spawn_progress_loop(
@@ -86,23 +126,34 @@ impl CommandEventSender {
                 crate::services::run_payload_command(&service_context, &req.payload, 30.0).await;
             progress_task.abort();
             let final_seq = next_seq.fetch_add(1, Ordering::SeqCst);
+            let response = result_response(&req, &command_name, final_seq, result);
+            {
+                let mut cache = cache.lock().await;
+                cache.mark_final(&response);
+            }
 
-            send_response_event(
-                &tx,
-                result_response(&req, &command_name, final_seq, result),
-                &command_name,
-            );
+            crate::response_events::send_response_event(tx, response, &command_name).await;
         });
     }
 
     pub fn send_response_event(&self, resp: protocol::CommandResponse, command_name: &str) {
-        send_response_event(&self.tx, resp, command_name);
+        if resp.final_flag {
+            let this = self.clone();
+            let response = resp.clone();
+            tokio::spawn(async move {
+                this.mark_request_final(&response).await;
+            });
+        }
+        let tx = self.tx.clone();
+        let command_name = command_name.to_string();
+        tokio::spawn(async move {
+            crate::response_events::send_response_event(tx, resp, &command_name).await;
+        });
     }
 }
 
-#[cfg(target_os = "linux")]
 fn spawn_progress_loop(
-    tx: broadcast::Sender<Vec<u8>>,
+    tx: crate::qos::ReliableEventSender,
     request_id: String,
     command_name: String,
     next_seq: Arc<AtomicU64>,
@@ -111,8 +162,8 @@ fn spawn_progress_loop(
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let seq = next_seq.fetch_add(1, Ordering::SeqCst);
-            send_response_event(
-                &tx,
+            crate::response_events::send_response_event(
+                tx.clone(),
                 protocol::CommandResponse::progress(
                     request_id.clone(),
                     command_name.clone(),
@@ -121,7 +172,8 @@ fn spawn_progress_loop(
                     None,
                 ),
                 &command_name,
-            );
+            )
+            .await;
         }
     })
 }
@@ -135,7 +187,14 @@ pub fn is_long_running(payload: &protocol::requests::CommandPayload) -> bool {
     )
 }
 
-#[cfg(target_os = "linux")]
+pub fn is_cacheable_request(payload: &protocol::requests::CommandPayload) -> bool {
+    !matches!(
+        payload,
+        protocol::requests::CommandPayload::LinkAck(_)
+            | protocol::requests::CommandPayload::LinkHeartbeat
+    )
+}
+
 fn result_response(
     req: &protocol::CommandRequest,
     command_name: &str,
@@ -152,74 +211,6 @@ fn result_response(
     );
     response.seq = seq;
     response
-}
-
-#[cfg(target_os = "linux")]
-fn send_response_event(
-    tx: &broadcast::Sender<Vec<u8>>,
-    resp: protocol::CommandResponse,
-    command_name: &str,
-) {
-    let response_code = resp.code.clone();
-    let response_ok = resp.ok;
-    let response_bytes = protocol::encode_response(&resp)
-        .map(|value| value.len())
-        .ok();
-    let chunks = protocol::chunking::chunk_response(resp.clone());
-    let chunk_count = chunks.len();
-    let chunk_mode = if chunk_count > 1 {
-        crate::log_view::ChunkMode::ResponseJson
-    } else {
-        crate::log_view::ChunkMode::Single
-    };
-    let mut chunk_sizes = Vec::with_capacity(chunk_count);
-
-    for chunk in chunks {
-        match protocol::encode_response(&chunk) {
-            Ok(ser) => {
-                chunk_sizes.push(ser.len());
-                let _ = tx.send(ser);
-            }
-            Err(err) => {
-                warn!(
-                    request_id = %resp.id,
-                    cmd = %command_name,
-                    error = %err,
-                    "ble.response.encode_failed"
-                );
-            }
-        }
-    }
-    let max_chunk_bytes = chunk_sizes.iter().copied().max().unwrap_or(0);
-
-    info!(
-        request_id = %resp.id,
-        cmd = %command_name,
-        response_code = %response_code,
-        response_ok,
-        phase = ?resp.phase,
-        seq = resp.seq,
-        final_flag = resp.final_flag,
-        chunk_count,
-        chunk_mode = chunk_mode.as_str(),
-        chunk_sizes = ?chunk_sizes,
-        payload_limit = protocol::config::MAX_BLE_PAYLOAD_BYTES,
-        response_bytes,
-        max_chunk_bytes,
-        "ble.response.sent"
-    );
-    crate::log_view::emit_block(&crate::log_view::response_block(
-        &crate::log_view::ResponseLogView {
-            request_id: &resp.id,
-            command_name,
-            response_code: &response_code,
-            response_ok,
-            response_bytes,
-            payload_limit: protocol::config::MAX_BLE_PAYLOAD_BYTES,
-            chunk_mode,
-            chunk_sizes: &chunk_sizes,
-        },
-    ));
 }
 
 #[cfg(test)]
@@ -246,6 +237,23 @@ mod tests {
         ));
         assert!(!super::is_long_running(
             &protocol::requests::CommandPayload::WifiProfilesList
+        ));
+    }
+
+    #[test]
+    fn heartbeat_and_ack_do_not_enter_request_retry_cache() {
+        assert!(!super::is_cacheable_request(
+            &protocol::requests::CommandPayload::LinkHeartbeat
+        ));
+        assert!(!super::is_cacheable_request(
+            &protocol::requests::CommandPayload::LinkAck(protocol::requests::LinkAckArgs {
+                ack_type: protocol::requests::AckType::Event,
+                response_seq: 1,
+                chunk_index: None,
+            })
+        ));
+        assert!(super::is_cacheable_request(
+            &protocol::requests::CommandPayload::WifiScan { ifname: None }
         ));
     }
 }
