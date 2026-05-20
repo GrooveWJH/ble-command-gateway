@@ -23,6 +23,16 @@ impl Lang {
             (Lang::Zh, "prompt_device") => "请选择要连接的设备:",
             (Lang::En, "scan_results") => "Discovered candidate devices:",
             (Lang::Zh, "scan_results") => "发现以下候选设备:",
+            (Lang::En, "scan_waiting") => "No matching gateway yet. Keep the device nearby and powered on.",
+            (Lang::Zh, "scan_waiting") => "暂未发现匹配设备。请保持设备上电，并尽量靠近电脑。",
+            (Lang::En, "scan_enter_to_select") => {
+                "Press Enter to stop scanning now and choose from the devices above."
+            }
+            (Lang::Zh, "scan_enter_to_select") => {
+                "按 Enter 可立即停止扫描，并从上方已发现设备中选择。"
+            }
+            (Lang::En, "scan_stopped_early") => "Scan stopped early by user input.",
+            (Lang::Zh, "scan_stopped_early") => "已根据输入提前停止扫描。",
             (Lang::En, "single_match") => "Only one candidate found. Using it automatically.",
             (Lang::Zh, "single_match") => "仅发现一台候选设备，将自动使用该设备。",
             (Lang::En, "opt_stat") => "📡 Network / System Status",
@@ -62,6 +72,23 @@ impl Lang {
             Lang::Zh => format!(
                 "🔍 正在扫描前缀为 '{}' 的蓝牙设备（超时 {} 秒）...",
                 target, timeout
+            ),
+        }
+    }
+
+    pub(crate) fn scan_live_status(
+        &self,
+        spinner: &str,
+        target: &str,
+        remaining: u64,
+        candidates: usize,
+    ) -> String {
+        match self {
+            Lang::En => format!(
+                "{spinner} Scanning prefix '{target}' | {remaining}s left | {candidates} candidate(s)"
+            ),
+            Lang::Zh => format!(
+                "{spinner} 正在扫描前缀 '{target}' | 剩余 {remaining} 秒 | 已发现 {candidates} 台候选设备"
             ),
         }
     }

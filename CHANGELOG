@@ -1,3 +1,12 @@
+2026.2.1 - 2026-05-20
+
+- 增强 `yundrone-ble-client interactive` 调试体验，扫描阶段加入动态 loading、倒计时和候选设备即时刷新，支持按 Enter 提前进入选择。
+- 新增 `interactive --verbose` 原包观测模式，在交互式菜单执行命令时展示 TX/RX、分片重组与 QoS ACK 细节。
+- 新增 `interactive --verbose-unsafe-raw` 危险开关；默认 verbose 输出会脱敏 Wi-Fi 密码等敏感字段，避免调试日志泄露凭据。
+- 将 verbose 原包输出整理为单包单框的 Rich-like 视图，保留完整 packet 内容，并提升长 JSON、分片和 ACK 日志的可读性。
+- 修复 CLI 在 macOS 下误触发 `.app` relaunch 的问题，使 `yundrone-ble-client` 保持纯终端调试工具行为。
+- 更新兼容 BLE Server 实现指南为 v26.2.0 快照文档，补齐 V2.1 QoS、分片 ACK 和服务端实现注意事项。
+
 2026.2.0 - 2026-05-19
 
 - 升级 BLE 通讯协议到 V2，统一命令命名为 `领域.动作` 风格，并引入 `accepted / progress / result` 事件式响应。

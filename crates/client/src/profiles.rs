@@ -8,10 +8,15 @@ use std::fmt;
 
 use crate::cli_text::Lang;
 
-pub(crate) async fn run_wifi_profiles(session: &mut BleSession, lang: &Lang) -> Result<()> {
+pub(crate) async fn run_wifi_profiles(
+    session: &mut BleSession,
+    lang: &Lang,
+    trace: Option<&crate::interactive::InteractiveTracePrinter>,
+) -> Result<()> {
     println!(">> Requesting saved Wi-Fi profiles...");
     let response =
-        crate::interactive::execute_request(session, CommandPayload::WifiProfilesList, 10).await?;
+        crate::interactive::execute_request(session, CommandPayload::WifiProfilesList, 10, trace)
+            .await?;
     let data: WifiProfilesResponseData = response.decode_data()?;
 
     if data.profiles.is_empty() {
@@ -39,6 +44,7 @@ pub(crate) async fn run_wifi_profiles(session: &mut BleSession, lang: &Lang) -> 
             force: false,
         },
         30,
+        trace,
     )
     .await?;
     println!("{}", response.text);

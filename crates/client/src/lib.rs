@@ -5,6 +5,7 @@ pub mod request;
 pub mod response;
 pub mod scan_state;
 pub mod session;
+pub mod trace;
 
 #[cfg(test)]
 mod ble_tests;

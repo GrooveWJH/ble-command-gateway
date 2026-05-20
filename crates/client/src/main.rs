@@ -10,11 +10,14 @@ use clap::{
     ColorChoice, Parser, Subcommand,
 };
 
-const CLI_RUNTIME: platform_runtime::AppRuntime = platform_runtime::AppRuntime {
-    bundle_name: "yundrone-ble-client.app",
-    executable_name: "yundrone-ble-client",
-    info_plist: include_bytes!("../macos/Info.plist"),
-};
+#[cfg(target_os = "macos")]
+const MACOS_INFO_PLIST: &[u8] = include_bytes!("../macos/Info.plist");
+
+#[cfg(target_os = "macos")]
+#[used]
+#[link_section = "__TEXT,__info_plist"]
+static EMBEDDED_MACOS_INFO_PLIST: [u8; MACOS_INFO_PLIST.len()] =
+    *include_bytes!("../macos/Info.plist");
 
 const CLI_STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
@@ -29,6 +32,7 @@ const CLIENT_EXAMPLES: &str = "\
 Examples:
   yundrone-ble-client interactive --lang zh
   yundrone-ble-client interactive --target yundrone --timeout 30
+  yundrone-ble-client interactive --verbose
   yundrone-ble-client debug-ble --target yundrone --trace-chunks
   yundrone-ble-client debug-ble --target yundrone --output /tmp/yundrone-ble-debug.log
 ";
@@ -37,6 +41,8 @@ const INTERACTIVE_EXAMPLES: &str = "\
 Examples:
   yundrone-ble-client interactive --lang zh
   yundrone-ble-client interactive --target yundrone --timeout 30 --lang en
+  yundrone-ble-client interactive --verbose
+  yundrone-ble-client interactive --verbose --verbose-unsafe-raw
 ";
 
 const DEBUG_BLE_EXAMPLES: &str = "\
@@ -111,6 +117,19 @@ pub(crate) struct InteractiveArgs {
         help = "Interface language: zh or en"
     )]
     pub(crate) lang: String,
+
+    #[arg(
+        long,
+        help = "Print TX/RX raw frames, response_json chunks, assembled responses, and QoS ACKs; sensitive fields are redacted by default"
+    )]
+    pub(crate) verbose: bool,
+
+    #[arg(
+        long,
+        requires = "verbose",
+        help = "Do not redact sensitive fields in verbose raw payloads; this can expose Wi-Fi passwords"
+    )]
+    pub(crate) verbose_unsafe_raw: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -159,14 +178,6 @@ pub(crate) struct DebugBleArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !is_local_cli_query(&raw_args)
-        && platform_runtime::prepare_cli_runtime(&CLI_RUNTIME, &raw_args)?
-            == platform_runtime::RuntimeLaunchOutcome::Relaunched
-    {
-        return Ok(());
-    }
-
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
@@ -190,46 +201,20 @@ async fn main() -> Result<()> {
     }
 }
 
-fn is_local_cli_query(args: &[String]) -> bool {
-    args.is_empty()
-        || args
-            .iter()
-            .any(|arg| matches!(arg.as_str(), "-h" | "--help" | "-V" | "--version" | "help"))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_local_cli_query, Args};
+    use super::Args;
     use clap::{ColorChoice, CommandFactory};
-    use std::path::PathBuf;
 
     #[test]
-    fn macos_bundle_declares_bluetooth_usage_description() {
-        let plist_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("macos/Info.plist");
-        let plist = std::fs::read_to_string(&plist_path)
-            .unwrap_or_else(|err| panic!("failed to read {}: {err}", plist_path.display()));
+    fn macos_plist_declares_bluetooth_usage_description() {
+        let plist = include_str!("../macos/Info.plist");
 
         assert!(plist.contains("CFBundleIdentifier"));
         assert!(plist.contains("CFBundleExecutable"));
         assert!(plist.contains("CFBundlePackageType"));
         assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
         assert!(plist.contains("Bluetooth"));
-    }
-
-    #[test]
-    fn help_and_version_do_not_need_macos_bluetooth_relaunch() {
-        assert!(is_local_cli_query(&["--help".to_string()]));
-        assert!(is_local_cli_query(&[
-            "debug-ble".to_string(),
-            "--help".to_string()
-        ]));
-        assert!(is_local_cli_query(&[
-            "interactive".to_string(),
-            "--help".to_string()
-        ]));
-        assert!(is_local_cli_query(&["--version".to_string()]));
-        assert!(is_local_cli_query(&[]));
-        assert!(!is_local_cli_query(&["debug-ble".to_string()]));
     }
 
     #[test]
@@ -241,6 +226,7 @@ mod tests {
         assert!(help.contains("YunDrone BLE provisioning and diagnostics client"));
         assert!(help.contains("Examples:"));
         assert!(help.contains("yundrone-ble-client interactive --lang zh"));
+        assert!(help.contains("yundrone-ble-client interactive --verbose"));
         assert!(help.contains("yundrone-ble-client debug-ble --target yundrone --trace-chunks"));
     }
 
@@ -255,5 +241,21 @@ mod tests {
 
         assert!(help.contains("Trace response_json chunks"));
         assert!(help.contains("Examples:"));
+    }
+
+    #[test]
+    fn interactive_help_explains_verbose_raw_tracing() {
+        let mut command = Args::command();
+        let help = command
+            .find_subcommand_mut("interactive")
+            .expect("interactive subcommand")
+            .render_long_help()
+            .to_string();
+
+        assert!(help.contains("--verbose"));
+        assert!(help.contains("--verbose-unsafe-raw"));
+        assert!(help.contains("sensitive fields are redacted by default"));
+        assert!(help.contains("can expose Wi-Fi passwords"));
+        assert!(help.contains("yundrone-ble-client interactive --verbose"));
     }
 }

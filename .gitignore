@@ -29,6 +29,8 @@ __pycache__/
 
 # Local investigation outputs
 reports/
+
+# Private planning notes and deployment docs that should not be published.
 internal/
 
 *.pdf

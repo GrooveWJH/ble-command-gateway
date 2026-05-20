@@ -101,20 +101,100 @@ impl BleSession {
         self.send_payload(&request.bytes).await
     }
 
+    pub async fn send_request_traced(
+        &self,
+        request: &crate::PreparedRequest,
+        trace_options: crate::trace::TraceOptions,
+        trace: Option<crate::trace::TraceCallback>,
+    ) -> Result<()> {
+        let (bytes, redacted) = if trace_options.redact_secrets {
+            crate::trace::redacted_payload(&request.bytes)
+        } else {
+            (request.bytes.clone(), false)
+        };
+        crate::trace::emit(
+            &trace,
+            crate::trace::TraceEvent::TxRaw {
+                kind: crate::trace::TraceWriteKind::Request,
+                bytes,
+                redacted,
+            },
+        );
+        info!(
+            device_name = %self.device_name,
+            rssi = ?self.device_rssi,
+            cmd = %request.request.payload.command_name(),
+            request_id = %request.request.id,
+            payload_bytes = request.bytes.len(),
+            "ble.request.sent"
+        );
+        crate::trace::emit(
+            &trace,
+            crate::trace::TraceEvent::QosTx {
+                kind: crate::trace::TraceWriteKind::Request,
+                bytes: request.bytes.len(),
+                write: "with-response",
+            },
+        );
+        match self.send_payload(&request.bytes).await {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                crate::trace::emit(
+                    &trace,
+                    crate::trace::TraceEvent::QosFallback {
+                        kind: crate::trace::TraceWriteKind::Request,
+                        reason: err.to_string(),
+                    },
+                );
+                Err(err)
+            }
+        }
+    }
+
     pub async fn next_response(&mut self, timeout_secs: u64) -> Result<protocol::CommandResponse> {
         self.next_event(timeout_secs).await
     }
 
     pub async fn next_event(&mut self, timeout_secs: u64) -> Result<protocol::CommandResponse> {
+        self.next_event_traced(timeout_secs, None).await
+    }
+
+    pub async fn next_event_traced(
+        &mut self,
+        timeout_secs: u64,
+        trace: Option<crate::trace::TraceCallback>,
+    ) -> Result<protocol::CommandResponse> {
         tokio::time::timeout(Duration::from_secs(timeout_secs), async {
             while let Some(notification) = self.notifications.next().await {
                 if notification.uuid != self.read_char.uuid {
                     continue;
                 }
 
+                for event in crate::trace::response_trace_events(&notification.value) {
+                    crate::trace::emit(&trace, event);
+                }
                 match self.response_decoder.decode_event(&notification.value) {
                     Ok(event) => {
                         if let Some(receipt) = &event.chunk_receipt {
+                            if let Some(ack_bytes) = trace_link_ack(
+                                &trace,
+                                &receipt.response_id,
+                                protocol::requests::LinkAckArgs {
+                                    ack_type: protocol::requests::AckType::Chunk,
+                                    response_seq: receipt.response_seq,
+                                    chunk_index: Some(receipt.chunk_index),
+                                },
+                                crate::trace::TraceWriteKind::ChunkAck,
+                            )? {
+                                crate::trace::emit(
+                                    &trace,
+                                    crate::trace::TraceEvent::QosTx {
+                                        kind: crate::trace::TraceWriteKind::ChunkAck,
+                                        bytes: ack_bytes,
+                                        write: "with-response",
+                                    },
+                                );
+                            };
                             crate::qos::send_chunk_ack(
                                 &self.device,
                                 &self.write_char,
@@ -123,9 +203,37 @@ impl BleSession {
                                 receipt,
                             )
                             .await?;
+                            crate::trace::emit(
+                                &trace,
+                                crate::trace::TraceEvent::QosChunkAck {
+                                    response_id: receipt.response_id.clone(),
+                                    response_seq: receipt.response_seq,
+                                    chunk_index: receipt.chunk_index,
+                                    chunk_total: receipt.chunk_total,
+                                },
+                            );
                         }
                         let Some(response) = event.response else {
                             continue;
+                        };
+                        if let Some(ack_bytes) = trace_link_ack(
+                            &trace,
+                            &response.id,
+                            protocol::requests::LinkAckArgs {
+                                ack_type: protocol::requests::AckType::Event,
+                                response_seq: response.seq,
+                                chunk_index: None,
+                            },
+                            crate::trace::TraceWriteKind::EventAck,
+                        )? {
+                            crate::trace::emit(
+                                &trace,
+                                crate::trace::TraceEvent::QosTx {
+                                    kind: crate::trace::TraceWriteKind::EventAck,
+                                    bytes: ack_bytes,
+                                    write: "with-response",
+                                },
+                            );
                         };
                         crate::qos::send_event_ack(
                             &self.device,
@@ -135,6 +243,19 @@ impl BleSession {
                             &response,
                         )
                         .await?;
+                        crate::trace::emit(
+                            &trace,
+                            crate::trace::TraceEvent::QosEventAck {
+                                response_id: response.id.clone(),
+                                response_seq: response.seq,
+                            },
+                        );
+                        if let Ok(bytes) = protocol::encode_response(&response) {
+                            crate::trace::emit(
+                                &trace,
+                                crate::trace::TraceEvent::RxAssembled { bytes },
+                            );
+                        }
                         info!(
                             device_name = %self.device_name,
                             rssi = ?self.device_rssi,
@@ -176,6 +297,37 @@ impl BleSession {
         }
         loop {
             let response = self.next_event(timeout_secs).await?;
+            let matches_request = response.id == request.request.id;
+            on_event(&response);
+            if matches_request && response.final_flag {
+                return Ok(response);
+            }
+        }
+    }
+
+    pub async fn run_request_until_final_traced<F>(
+        &mut self,
+        request: &crate::PreparedRequest,
+        timeout_secs: u64,
+        trace_options: crate::trace::TraceOptions,
+        trace: Option<crate::trace::TraceCallback>,
+        mut on_event: F,
+    ) -> Result<protocol::CommandResponse>
+    where
+        F: FnMut(&protocol::CommandResponse),
+    {
+        let first_response = self
+            .send_request_reliably_traced(request, timeout_secs, trace_options, trace.clone())
+            .await?;
+        if let Some(response) = first_response {
+            let matches_request = response.id == request.request.id;
+            on_event(&response);
+            if matches_request && response.final_flag {
+                return Ok(response);
+            }
+        }
+        loop {
+            let response = self.next_event_traced(timeout_secs, trace.clone()).await?;
             let matches_request = response.id == request.request.id;
             on_event(&response);
             if matches_request && response.final_flag {
@@ -230,6 +382,63 @@ impl BleSession {
         Err(last_error.unwrap_or_else(|| anyhow!("request was not accepted")))
     }
 
+    async fn send_request_reliably_traced(
+        &mut self,
+        request: &crate::PreparedRequest,
+        timeout_secs: u64,
+        trace_options: crate::trace::TraceOptions,
+        trace: Option<crate::trace::TraceCallback>,
+    ) -> Result<Option<protocol::CommandResponse>> {
+        let mut last_error = None;
+        for attempt in 1..=crate::qos::REQUEST_ACCEPT_RETRIES {
+            self.send_request_traced(request, trace_options, trace.clone())
+                .await?;
+            let wait_secs = crate::qos::REQUEST_ACCEPT_TIMEOUT_SECS.min(timeout_secs);
+            match self.next_event_traced(wait_secs, trace.clone()).await {
+                Ok(response) if response.id == request.request.id => {
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        attempt,
+                        phase = ?response.phase,
+                        "qos.request.accepted"
+                    );
+                    return Ok(Some(response));
+                }
+                Ok(response) => {
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        response_id = %response.id,
+                        "qos.request.ignored_other_response"
+                    );
+                }
+                Err(err) => {
+                    crate::trace::emit(
+                        &trace,
+                        crate::trace::TraceEvent::RequestRetry {
+                            request_id: request.request.id.clone(),
+                            attempt,
+                            error: err.to_string(),
+                        },
+                    );
+                    info!(
+                        device_name = %self.device_name,
+                        rssi = ?self.device_rssi,
+                        request_id = %request.request.id,
+                        attempt,
+                        error = %err,
+                        "qos.request.retry"
+                    );
+                    last_error = Some(err);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("request was not accepted")))
+    }
+
     pub async fn disconnect(&self) -> Result<()> {
         if let Err(err) = self.device.unsubscribe(&self.read_char).await {
             if !is_already_disconnected_error(&err.to_string()) {
@@ -251,6 +460,32 @@ fn is_already_disconnected_error(message: &str) -> bool {
     lower.contains("not connected")
         || lower.contains("already disconnected")
         || lower.contains("peripheral disconnected")
+}
+
+fn trace_link_ack(
+    trace: &Option<crate::trace::TraceCallback>,
+    request_id: &str,
+    ack: protocol::requests::LinkAckArgs,
+    kind: crate::trace::TraceWriteKind,
+) -> Result<Option<usize>> {
+    if trace.is_none() {
+        return Ok(None);
+    }
+    let request = protocol::CommandRequest::new(
+        request_id.to_string(),
+        protocol::requests::CommandPayload::LinkAck(ack),
+    );
+    let bytes = protocol::encode_request(&request).map_err(|err| anyhow!(err.to_string()))?;
+    let len = bytes.len();
+    crate::trace::emit(
+        trace,
+        crate::trace::TraceEvent::TxRaw {
+            kind,
+            bytes,
+            redacted: false,
+        },
+    );
+    Ok(Some(len))
 }
 
 #[cfg(test)]

@@ -2,10 +2,17 @@ use anyhow::Result;
 use client::{prepare_request, BleClient, BleSession, ScanCandidateInfo, ScannedDevice};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::Table;
+use crossterm::event::{self, Event, KeyCode};
 use inquire::{Password, Select, Text};
 use protocol::requests::CommandPayload;
 use protocol::responses::{StatusResponseData, WifiScanResponseData};
-use std::fmt;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    io::{self, IsTerminal, Write},
+    time::{Duration, Instant},
+};
+use tokio::sync::{mpsc, watch};
 use tracing::info;
 
 use crate::cli_text::Lang;
@@ -23,7 +30,10 @@ pub(crate) async fn run_cli(args: InteractiveArgs) -> Result<()> {
     let mut session = client.connect_session(device).await?;
     println!("{}", lang.t("handshake_ok"));
 
-    run_menu_loop(&mut session, lang).await
+    let trace = args
+        .verbose
+        .then(|| InteractiveTracePrinter::new(args.verbose_unsafe_raw));
+    run_menu_loop(&mut session, lang, trace).await
 }
 
 fn format_scan_candidate_label(candidate: &ScanCandidateInfo) -> String {
@@ -40,7 +50,7 @@ async fn scan_and_select_device(
     target: &str,
     timeout: u64,
 ) -> Result<ScannedDevice> {
-    let candidates = client.scan_candidates(target, timeout).await?;
+    let candidates = scan_candidates_dynamic(client, lang, target, timeout).await?;
 
     println!("{}", lang.t("scan_results"));
     for candidate in &candidates {
@@ -62,24 +72,160 @@ async fn scan_and_select_device(
         .expect("selected device should exist in candidate list"))
 }
 
-async fn run_menu_loop(session: &mut BleSession, lang: Lang) -> Result<()> {
+async fn scan_candidates_dynamic(
+    client: &BleClient,
+    lang: &Lang,
+    target: &str,
+    timeout: u64,
+) -> Result<Vec<ScannedDevice>> {
+    let (candidate_tx, mut candidate_rx) = mpsc::unbounded_channel();
+    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+    let start = Instant::now();
+    let mut candidates = BTreeMap::<String, ScannedDevice>::new();
+    let mut tick = tokio::time::interval(Duration::from_millis(250));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let mut key_tick = tokio::time::interval(Duration::from_millis(100));
+    key_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let scan_task = client.scan_candidates_live(
+        target,
+        timeout,
+        &mut cancel_rx,
+        |_| {},
+        move |device| {
+            let _ = candidate_tx.send(device);
+        },
+    );
+    tokio::pin!(scan_task);
+
+    let scan_result = loop {
+        tokio::select! {
+            result = &mut scan_task => {
+                break result;
+            }
+            _ = key_tick.tick(), if !candidates.is_empty() && io::stdin().is_terminal() => {
+                if enter_pressed()? {
+                    let _ = cancel_tx.send(true);
+                }
+            }
+            Some(device) = candidate_rx.recv() => {
+                candidates.insert(device.info.name.clone(), device);
+                render_scan_status(lang, target, timeout, start, &candidates, true)?;
+            }
+            _ = tick.tick() => {
+                render_scan_status(lang, target, timeout, start, &candidates, false)?;
+            }
+        }
+    };
+
+    while let Ok(device) = candidate_rx.try_recv() {
+        candidates.insert(device.info.name.clone(), device);
+    }
+    clear_scan_status()?;
+
+    let summary = scan_result?;
+    let mut devices = candidates.into_values().collect::<Vec<_>>();
+    devices.sort_by(|left, right| {
+        right
+            .info
+            .rssi
+            .unwrap_or(i16::MIN)
+            .cmp(&left.info.rssi.unwrap_or(i16::MIN))
+            .then_with(|| left.info.name.cmp(&right.info.name))
+    });
+
+    if devices.is_empty() {
+        anyhow::bail!("Device '{}' not found after {}s scan", target, timeout);
+    }
+
+    if summary.cancelled {
+        println!("{}", lang.t("scan_stopped_early"));
+    }
+
+    Ok(devices)
+}
+
+fn enter_pressed() -> Result<bool> {
+    if !event::poll(Duration::from_millis(0))? {
+        return Ok(false);
+    }
+    Ok(matches!(
+        event::read()?,
+        Event::Key(key) if key.code == KeyCode::Enter
+    ))
+}
+
+fn render_scan_status(
+    lang: &Lang,
+    target: &str,
+    timeout: u64,
+    start: Instant,
+    candidates: &BTreeMap<String, ScannedDevice>,
+    force: bool,
+) -> Result<()> {
+    static SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let elapsed = start.elapsed().as_secs();
+    let remaining = timeout.saturating_sub(elapsed);
+    let frame = ((start.elapsed().as_millis() / 250) as usize) % SPINNER.len();
+    let mut out = io::stdout();
+
+    write!(out, "\x1b[2J\x1b[H")?;
+    writeln!(
+        out,
+        "{}",
+        lang.scan_live_status(SPINNER[frame], target, remaining, candidates.len())
+    )?;
+    writeln!(out)?;
+    if candidates.is_empty() {
+        writeln!(out, "{}", lang.t("scan_waiting"))?;
+    } else {
+        for device in candidates.values() {
+            writeln!(out, "  - {}", format_scan_candidate_label(&device.info))?;
+        }
+        writeln!(out)?;
+        writeln!(out, "{}", lang.t("scan_enter_to_select"))?;
+    }
+    if force {
+        out.flush()?;
+    }
+    Ok(())
+}
+
+fn clear_scan_status() -> Result<()> {
+    let mut out = io::stdout();
+    write!(out, "\x1b[2J\x1b[H")?;
+    out.flush()?;
+    Ok(())
+}
+
+async fn run_menu_loop(
+    session: &mut BleSession,
+    lang: Lang,
+    trace: Option<InteractiveTracePrinter>,
+) -> Result<()> {
     loop {
         match prompt_menu_action(&lang)? {
             MenuAction::Exit => {
                 println!("Goodbye!");
                 return Ok(());
             }
-            MenuAction::Status => run_status(session).await?,
-            MenuAction::WifiScan => run_wifi_scan(session).await?,
-            MenuAction::Provision => run_provision(session, &lang).await?,
-            MenuAction::WifiProfiles => crate::profiles::run_wifi_profiles(session, &lang).await?,
+            MenuAction::Status => run_status(session, trace.as_ref()).await?,
+            MenuAction::WifiScan => run_wifi_scan(session, trace.as_ref()).await?,
+            MenuAction::Provision => run_provision(session, &lang, trace.as_ref()).await?,
+            MenuAction::WifiProfiles => {
+                crate::profiles::run_wifi_profiles(session, &lang, trace.as_ref()).await?
+            }
         }
     }
 }
 
-async fn run_status(session: &mut BleSession) -> Result<()> {
+async fn run_status(
+    session: &mut BleSession,
+    trace: Option<&InteractiveTracePrinter>,
+) -> Result<()> {
     println!(">> Sending Status Command...");
-    let response = execute_request(session, CommandPayload::SystemStatus, 10).await?;
+    let response = execute_request(session, CommandPayload::SystemStatus, 10, trace).await?;
     let data: StatusResponseData = response.decode_data()?;
 
     let mut table = Table::new();
@@ -123,9 +269,18 @@ fn status_rows(data: &StatusResponseData) -> Vec<(String, String)> {
     rows
 }
 
-async fn run_wifi_scan(session: &mut BleSession) -> Result<()> {
+async fn run_wifi_scan(
+    session: &mut BleSession,
+    trace: Option<&InteractiveTracePrinter>,
+) -> Result<()> {
     println!(">> Requesting Wi-Fi Scan...");
-    let response = execute_request(session, CommandPayload::WifiScan { ifname: None }, 15).await?;
+    let response = execute_request(
+        session,
+        CommandPayload::WifiScan { ifname: None },
+        15,
+        trace,
+    )
+    .await?;
     let data: WifiScanResponseData = response.decode_data()?;
 
     let mut table = Table::new();
@@ -143,7 +298,11 @@ async fn run_wifi_scan(session: &mut BleSession) -> Result<()> {
     Ok(())
 }
 
-async fn run_provision(session: &mut BleSession, lang: &Lang) -> Result<()> {
+async fn run_provision(
+    session: &mut BleSession,
+    lang: &Lang,
+    trace: Option<&InteractiveTracePrinter>,
+) -> Result<()> {
     let ssid = Text::new(lang.t("prmpt_ssid")).prompt()?;
     let pwd = Password::new(lang.t("prmpt_pwd")).prompt()?;
     let response = execute_request(
@@ -153,6 +312,7 @@ async fn run_provision(session: &mut BleSession, lang: &Lang) -> Result<()> {
             pwd: (!pwd.is_empty()).then_some(pwd),
         },
         30,
+        trace,
     )
     .await?;
 
@@ -164,15 +324,33 @@ pub(crate) async fn execute_request(
     session: &mut BleSession,
     payload: CommandPayload,
     timeout_secs: u64,
+    trace: Option<&InteractiveTracePrinter>,
 ) -> Result<protocol::CommandResponse> {
     let request = prepare_request(payload)?;
-    let response = session
-        .run_request_until_final(&request, timeout_secs, |event| {
-            if !event.final_flag {
-                println!(".. {}", event.text);
-            }
-        })
-        .await?;
+    let response = if let Some(trace) = trace {
+        let trace_options = trace.options();
+        session
+            .run_request_until_final_traced(
+                &request,
+                timeout_secs,
+                trace_options,
+                Some(trace.callback()),
+                |event| {
+                    if !event.final_flag {
+                        println!(".. {}", event.text);
+                    }
+                },
+            )
+            .await?
+    } else {
+        session
+            .run_request_until_final(&request, timeout_secs, |event| {
+                if !event.final_flag {
+                    println!(".. {}", event.text);
+                }
+            })
+            .await?
+    };
     info!(
         device_name = %session.device_name(),
         rssi = ?session.device_rssi(),
@@ -182,6 +360,29 @@ pub(crate) async fn execute_request(
         "cli.command.completed"
     );
     Ok(response)
+}
+
+pub(crate) struct InteractiveTracePrinter {
+    options: client::trace::TraceOptions,
+}
+
+impl InteractiveTracePrinter {
+    fn new(unsafe_raw: bool) -> Self {
+        let options = if unsafe_raw {
+            client::trace::TraceOptions::unsafe_raw()
+        } else {
+            client::trace::TraceOptions::safe()
+        };
+        Self { options }
+    }
+
+    fn options(&self) -> client::trace::TraceOptions {
+        self.options
+    }
+
+    fn callback(&self) -> client::trace::TraceCallback {
+        client::trace::printing_callback()
+    }
 }
 
 fn candidate_choices(candidates: &[ScannedDevice]) -> Vec<CandidateChoice> {
