@@ -37,6 +37,59 @@ pub(crate) async fn write_with_qos(
     }
 }
 
+pub(crate) async fn write_transport_payload(
+    peripheral: &Peripheral,
+    write_char: &Characteristic,
+    stream_id: u8,
+    bytes: &[u8],
+    label: &str,
+    trace_qos: bool,
+    log: &mut DebugLog,
+) -> Result<()> {
+    let frames = protocol::transport::encode_payload_frames(
+        protocol::transport::FrameKind::RequestChunk,
+        stream_id,
+        bytes,
+        20,
+    )
+    .map_err(|err| anyhow!(err.to_string()))?;
+    for frame in frames {
+        write_with_qos(peripheral, write_char, &frame, label, trace_qos, log).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn send_debug_transport_ack(
+    peripheral: &Peripheral,
+    write_char: &Characteristic,
+    receipt: &client::response::TransportAckReceipt,
+    trace_qos: bool,
+    log: &mut DebugLog,
+) -> Result<()> {
+    let kind = match receipt.ack_type {
+        client::response::TransportAckType::Range => protocol::transport::FrameKind::AckRange,
+        client::response::TransportAckType::Event => protocol::transport::FrameKind::AckEvent,
+    };
+    let frame = protocol::transport::encode_ack_frame(kind, receipt.stream_id, receipt.index, 20)
+        .map_err(|err| anyhow!(err.to_string()))?;
+    write_with_qos(
+        peripheral,
+        write_char,
+        &frame,
+        "transport-ack",
+        trace_qos,
+        log,
+    )
+    .await?;
+    if trace_qos {
+        log.line(format!(
+            "[QOS:transport-ack] kind={:?} stream={} index={}",
+            receipt.ack_type, receipt.stream_id, receipt.index
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) async fn send_debug_chunk_ack(
     peripheral: &Peripheral,
     write_char: &Characteristic,

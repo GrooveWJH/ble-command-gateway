@@ -59,6 +59,9 @@ async fn main() -> anyhow::Result<()> {
         write_notify_tx,
         server::services::ServiceContext::new(runtime.identity.name.clone()),
     );
+    let write_router = std::sync::Arc::new(tokio::sync::Mutex::new(
+        server::transport::WriteRouter::new(),
+    ));
 
     // We process incoming writes here. Because we used Io method, bluer will actually provide a stream of writes.
     // However, writing an async handler in bluer requires registering an Io handler, but for simplicity we can use Fun.
@@ -70,15 +73,24 @@ async fn main() -> anyhow::Result<()> {
             write_without_response: true,
             method: CharacteristicWriteMethod::Fun(Box::new(move |new_value, _req| {
                 let command_events = command_events.clone();
+                let write_router = write_router.clone();
                 Box::pin(async move {
-                    match protocol::parse_request(&new_value) {
-                        Ok(req) => {
+                    let route_result = {
+                        let mut router = write_router.lock().await;
+                        router.accept_write(&new_value)
+                    };
+                    match route_result {
+                        Ok(server::transport::WriteEvent::Request {
+                            request: req,
+                            transport,
+                        }) => {
                             let command_name = req.payload.command_name().to_string();
                             info!(
                                 request_id = %req.id,
                                 cmd = %command_name,
                                 protocol_version = %req.v,
                                 payload_bytes = new_value.len(),
+                                transport_stream_id = transport.as_ref().map(|context| context.stream_id),
                                 "ble.request.received"
                             );
 
@@ -87,17 +99,27 @@ async fn main() -> anyhow::Result<()> {
                                     command_events.handle_ack(ack, &req.id).await;
                                 }
                                 _ => {
-                                    command_events.handle_request(req, command_name).await;
+                                    if let Some(transport) = transport {
+                                        command_events
+                                            .handle_transport_request(req, command_name, transport)
+                                            .await;
+                                    } else {
+                                        command_events.handle_request(req, command_name).await;
+                                    }
                                 }
                             }
                         }
+                        Ok(server::transport::WriteEvent::TransportAck(ack)) => {
+                            command_events.handle_transport_ack(ack).await;
+                        }
+                        Ok(server::transport::WriteEvent::Incomplete) => {}
                         Err(e) => {
                             warn!(
                                 error = %e,
                                 payload_bytes = new_value.len(),
                                 "ble.request.parse_failed"
                             );
-                            if let Some(response) = protocol::parse_error_response(&new_value, &e) {
+                            if let Some(response) = parse_router_error_response(&new_value, &e) {
                                 let command_name = response
                                     .cmd
                                     .clone()
@@ -193,6 +215,19 @@ async fn main() -> anyhow::Result<()> {
     info!(adapter_name = %adapter.name(), "ble.server.stopping");
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn parse_router_error_response(
+    raw: &[u8],
+    err: &server::transport::WriteRouterError,
+) -> Option<protocol::CommandResponse> {
+    match err {
+        server::transport::WriteRouterError::Protocol(err) => {
+            protocol::parse_error_response(raw, err)
+        }
+        server::transport::WriteRouterError::Transport(_) => None,
+    }
 }
 
 #[cfg(not(target_os = "linux"))]

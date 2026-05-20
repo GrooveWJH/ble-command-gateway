@@ -13,6 +13,7 @@ pub enum TraceWriteKind {
     Request,
     ChunkAck,
     EventAck,
+    TransportAck,
 }
 
 impl TraceWriteKind {
@@ -21,6 +22,7 @@ impl TraceWriteKind {
             Self::Request => "request",
             Self::ChunkAck => "chunk-ack",
             Self::EventAck => "event-ack",
+            Self::TransportAck => "transport-ack",
         }
     }
 }
@@ -31,6 +33,10 @@ pub enum TraceEvent {
         kind: TraceWriteKind,
         bytes: Vec<u8>,
         redacted: bool,
+    },
+    TxPacket {
+        kind: TraceWriteKind,
+        bytes: Vec<u8>,
     },
     QosTx {
         kind: TraceWriteKind,
@@ -43,6 +49,16 @@ pub enum TraceEvent {
     },
     RxRaw {
         bytes: Vec<u8>,
+    },
+    RxPacket {
+        bytes: Vec<u8>,
+    },
+    RxTransport {
+        kind: protocol::transport::FrameKind,
+        stream_id: u8,
+        index: u8,
+        final_frame: bool,
+        payload_bytes: usize,
     },
     RxChunk {
         response_id: String,
@@ -76,6 +92,12 @@ pub enum TraceEvent {
         request_id: String,
         attempt: usize,
         error: String,
+    },
+    CommandElapsed {
+        cmd: String,
+        request_id: String,
+        response_id: String,
+        elapsed_ms: u128,
     },
 }
 
@@ -126,6 +148,15 @@ pub fn format_trace_event(event: &TraceEvent) -> String {
             ],
             packet_text(bytes, false),
         ),
+        TraceEvent::TxPacket { kind, bytes } => format_binary_packet_frame(
+            ANSI_GREEN,
+            "[TX:packet]",
+            vec![
+                format!("write    {}", kind.label()),
+                format!("bytes    {}", bytes.len()),
+            ],
+            bytes,
+        ),
         TraceEvent::QosTx { kind, bytes, write } => format_trace_line(
             "[QOS:tx]",
             &[
@@ -147,6 +178,28 @@ pub fn format_trace_event(event: &TraceEvent) -> String {
             "[RX:raw]",
             vec![format!("bytes  {}", bytes.len())],
             packet_text(bytes, false),
+        ),
+        TraceEvent::RxPacket { bytes } => format_binary_packet_frame(
+            ANSI_BLUE,
+            "[RX:packet]",
+            vec![format!("bytes    {}", bytes.len())],
+            bytes,
+        ),
+        TraceEvent::RxTransport {
+            kind,
+            stream_id,
+            index,
+            final_frame,
+            payload_bytes,
+        } => format_trace_line(
+            "[RX:transport]",
+            &[
+                format!("kind={kind:?}"),
+                format!("stream={stream_id}"),
+                format!("index={index}"),
+                format!("final={final_frame}"),
+                format!("payload_bytes={payload_bytes}"),
+            ],
         ),
         TraceEvent::RxChunk {
             response_id,
@@ -225,6 +278,20 @@ pub fn format_trace_event(event: &TraceEvent) -> String {
                 format!("error={}", error),
             ],
         ),
+        TraceEvent::CommandElapsed {
+            cmd,
+            request_id,
+            response_id,
+            elapsed_ms,
+        } => format_trace_line(
+            "[QOS:elapsed]",
+            &[
+                format!("cmd={cmd}"),
+                format!("id={request_id}"),
+                format!("response_id={response_id}"),
+                format!("elapsed={elapsed_ms}ms"),
+            ],
+        ),
     }
 }
 
@@ -250,6 +317,29 @@ fn format_bordered_packet_frame(
     }
     for wrapped in wrap_chars(&format!("packet {}", packet), TRACE_BOX_TEXT_WIDTH) {
         rendered.push(trace_box_line(color, &wrapped));
+    }
+    rendered.push(trace_box_bottom(color));
+    rendered.join("\n")
+}
+
+fn format_binary_packet_frame(
+    color: &str,
+    title: &str,
+    metadata: Vec<String>,
+    bytes: &[u8],
+) -> String {
+    let mut lines = metadata;
+    lines.extend(transport_packet_lines(bytes));
+    format_bordered_lines(color, title, lines)
+}
+
+fn format_bordered_lines(color: &str, title: &str, lines: Vec<String>) -> String {
+    let mut rendered = Vec::new();
+    rendered.push(trace_box_top(color, title));
+    for line in lines {
+        for wrapped in wrap_chars(&line, TRACE_BOX_TEXT_WIDTH) {
+            rendered.push(trace_box_line(color, &wrapped));
+        }
     }
     rendered.push(trace_box_bottom(color));
     rendered.join("\n")
@@ -288,6 +378,46 @@ fn packet_text(bytes: &[u8], pretty_json: bool) -> String {
         }
     }
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn transport_packet_lines(bytes: &[u8]) -> Vec<String> {
+    let mut lines = Vec::new();
+    match protocol::transport::decode_frame(bytes) {
+        Ok(frame) => {
+            lines.push(format!("transport {:?}", frame.kind));
+            lines.push(format!("stream    {}", frame.stream_id));
+            lines.push(format!("index     {}", frame.index));
+            lines.push(format!("final    {}", frame.final_frame));
+            lines.push(format!("payload  {}", frame.payload.len()));
+        }
+        Err(err) => {
+            lines.push(format!("transport <decode-error> {}", err));
+        }
+    }
+    lines.push(format!("hex      {}", hex_text(bytes)));
+    lines.push(format!("ascii    {}", ascii_text(bytes)));
+    lines
+}
+
+fn hex_text(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn ascii_text(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                char::from(*byte)
+            } else {
+                '.'
+            }
+        })
+        .collect()
 }
 
 fn trace_box_top(color: &str, title: &str) -> String {
@@ -370,6 +500,35 @@ pub fn redacted_payload(bytes: &[u8]) -> (Vec<u8>, bool) {
 }
 
 pub fn response_trace_events(raw: &[u8]) -> Vec<TraceEvent> {
+    if protocol::transport::is_transport_frame(raw) {
+        let mut events = vec![TraceEvent::RxPacket {
+            bytes: raw.to_vec(),
+        }];
+        return match protocol::transport::decode_frame(raw) {
+            Ok(frame) => {
+                events.push(TraceEvent::RxTransport {
+                    kind: frame.kind,
+                    stream_id: frame.stream_id,
+                    index: frame.index,
+                    final_frame: frame.final_frame,
+                    payload_bytes: frame.payload.len(),
+                });
+                events
+            }
+            Err(err) => {
+                events.push(TraceEvent::RxFrame {
+                    response_id: "<transport-parse-error>".to_string(),
+                    cmd: None,
+                    code: "BAD_TRANSPORT".to_string(),
+                    phase: protocol::ResponsePhase::Result,
+                    final_flag: true,
+                    text: err.to_string(),
+                });
+                events
+            }
+        };
+    }
+
     let mut events = vec![TraceEvent::RxRaw {
         bytes: raw.to_vec(),
     }];
@@ -495,6 +654,82 @@ mod tests {
     }
 
     #[test]
+    fn formats_transport_response_without_json_parse_error_or_raw_box() {
+        let frame = protocol::transport::encode_payload_frames(
+            protocol::transport::FrameKind::ResponseChunk,
+            7,
+            br#"{"id":"req"}"#,
+            20,
+        )
+        .unwrap()
+        .remove(0);
+
+        let events = response_trace_events(&frame);
+        let formatted = events.iter().map(format_trace_event).collect::<Vec<_>>();
+
+        assert_eq!(events.len(), 2);
+        assert!(formatted[0].contains("[RX:packet]"));
+        assert!(formatted[0].contains("\x1b[34m"));
+        assert!(formatted[0].contains("transport ResponseFinal"));
+        assert!(formatted[0].contains("stream    7"));
+        assert!(formatted[0].contains("index     1"));
+        assert!(formatted[0].contains("final    true"));
+        assert!(formatted[0].contains("hex      59 24 07 01"));
+        assert!(formatted[0].contains("ascii    Y"));
+        assert!(has_box_chars(&formatted[0]));
+        assert!(formatted[1].starts_with("[RX:transport]"));
+        assert!(formatted[1].contains("kind=ResponseFinal"));
+        assert!(formatted[1].contains("stream=7"));
+        assert!(formatted[1].contains("final=true"));
+        assert!(formatted[1].contains("payload_bytes="));
+        assert!(!formatted.iter().any(|line| line.contains("BAD_JSON")));
+        assert!(!has_box_chars(&formatted[1]));
+    }
+
+    #[test]
+    fn formats_transport_tx_packets_as_binary_safe_green_frames() {
+        let request_frame = protocol::transport::encode_payload_frames(
+            protocol::transport::FrameKind::RequestChunk,
+            9,
+            br#"{"cmd":"system.status"}"#,
+            20,
+        )
+        .unwrap()
+        .remove(0);
+        let ack_frame = protocol::transport::encode_ack_frame(
+            protocol::transport::FrameKind::AckRange,
+            10,
+            3,
+            20,
+        )
+        .unwrap();
+
+        let request = format_trace_event(&TraceEvent::TxPacket {
+            kind: TraceWriteKind::Request,
+            bytes: request_frame,
+        });
+        let ack = format_trace_event(&TraceEvent::TxPacket {
+            kind: TraceWriteKind::TransportAck,
+            bytes: ack_frame,
+        });
+
+        assert!(request.contains("[TX:packet]"));
+        assert!(request.contains("\x1b[32m"));
+        assert!(request.contains("write    request"));
+        assert!(request.contains("transport RequestChunk"));
+        assert!(request.contains("stream    9"));
+        assert!(request.contains("final    false"));
+        assert!(request.contains("hex      59 21 09 01"));
+        assert!(request.contains("ascii    Y"));
+        assert!(has_box_chars(&request));
+        assert!(ack.contains("write    transport-ack"));
+        assert!(ack.contains("transport AckRange"));
+        assert!(ack.contains("stream    10"));
+        assert!(ack.contains("index     3"));
+        assert!(ack.contains("payload  0"));
+    }
+
+    #[test]
     fn formats_tx_qos_and_assembled_events() {
         let tx = format_trace_event(&TraceEvent::TxRaw {
             kind: TraceWriteKind::Request,
@@ -529,6 +764,22 @@ mod tests {
         assert!(packet_lines(&assembled)
             .iter()
             .all(|line| !line.contains('│')));
+    }
+
+    #[test]
+    fn formats_command_elapsed_as_single_trace_line() {
+        let elapsed = format_trace_event(&TraceEvent::CommandElapsed {
+            cmd: "system.status".to_string(),
+            request_id: "req-elapsed".to_string(),
+            response_id: "req-elapsed".to_string(),
+            elapsed_ms: 1234,
+        });
+
+        assert_eq!(
+            elapsed,
+            "[QOS:elapsed] cmd=system.status id=req-elapsed response_id=req-elapsed elapsed=1234ms"
+        );
+        assert!(!has_box_chars(&elapsed));
     }
 
     #[test]

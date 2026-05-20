@@ -4,6 +4,7 @@ use serde_json::Value;
 pub mod chunking;
 pub mod requests;
 pub mod responses;
+pub mod transport;
 
 pub const PROTOCOL_VERSION: &str = "YundroneBT-V2.1.0";
 

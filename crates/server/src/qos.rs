@@ -11,6 +11,8 @@ const ACK_TIMEOUT: Duration = Duration::from_millis(750);
 const EVENT_TTL: Duration = Duration::from_secs(60);
 const MAX_RETRIES: u8 = 5;
 const MAX_EVENTS: usize = 32;
+pub const TRANSPORT_FRAME_BUDGET: usize = 20;
+pub const TRANSPORT_WINDOW_SIZE: usize = 2;
 
 #[derive(Clone)]
 pub struct ReliableEventSender {
@@ -21,12 +23,14 @@ pub struct ReliableEventSender {
 #[derive(Default)]
 struct ReliableState {
     events: HashMap<EventKey, EventState>,
+    next_response_stream_id: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct EventKey {
     request_id: String,
     seq: u64,
+    stream_id: Option<u8>,
 }
 
 struct EventState {
@@ -35,6 +39,23 @@ struct EventState {
     acked_chunks: HashSet<usize>,
     retry_counts: Vec<u8>,
     event_acked: bool,
+    delivery: DeliveryMode,
+    next_to_send: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryMode {
+    LegacyJson,
+    Transport {
+        frame_budget: usize,
+        window_size: usize,
+    },
+}
+
+impl DeliveryMode {
+    fn is_transport(self) -> bool {
+        matches!(self, Self::Transport { .. })
+    }
 }
 
 impl ReliableEventSender {
@@ -46,19 +67,35 @@ impl ReliableEventSender {
     }
 
     pub async fn send_event(&self, resp: protocol::CommandResponse, command_name: &str) {
-        let chunks = encode_chunks(&resp);
-        let key = EventKey {
-            request_id: resp.id.clone(),
-            seq: resp.seq,
-        };
-        {
+        self.send_event_with_delivery(resp, command_name, DeliveryMode::LegacyJson)
+            .await;
+    }
+
+    pub async fn send_event_with_delivery(
+        &self,
+        resp: protocol::CommandResponse,
+        command_name: &str,
+        delivery: DeliveryMode,
+    ) {
+        let (chunks, key, initial_send_count) = {
             let mut state = self.state.lock().await;
+            let stream_id = delivery
+                .is_transport()
+                .then(|| state.allocate_response_stream_id());
+            let chunks = encode_chunks(&resp, delivery, stream_id);
+            let key = EventKey {
+                request_id: resp.id.clone(),
+                seq: resp.seq,
+                stream_id,
+            };
+            let initial_send_count = initial_window_size(chunks.len(), delivery);
             if state.events.len() >= MAX_EVENTS {
                 if let Some(first_key) = state.events.keys().next().cloned() {
                     state.events.remove(&first_key);
                     warn!(
                         request_id = %first_key.request_id,
                         response_seq = first_key.seq,
+                        stream_id = ?first_key.stream_id,
                         "ble.qos.window_evicted"
                     );
                 }
@@ -71,11 +108,14 @@ impl ReliableEventSender {
                     chunks: chunks.clone(),
                     acked_chunks: HashSet::new(),
                     event_acked: false,
+                    delivery,
+                    next_to_send: initial_send_count + 1,
                 },
             );
-        }
+            (chunks, key, initial_send_count)
+        };
 
-        for (index, chunk) in chunks.iter().enumerate() {
+        for (index, chunk) in chunks.iter().take(initial_send_count).enumerate() {
             self.send_chunk(&key, command_name, index + 1, chunk);
         }
 
@@ -86,11 +126,57 @@ impl ReliableEventSender {
         let key = EventKey {
             request_id: request_id.to_string(),
             seq: response_seq,
+            stream_id: None,
         };
+        self.ack_chunk_by_key(key, chunk_index).await;
+    }
+
+    async fn ack_chunk_by_key(&self, key: EventKey, chunk_index: usize) {
         let mut state = self.state.lock().await;
         if let Some(event) = state.events.get_mut(&key) {
             event.acked_chunks.insert(chunk_index);
-            info!(request_id, response_seq, chunk_index, "ble.qos.chunk.ack");
+            info!(
+                request_id = %key.request_id,
+                response_seq = key.seq,
+                stream_id = ?key.stream_id,
+                chunk_index,
+                "ble.qos.chunk.ack"
+            );
+            if let Some((command_name, next_index, chunk)) = next_transport_chunk(event) {
+                drop(state);
+                self.send_chunk(&key, &command_name, next_index, &chunk);
+            }
+        }
+    }
+
+    pub async fn ack_transport(
+        &self,
+        kind: protocol::transport::FrameKind,
+        stream_id: u8,
+        index: u8,
+    ) {
+        let key = {
+            let state = self.state.lock().await;
+            state
+                .events
+                .keys()
+                .find(|key| key.stream_id == Some(stream_id))
+                .cloned()
+        };
+        let Some(key) = key else {
+            return;
+        };
+
+        match kind {
+            protocol::transport::FrameKind::AckRange => {
+                for chunk_index in 1..=usize::from(index) {
+                    self.ack_chunk_by_key(key.clone(), chunk_index).await;
+                }
+            }
+            protocol::transport::FrameKind::AckEvent => {
+                self.ack_event_by_key(key).await;
+            }
+            _ => {}
         }
     }
 
@@ -98,11 +184,21 @@ impl ReliableEventSender {
         let key = EventKey {
             request_id: request_id.to_string(),
             seq: response_seq,
+            stream_id: None,
         };
+        self.ack_event_by_key(key).await;
+    }
+
+    async fn ack_event_by_key(&self, key: EventKey) {
         let mut state = self.state.lock().await;
         if let Some(event) = state.events.get_mut(&key) {
             event.event_acked = true;
-            info!(request_id, response_seq, "ble.qos.event.ack");
+            info!(
+                request_id = %key.request_id,
+                response_seq = key.seq,
+                stream_id = ?key.stream_id,
+                "ble.qos.event.ack"
+            );
         }
         state.events.remove(&key);
     }
@@ -146,9 +242,11 @@ impl ReliableEventSender {
             if event.event_acked {
                 return true;
             }
-            let retry_whole_event = !event.chunks.is_empty()
+            let retry_indexes = retry_indexes(event);
+            let retry_whole_event = matches!(event.delivery, DeliveryMode::LegacyJson)
+                && !event.chunks.is_empty()
                 && (1..=event.chunks.len()).all(|index| event.acked_chunks.contains(&index));
-            for index in 1..=event.chunks.len() {
+            for index in retry_indexes {
                 if event.acked_chunks.contains(&index) && !retry_whole_event {
                     continue;
                 }
@@ -158,6 +256,7 @@ impl ReliableEventSender {
                         request_id = %key.request_id,
                         cmd = %event.command_name,
                         response_seq = key.seq,
+                        stream_id = ?key.stream_id,
                         chunk_index = index,
                         "ble.qos.delivery_failed"
                     );
@@ -194,17 +293,88 @@ impl ReliableEventSender {
             warn!(
                 request_id = %key.request_id,
                 response_seq = key.seq,
+                stream_id = ?key.stream_id,
                 "ble.qos.delivery_failed"
             );
         }
     }
 }
 
-fn encode_chunks(resp: &protocol::CommandResponse) -> Vec<Vec<u8>> {
-    protocol::chunking::chunk_response(resp.clone())
-        .into_iter()
-        .filter_map(|chunk| protocol::encode_response(&chunk).ok())
-        .collect()
+impl ReliableState {
+    fn allocate_response_stream_id(&mut self) -> u8 {
+        if self.next_response_stream_id == 0 {
+            self.next_response_stream_id = 1;
+        }
+        let stream_id = self.next_response_stream_id;
+        self.next_response_stream_id = self.next_response_stream_id.wrapping_add(1);
+        if self.next_response_stream_id == 0 {
+            self.next_response_stream_id = 1;
+        }
+        stream_id
+    }
+}
+
+fn encode_chunks(
+    resp: &protocol::CommandResponse,
+    delivery: DeliveryMode,
+    response_stream_id: Option<u8>,
+) -> Vec<Vec<u8>> {
+    match delivery {
+        DeliveryMode::LegacyJson => protocol::chunking::chunk_response(resp.clone())
+            .into_iter()
+            .filter_map(|chunk| protocol::encode_response(&chunk).ok())
+            .collect(),
+        DeliveryMode::Transport {
+            frame_budget,
+            ..
+        } => protocol::encode_response(resp)
+            .ok()
+            .and_then(|payload| {
+                protocol::transport::encode_payload_frames(
+                    protocol::transport::FrameKind::ResponseChunk,
+                    response_stream_id?,
+                    &payload,
+                    frame_budget,
+                )
+                .ok()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+fn initial_window_size(chunk_count: usize, delivery: DeliveryMode) -> usize {
+    match delivery {
+        DeliveryMode::LegacyJson => chunk_count,
+        DeliveryMode::Transport { window_size, .. } => chunk_count.min(window_size.max(1)),
+    }
+}
+
+fn next_transport_chunk(event: &mut EventState) -> Option<(String, usize, Vec<u8>)> {
+    let DeliveryMode::Transport { window_size, .. } = event.delivery else {
+        return None;
+    };
+    let in_flight = (1..event.next_to_send)
+        .filter(|index| !event.acked_chunks.contains(index))
+        .count();
+    if in_flight >= window_size || event.next_to_send > event.chunks.len() {
+        return None;
+    }
+    let index = event.next_to_send;
+    event.next_to_send += 1;
+    Some((
+        event.command_name.clone(),
+        index,
+        event.chunks[index - 1].clone(),
+    ))
+}
+
+fn retry_indexes(event: &EventState) -> Vec<usize> {
+    match event.delivery {
+        DeliveryMode::LegacyJson => (1..=event.chunks.len()).collect(),
+        DeliveryMode::Transport { .. } => (1..event.next_to_send)
+            .filter(|index| !event.acked_chunks.contains(index))
+            .collect(),
+    }
 }
 
 #[cfg(test)]

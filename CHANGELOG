@@ -7,6 +7,9 @@
 
 2026.2.1 - 2026-05-20
 
+- 引入 BLE Transport V2 紧凑二进制帧，使用 4 字节头和 16 字节载荷适配 20B 保守 MTU，并通过 `AckRange` / `AckEvent` 支持窗口确认。
+- 修复 `wifi.scan` 等长任务的 `accepted/progress/result` 响应串包问题，服务端为每个逻辑响应事件分配独立 response stream。
+- 更新 README、命令契约、MTU 分片、BLE 调试器和兼容 server 文档，明确 V2 compact transport 为主路径，legacy JSON chunking / `link.ack` 为兼容回退。
 - 增强 `yundrone-ble-client interactive` 调试体验，扫描阶段加入动态 loading、倒计时和候选设备即时刷新，支持按 Enter 提前进入选择。
 - 新增 `interactive --verbose` 原包观测模式，在交互式菜单执行命令时展示 TX/RX、分片重组与 QoS ACK 细节。
 - 新增 `interactive --verbose-unsafe-raw` 危险开关；默认 verbose 输出会脱敏 Wi-Fi 密码等敏感字段，避免调试日志泄露凭据。

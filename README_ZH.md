@@ -16,7 +16,7 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 | 直接使用 macOS 桌面程序 | 下载 GitHub Release 里的 macOS 包 | 当前官方预编译包只提供 Apple Silicon 版本。 |
 | 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
 | 在 Linux 设备上部署 BLE 服务 | 运行统一入口或被控端专用入口 | 目标设备需要 BlueZ 和 NetworkManager。 |
-| 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、notify 数据、分片和 QoS ACK。 |
+| 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、V2 传输帧、重组和 ACK。 |
 
 ## 快速使用
 
@@ -166,13 +166,15 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --output /tmp/yundrone-ble-debug.log
 ```
 
-开启 `--trace-chunks` 和 `--trace-qos` 后，日志会显示：
+开启 `--trace-chunks` 和 `--trace-qos` 后，日志展示的是 BLE 传输层，而不只是业务 JSON。当前客户端使用 V2 紧凑二进制帧：每个保守 20 字节 BLE write/notify 里包含 4 字节帧头和最多 16 字节请求或响应载荷。
 
-- `[RX:raw]`：每条 BLE notify 原始 JSON 帧。
-- `[RX:chunk]`：每个 `data.chunk` 分片，包含 `index/total`。
+- `[TX:packet]` / `[RX:packet]`：每个 V2 传输包，类型可能是 `RequestChunk`、`RequestFinal`、`ResponseChunk`、`ResponseFinal`、`AckRange` 或 `AckEvent`。
+- `[RX:transport]`：解码后的 stream id、frame index、final 标记和 payload 长度。
 - `[RX:assembled]`：所有分片合并后的完整响应 JSON。
-- `[QOS:ack]` / `[QOS:event-ack]`：客户端发出的传输层确认。
+- `[QOS:tx]`：客户端发出的请求或 ACK 写入。
 - `[OK] rx`：最终解码后的业务响应摘要。
+
+`wifi.scan` 这类大响应刷屏是正常现象：每个响应事件会被拆成 16 字节载荷的小帧传输，客户端再重组成完整 JSON。旧的 JSON `data.chunk` / `link.ack` 路径仍保留在文档中，用于旧客户端兼容和通用 BLE 调试工具兜底；正常 CLI 主路径已经是 V2 compact transport。
 
 常用本地检查命令：
 
@@ -212,9 +214,9 @@ GitHub Releases 当前只提供一个官方预编译资产：
 
 本仓库是一个 Cargo workspace：
 
-- `crates/protocol`：wire schema、typed request/response 和响应分片。
-- `crates/被控端`：Linux BLE peripheral 和 NetworkManager 集成。Cargo package 与二进制名是 `yundrone-ble-server`。
-- `crates/客户端`：BLE central library 和 CLI。Cargo package 与二进制名是 `yundrone-ble-client`。
+- `crates/protocol`：wire schema、typed request/response、V2 BLE 传输帧和 legacy 响应分片。
+- `crates/server`：Linux BLE peripheral 和 NetworkManager 集成。Cargo package 与二进制名是 `yundrone-ble-server`。
+- `crates/client`：BLE central library 和 CLI。Cargo package 与二进制名是 `yundrone-ble-client`。
 - `crates/gui`：基于 `egui` 的原生桌面 GUI。
 - `crates/platform_runtime`：平台启动辅助，主要服务 macOS app bundle 行为。
 

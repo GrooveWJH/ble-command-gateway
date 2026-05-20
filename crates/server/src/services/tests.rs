@@ -32,6 +32,16 @@ async fn system_capabilities_command_is_supported() {
         .contains(&protocol::commands::CMD_LINK_ACK.to_string()));
     assert!(data.features.contains(&"response_events".to_string()));
     assert!(data.features.contains(&"qos_ack_retry".to_string()));
+    assert!(data.features.contains(&"ble_transport_framing".to_string()));
+    assert!(data.features.contains(&"transport_ack".to_string()));
+    assert!(data.features.contains(&"response_windowing".to_string()));
+    let transport = data.transport.as_ref().expect("transport capabilities");
+    assert_eq!(transport.frame_version, 2);
+    assert_eq!(transport.frame_header_size, 4);
+    assert_eq!(transport.max_frame_payload, 16);
+    assert_eq!(transport.max_inbound_logical_payload, 4080);
+    assert_eq!(transport.response_window, 2);
+    assert_eq!(transport.ack_strategy, "range");
 }
 
 #[tokio::test]

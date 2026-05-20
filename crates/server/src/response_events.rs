@@ -5,10 +5,21 @@ pub(crate) async fn send_response_event(
     resp: protocol::CommandResponse,
     command_name: &str,
 ) {
+    send_response_event_with_delivery(tx, resp, command_name, crate::qos::DeliveryMode::LegacyJson)
+        .await;
+}
+
+pub(crate) async fn send_response_event_with_delivery(
+    tx: crate::qos::ReliableEventSender,
+    resp: protocol::CommandResponse,
+    command_name: &str,
+    delivery: crate::qos::DeliveryMode,
+) {
     let summary = ResponseSummary::from_response(&resp, command_name);
     summary.emit_structured_log(&resp);
     summary.emit_human_log(&resp);
-    tx.send_event(resp, command_name).await;
+    tx.send_event_with_delivery(resp, command_name, delivery)
+        .await;
 }
 
 struct ResponseSummary<'a> {

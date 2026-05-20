@@ -213,6 +213,14 @@ fn every_typed_response_data_round_trips_through_json_maps() {
         commands: vec!["system.status".to_string()],
         features: vec!["response_events".to_string()],
         payload_limit: config::MAX_BLE_PAYLOAD_BYTES,
+        transport: Some(responses::TransportCapabilities {
+            frame_version: 2,
+            frame_header_size: 4,
+            max_frame_payload: 16,
+            max_inbound_logical_payload: 4080,
+            response_window: 2,
+            ack_strategy: "range".to_string(),
+        }),
     });
     assert_response_data_round_trip(responses::WifiScanResponseData {
         ifname: Some("wlan0".to_string()),

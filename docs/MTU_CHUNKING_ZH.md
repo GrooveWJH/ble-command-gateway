@@ -1,10 +1,35 @@
-# BLE MTU 分片中间件说明
+# BLE Transport V2 与 legacy MTU 分片说明
 
-本文说明当前 BLE 网关里用于绕过单帧负载限制的响应分片中间件实现方式，以及它和底层 BLE MTU 的关系。
+本文说明当前 BLE 网关的主传输路径，以及旧 JSON 分片中间件和底层 BLE MTU 的关系。
 
-## 1. 当前实际大小上限
+当前 GUI/CLI 主路径已经是 **BLE Transport V2 compact binary framing**：
 
-现在协议层真正使用的单帧上限是：
+- 每个 BLE write/notify 按保守 20 字节预算发送。
+- 前 4 字节是 transport header：magic/version + frame kind、stream id、frame index。
+- 后 16 字节是请求或响应 JSON 的 payload 片段。
+- 请求方向使用 `RequestChunk` / `RequestFinal`。
+- 响应方向使用 `ResponseChunk` / `ResponseFinal`。
+- 确认使用 `AckRange` / `AckEvent`，不再依赖 JSON `link.ack`。
+
+本文后面提到的 `360 bytes` 和 `data.chunk` 是 legacy JSON chunking 路径，仍用于旧客户端兼容、通用 BLE 调试工具兜底和历史实现解释；正常 CLI/GUI 不再把它作为主传输方式。
+
+## 1. 当前主路径：V2 紧凑传输帧
+
+V2 transport 的关键常量在 [crates/protocol/src/transport.rs](../crates/protocol/src/transport.rs)：
+
+```rust
+pub const FRAME_HEADER_LEN: usize = 4;
+pub const MAX_FRAME_PAYLOAD_LEN: usize = 16;
+pub const MAX_LOGICAL_PAYLOAD_LEN: usize = 4080;
+```
+
+一条完整业务 JSON 会先被序列化成 UTF-8 bytes，再切成最多 255 个 transport payload fragment。每个 fragment 被包成一个 20 字节以内的二进制帧。
+
+因此 verbose 日志里刷屏的 `[RX:packet]` 不是重复业务响应，而是同一个响应事件的多个 16 字节 payload frame。只有 `[RX:assembled]` 才是重组后的完整业务 JSON。
+
+## 2. Legacy JSON 分片大小上限
+
+legacy JSON 分片路径的单帧上限是：
 
 ```rust
 pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
@@ -18,13 +43,13 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 - 它 **不是** 当前代码里某个运行时协商出来、并被显式暴露的 ATT MTU 值。
 - 当前分片中间件只保证：每一个最终 `encode_response()` 之后发出去的 JSON 帧，长度都不超过 `360` 字节。
 
-也就是说，今天的传输策略是：
+也就是说，legacy JSON 分片策略是：
 
 - 把 `360 bytes` 视作当前 BLE 响应单帧预算。
 - 如果一整个响应 JSON 能塞进去，就原样单帧发送。
 - 如果塞不进去，就切成多个协议分片，再由客户端透明重组。
 
-## 2. 为什么需要这层中间件
+## 3. 为什么仍然保留这层中间件
 
 最初暴露出来的问题是：有些 typed 响应看起来 `text` 很短，但 `data` 很大，典型例子就是 `wifi.scan`。
 
@@ -35,16 +60,16 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 - 服务端把一个超大的 JSON 直接塞进单次 BLE notify
 - 客户端收到的是被底层截断的 JSON，于是解析时报错，例如 `EOF while parsing a string`
 
-现在的中间件修复方式是：
+legacy 中间件当时的修复方式是：
 
 - 不再只切某个字段
 - 改为对 **完整的 `CommandResponse` 序列化 JSON** 做切片
 
 核心实现文件： [crates/protocol/src/chunking.rs](../crates/protocol/src/chunking.rs)
 
-## 3. 当前分片逻辑
+## 4. Legacy JSON 分片逻辑
 
-### 3.1 服务端切片规则
+### 4.1 服务端切片规则
 
 `chunk_response(resp)` 的行为是：
 
@@ -63,7 +88,7 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 
 来源： [crates/protocol/src/chunking.rs](../crates/protocol/src/chunking.rs#L130)
 
-### 3.2 chunk envelope 结构
+### 4.2 chunk envelope 结构
 
 每个传输分片本身仍然是一个合法的 `CommandResponse`，只是它的 `data` 里临时塞了中间件元数据：
 
@@ -98,7 +123,7 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 
 这样分片责任就被限制在协议传输层，不会污染 UI 层和业务层。
 
-### 3.3 片段大小是怎么算的
+### 4.3 片段大小是怎么算的
 
 这里不是简单拍脑袋按固定长度截字符串。
 
@@ -117,7 +142,7 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 
 - 原始 payload 子串本身的裸长度
 
-## 4. 客户端如何重组
+## 5. 客户端如何重组 legacy chunk
 
 客户端 UI 代码本身不需要直接理解 chunk metadata。
 
@@ -144,7 +169,7 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 - 必须等所有分片齐了才会产出最终响应
 - 重组成功后会立即清理该会话状态，避免后续串包
 
-## 5. 旧兼容路径还在，但只是兜底
+## 6. 旧兼容路径还在，但只是兜底
 
 `ChunkAssembler` 里还保留了一条旧格式兼容路径：
 
@@ -153,34 +178,34 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 
 这条路径只用于容忍旧版“只切 text”的 chunk envelope。
 
-当前新服务端的正规路径应当始终是：
+如果进入 legacy JSON chunking，新服务端的正规格式应当始终是：
 
 - `mode = "response_json"`
 
-所以今天正确的主链路应该理解为：
+所以 legacy 路径应理解为：
 
 - 服务端对完整响应做 full-response chunking
 - 客户端对完整响应做 full-response reassembly
 - 只有重组完成后，才进入 typed `decode_data()`
 
-## 6. 这层中间件在整体链路中的位置
+## 7. 这层中间件在整体链路中的位置
 
 ### 请求路径
 
-- Client 目前还是把一个完整请求 JSON 直接写入 BLE。
-- 当前分片中间件主要用于 **响应方向**，因为已知的大包问题集中在 typed response。
+- 当前 CLI/GUI 会把请求 JSON 交给 V2 transport，再拆成 `RequestChunk` / `RequestFinal` 写入 BLE。
+- legacy JSON 分片主要用于旧响应方向；如果用通用 BLE 工具手写小 JSON，请求仍可走旧的直写兼容路径。
 
 ### 响应路径
 
 - Server 执行 typed command。
 - Server 生成一个 typed `CommandResponse` 事件；V2 下耗时命令可能先发送 `accepted/progress` 小事件，最终 `result` 大事件也走同一分片链路。
-- `protocol::chunking::chunk_response(...)` 把它转换成一个或多个 BLE 安全帧。
-- Server 逐帧 notify。
-- Client 侧的 `ResponseDecoder + ChunkAssembler` 在业务/UI 看见之前，把它恢复成原始响应。
+- 主路径下 server 用 V2 transport 把该事件拆成 `ResponseChunk` / `ResponseFinal`，每个逻辑响应事件使用独立 response stream。
+- legacy fallback 下，`protocol::chunking::chunk_response(...)` 把它转换成一个或多个 JSON chunk envelope。
+- Client 侧会先做 V2 transport reassembly；如果收到 legacy JSON chunk，再由 `ResponseDecoder + ChunkAssembler` 在业务/UI 看见之前恢复成原始响应。
 
 服务端接入点： [crates/server/src/command_events.rs](../crates/server/src/command_events.rs)
 
-## 7. 可观测性
+## 8. 可观测性
 
 服务端当前会在日志里记录和分片相关的几个关键字段：
 
@@ -193,60 +218,60 @@ pub const MAX_BLE_PAYLOAD_BYTES: usize = 360;
 
 这是判断某条命令是否真的跨过单帧上限、是否真的进入分片路径的第一观察点。
 
-解释方式：
+legacy JSON chunk 解释方式：
 
 - `chunk_count=1`：完整响应本次没有超过 360 字节预算
 - `chunk_count>1`：完整响应 JSON 被拆成了多次 BLE notify
 
-## 8. PlantUML 时序图
+V2 transport verbose 解释方式：
+
+- `[TX:packet]` / `[RX:packet]`：一个 20 字节以内的二进制 transport frame。
+- `stream`：transport stream id；请求和每个响应事件分开计数。
+- `index`：当前 stream 内的 frame 序号，从 1 开始。
+- `final=true`：该 stream 的最后一个 payload frame。
+- `AckRange`：确认某个 stream 已连续收到到哪个 index，用于推进窗口。
+- `AckEvent`：确认某个响应事件已经完整交付到业务层。
+
+## 9. PlantUML 时序图
 
 ```plantuml
 @startuml
-title BLE 响应分片与重组
+title BLE Transport V2 响应帧与重组
 
 actor User
 participant GUI as "GUI / CLI"
-participant Client as "ResponseDecoder + ChunkAssembler"
+participant Client as "Transport Reassembler + ResponseDecoder"
 participant Server as "BLE Server"
-participant Protocol as "protocol::chunking"
+participant Transport as "protocol::transport"
 
 User -> GUI: 触发命令（例如 wifi.scan）
-GUI -> Server: 写入 CommandRequest JSON
+GUI -> Server: 写入 RequestChunk / RequestFinal
 Server -> Server: 执行 typed command
 Server -> Server: 构造 CommandResponse 事件
-Server -> Protocol: chunk_response(response)
+Server -> Transport: encode_payload_frames(response JSON)
+Transport --> Server: ResponseChunk / ResponseFinal
 
-alt 响应字节数 <= 360
-    Protocol --> Server: 单个 CommandResponse
-    Server -> Client: notify 单帧
-    Client -> Client: parse_response()
-    Client --> GUI: 返回完整 typed response
-else 响应字节数 > 360
-    Protocol -> Protocol: 序列化完整 response JSON
-    Protocol -> Protocol: 切成多个 JSON 片段
-    Protocol -> Protocol: 每片包进 data.chunk
-    Protocol --> Server: 返回 chunk 1..N
-
-    loop 每个 chunk
-        Server -> Client: notify 一个 chunk frame
-        Client -> Client: parse_response()
-        Client -> Client: 识别 data.chunk
-        Client -> Client: 按 response.id + index 存入缓存
-    end
-
-    Client -> Client: 收齐全部分片
-    Client -> Client: 拼接 payload 片段
-    Client -> Client: parse_response(rebuilt_json)
-    Client --> GUI: 返回原始完整 typed response
+loop 每个 transport frame
+    Server -> Client: notify ResponseChunk / ResponseFinal
+    Client -> Server: AckRange
+    Client -> Client: 按 stream + index 缓存 payload
 end
+
+Client -> Client: 收齐 final stream
+Client -> Client: 拼接 payload 并 parse_response()
+Client -> Server: AckEvent
+Client --> GUI: 返回完整 typed response
 
 @enduml
 ```
 
-## 9. 现有测试如何保护这条链路
+## 10. 现有测试如何保护这条链路
 
-协议层测试已经覆盖了几个关键场景：
+协议层和服务端测试已经覆盖了几个关键场景：
 
+- V2 transport payload frame encode/decode 与 reassembly
+- transport ACK 窗口推进、重试和重复 final 防御
+- 同一请求的 `accepted/progress/result` 使用不同 response stream
 - 不分片响应的 round-trip
 - 大文本响应的 round-trip
 - 大 typed data 响应的 round-trip
@@ -258,10 +283,11 @@ end
 - [crates/protocol/src/tests.rs](../crates/protocol/src/tests.rs#L224)
 - [crates/client/src/response.rs](../crates/client/src/response.rs#L41)
 
-## 10. 维护时最重要的结论
+## 11. 维护时最重要的结论
 
-- 当前网关的有效单帧预算是 `360 bytes`。
-- 我们修复的是“完整响应 JSON”的传输问题，不是只修某个字段。
+- 当前网关主路径的 BLE transport frame 预算是 `20 bytes`，其中 header `4 bytes`、payload `16 bytes`。
+- `360 bytes` 是 legacy JSON chunking 的兼容预算，不是主路径 MTU。
+- 我们修复的是“完整请求/响应 JSON”的传输问题，不是只修某个字段。
 - GUI 和 CLI 不需要自己处理 chunk 业务逻辑。
-- 将来任何返回大 `data` 的命令，都应该自动复用这条分片通道。
-- 如果后面又出现截断问题，第一步先看服务端日志里的 `chunk_count`、`response_bytes` 和 `max_chunk_bytes`，不要先去怀疑 UI。
+- 将来任何返回大 `data` 的命令，都应该自动复用 V2 transport。
+- 如果后面又出现截断问题，第一步先看 verbose 里的 `[RX:packet]`、`stream/index/final`、`[RX:assembled]` 和服务端 transport/QoS 日志，不要先去怀疑 UI。

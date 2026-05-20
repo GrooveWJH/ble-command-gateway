@@ -49,9 +49,9 @@ Fast commands usually return one `result` event. Slow foreground commands return
 2. one or more `progress` events, usually once per second
 3. one final `result`
 
-The response chunking middleware can split any oversized event into multiple BLE notifications. GUI/CLI clients reassemble this transparently.
+Current GUI/CLI clients prefer V2 compact BLE transport. A logical request or response JSON is split into binary frames with a 4-byte header and up to 16 bytes of payload per 20-byte BLE write/notify, then reassembled before business decoding.
 
-V2.1 adds lightweight transport acknowledgements. Clients ACK every reliable chunk and every completed response event with `link.ack`; applications should not expose `link.ack` as a user-facing command.
+V2 transport acknowledgements use compact `AckRange` and `AckEvent` frames. The older JSON response chunking middleware and `link.ack` command remain as a compatibility/debug fallback; applications should not expose transport ACKs as user-facing commands.
 
 ## Commands
 
@@ -68,7 +68,7 @@ Response:
 
 ### `link.ack`
 
-Purpose: transport-level acknowledgement for response chunks and completed response events.
+Purpose: legacy JSON transport-level acknowledgement for response chunks and completed response events.
 
 Arguments:
 
@@ -76,7 +76,7 @@ Arguments:
 - `response_seq`: response event sequence number being acknowledged
 - `chunk_index`: required for `ack_type=chunk`, omitted for `ack_type=event`
 
-Response: none. The server consumes this command in the transport layer and does not emit a business response.
+Response: none. The server consumes this command in the transport layer and does not emit a business response. Current V2 compact transport normally uses binary `AckRange` / `AckEvent` frames instead of this JSON command.
 
 ### `system.status`
 
@@ -112,6 +112,12 @@ Response:
 - `data.commands[]`: supported V2 command names
 - `data.features[]`: feature flags
 - `data.payload_limit`: protocol single-frame budget in bytes
+- `data.transport.frame_version`: compact BLE transport frame version; current value is `2`
+- `data.transport.frame_header_size`: transport header size in bytes; current value is `4`
+- `data.transport.max_frame_payload`: maximum payload bytes per 20-byte transport frame; current value is `16`
+- `data.transport.max_inbound_logical_payload`: maximum request/response JSON payload bytes per transport stream; current value is `4080`
+- `data.transport.response_window`: number of response frames the server may keep in flight before ACK advances the window; current value is `2`
+- `data.transport.ack_strategy`: ACK mode for compact transport; current value is `range`
 
 ### `wifi.scan`
 

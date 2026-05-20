@@ -16,7 +16,7 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 | Use the desktop app on macOS | Download the macOS release asset | Current official prebuilt asset is Apple Silicon only. |
 | Run from source on your workstation | Build `gui` or `yundrone-ble-client` | Best for development and debugging. |
 | Deploy the BLE server on Linux | Run the unified entry or server-only entry | Target device needs BlueZ and NetworkManager. |
-| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, notify frames, chunks, and QoS ACKs. |
+| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, V2 transport frames, reassembly, and ACKs. |
 
 ## Quick Use
 
@@ -166,13 +166,15 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --output /tmp/yundrone-ble-debug.log
 ```
 
-With `--trace-chunks` and `--trace-qos`, the log shows:
+With `--trace-chunks` and `--trace-qos`, the log shows the BLE transport rather than only the business JSON. Current clients use a compact V2 binary frame so every conservative 20-byte BLE write/notify carries a 4-byte header and up to 16 bytes of request or response payload:
 
-- `[RX:raw]`: each raw BLE notify JSON frame.
-- `[RX:chunk]`: each `data.chunk` frame with `index/total`.
+- `[TX:packet]` / `[RX:packet]`: each V2 transport packet, including `RequestChunk`, `RequestFinal`, `ResponseChunk`, `ResponseFinal`, `AckRange`, or `AckEvent`.
+- `[RX:transport]`: decoded transport metadata such as stream id, frame index, final flag, and payload length.
 - `[RX:assembled]`: the fully reassembled response JSON.
-- `[QOS:ack]` / `[QOS:event-ack]`: transport acknowledgements sent by the client.
+- `[QOS:tx]`: request or ACK writes sent by the client.
 - `[OK] rx`: the decoded final response summary.
+
+Large commands such as `wifi.scan` can print many packets because each response event is split into 16-byte payload frames and then reassembled. The older JSON `data.chunk` / `link.ack` path is still documented for compatibility and manual BLE debugger fallback, but the normal CLI path is V2 compact transport.
 
 Common local checks:
 
@@ -212,7 +214,7 @@ Platform status:
 
 This repository is a Cargo workspace:
 
-- `crates/protocol`: wire schema, typed requests/responses, and response chunking.
+- `crates/protocol`: wire schema, typed requests/responses, V2 BLE transport framing, and legacy response chunking.
 - `crates/server`: Linux BLE peripheral and NetworkManager integration. Cargo package and binary: `yundrone-ble-server`.
 - `crates/client`: BLE central library and CLI. Cargo package and binary: `yundrone-ble-client`.
 - `crates/gui`: native desktop GUI built with `egui`.

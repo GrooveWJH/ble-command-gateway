@@ -402,7 +402,8 @@ pub(crate) async fn execute_request(
     let request = prepare_request(payload)?;
     let response = if let Some(trace) = trace {
         let trace_options = trace.options();
-        session
+        let started_at = Instant::now();
+        let response = session
             .run_request_until_final_traced(
                 &request,
                 timeout_secs,
@@ -414,7 +415,9 @@ pub(crate) async fn execute_request(
                     }
                 },
             )
-            .await?
+            .await?;
+        trace.command_elapsed(&request, &response, started_at.elapsed());
+        response
     } else {
         session
             .run_request_until_final(&request, timeout_secs, |event| {
@@ -455,6 +458,23 @@ impl InteractiveTracePrinter {
 
     fn callback(&self) -> client::trace::TraceCallback {
         client::trace::printing_callback()
+    }
+
+    fn command_elapsed(
+        &self,
+        request: &client::PreparedRequest,
+        response: &protocol::CommandResponse,
+        elapsed: Duration,
+    ) {
+        client::trace::emit(
+            &Some(self.callback()),
+            client::trace::TraceEvent::CommandElapsed {
+                cmd: request.request.payload.command_name().to_string(),
+                request_id: request.request.id.clone(),
+                response_id: response.id.clone(),
+                elapsed_ms: elapsed.as_millis(),
+            },
+        );
     }
 }
 
