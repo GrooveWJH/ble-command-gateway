@@ -14,6 +14,7 @@ pub struct ChunkReceipt {
 pub struct DecodedEvent {
     pub chunk_receipt: Option<ChunkReceipt>,
     pub response: Option<protocol::CommandResponse>,
+    pub assembled_from_chunks: bool,
 }
 
 impl Default for ResponseDecoder {
@@ -39,10 +40,12 @@ impl ResponseDecoder {
     pub fn decode_event(&mut self, raw: &[u8]) -> Result<DecodedEvent, protocol::ProtocolError> {
         let response = protocol::parse_response(raw)?;
         let chunk_receipt = chunk_receipt(&response);
+        let assembled_from_chunks = chunk_receipt.is_some();
         let response = self.assembler.add_chunk(response)?;
         Ok(DecodedEvent {
             chunk_receipt,
             response,
+            assembled_from_chunks,
         })
     }
 }
@@ -158,6 +161,41 @@ mod tests {
             })
         );
         assert!(event.response.is_none());
+        assert!(event.assembled_from_chunks);
+    }
+
+    #[test]
+    fn decode_event_marks_plain_response_as_not_chunk_assembled() {
+        let response = protocol::CommandResponse::ok("req-plain", "ok", None);
+        let payload = protocol::encode_response(&response).unwrap();
+        let mut decoder = ResponseDecoder::new();
+
+        let event = decoder.decode_event(&payload).unwrap();
+
+        assert_eq!(event.response, Some(response));
+        assert!(!event.assembled_from_chunks);
+    }
+
+    #[test]
+    fn decode_event_marks_completed_chunk_response_as_chunk_assembled() {
+        let response = protocol::CommandResponse::ok("req-chunked", "x".repeat(500), None);
+        let chunks = protocol::chunking::chunk_response(response);
+        let mut decoder = ResponseDecoder::new();
+        let mut final_event = None;
+
+        for chunk in chunks {
+            let payload = protocol::encode_response(&chunk).unwrap();
+            let event = decoder.decode_event(&payload).unwrap();
+            if event.response.is_some() {
+                final_event = Some(event);
+            }
+        }
+
+        assert!(
+            final_event
+                .expect("chunked response should complete")
+                .assembled_from_chunks
+        );
     }
 
     #[test]

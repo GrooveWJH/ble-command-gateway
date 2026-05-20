@@ -89,6 +89,28 @@ pub fn build_scanned_device(
     }
 }
 
+pub fn merge_scanned_device(existing: ScannedDevice, incoming: ScannedDevice) -> ScannedDevice {
+    ScannedDevice {
+        info: merge_candidate_info(existing.info, incoming.info),
+        peripheral: incoming.peripheral,
+    }
+}
+
+fn merge_candidate_info(
+    existing: ScanCandidateInfo,
+    incoming: ScanCandidateInfo,
+) -> ScanCandidateInfo {
+    let rssi = match (existing.rssi, incoming.rssi) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    };
+    ScanCandidateInfo {
+        name: incoming.name,
+        rssi,
+    }
+}
+
 fn mark_peripheral_seen<K>(seen: &mut HashSet<K>, peripheral_id: K) -> bool
 where
     K: Eq + Hash,
@@ -99,6 +121,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::LiveScanState;
+    use crate::ble::ScanCandidateInfo;
 
     #[test]
     fn observe_counts_named_and_matched_devices_once() {
@@ -125,5 +148,37 @@ mod tests {
         assert!(second.candidate_name.is_none());
         assert_eq!(state.named_device_count, 1);
         assert_eq!(state.candidate_count, 1);
+    }
+
+    #[test]
+    fn candidate_merge_preserves_known_rssi_when_update_is_unknown() {
+        let existing = ScanCandidateInfo {
+            name: "yundrone-bw0uwj".to_string(),
+            rssi: Some(-31),
+        };
+        let incoming = ScanCandidateInfo {
+            name: "yundrone-bw0uwj".to_string(),
+            rssi: None,
+        };
+
+        let merged = super::merge_candidate_info(existing, incoming);
+
+        assert_eq!(merged.rssi, Some(-31));
+    }
+
+    #[test]
+    fn candidate_merge_uses_stronger_known_rssi() {
+        let existing = ScanCandidateInfo {
+            name: "yundrone-bw0uwj".to_string(),
+            rssi: Some(-72),
+        };
+        let incoming = ScanCandidateInfo {
+            name: "yundrone-bw0uwj".to_string(),
+            rssi: Some(-31),
+        };
+
+        let merged = super::merge_candidate_info(existing, incoming);
+
+        assert_eq!(merged.rssi, Some(-31));
     }
 }

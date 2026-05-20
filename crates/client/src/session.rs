@@ -250,11 +250,13 @@ impl BleSession {
                                 response_seq: response.seq,
                             },
                         );
-                        if let Ok(bytes) = protocol::encode_response(&response) {
-                            crate::trace::emit(
-                                &trace,
-                                crate::trace::TraceEvent::RxAssembled { bytes },
-                            );
+                        if event.assembled_from_chunks {
+                            if let Ok(bytes) = protocol::encode_response(&response) {
+                                crate::trace::emit(
+                                    &trace,
+                                    crate::trace::TraceEvent::RxAssembled { bytes },
+                                );
+                            }
                         }
                         info!(
                             device_name = %self.device_name,

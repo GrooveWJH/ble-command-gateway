@@ -1,5 +1,8 @@
 use anyhow::Result;
-use client::{prepare_request, BleClient, BleSession, ScanCandidateInfo, ScannedDevice};
+use client::{
+    prepare_request, scan_state::merge_scanned_device, BleClient, BleSession, ScanCandidateInfo,
+    ScannedDevice,
+};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::Table;
 use crossterm::event::{self, Event, KeyCode};
@@ -110,7 +113,7 @@ async fn scan_candidates_dynamic(
                 }
             }
             Some(device) = candidate_rx.recv() => {
-                candidates.insert(device.info.name.clone(), device);
+                upsert_scan_candidate(&mut candidates, device);
                 render_scan_status(lang, target, timeout, start, &candidates, true)?;
             }
             _ = tick.tick() => {
@@ -120,7 +123,7 @@ async fn scan_candidates_dynamic(
     };
 
     while let Ok(device) = candidate_rx.try_recv() {
-        candidates.insert(device.info.name.clone(), device);
+        upsert_scan_candidate(&mut candidates, device);
     }
     clear_scan_status()?;
 
@@ -144,6 +147,15 @@ async fn scan_candidates_dynamic(
     }
 
     Ok(devices)
+}
+
+fn upsert_scan_candidate(candidates: &mut BTreeMap<String, ScannedDevice>, device: ScannedDevice) {
+    candidates
+        .entry(device.info.name.clone())
+        .and_modify(|existing| {
+            *existing = merge_scanned_device(existing.clone(), device.clone());
+        })
+        .or_insert(device);
 }
 
 fn enter_pressed() -> Result<bool> {
