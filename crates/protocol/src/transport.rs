@@ -18,6 +18,7 @@ pub enum FrameKind {
     AckRange,
     AckEvent,
     Reset,
+    Progress,
 }
 
 impl FrameKind {
@@ -30,6 +31,7 @@ impl FrameKind {
             Self::AckRange => 5,
             Self::AckEvent => 6,
             Self::Reset => 7,
+            Self::Progress => 8,
         }
     }
 
@@ -42,6 +44,7 @@ impl FrameKind {
             5 => Ok(Self::AckRange),
             6 => Ok(Self::AckEvent),
             7 => Ok(Self::Reset),
+            8 => Ok(Self::Progress),
             _ => Err(TransportError::BadKind(value)),
         }
     }
@@ -55,6 +58,10 @@ impl FrameKind {
 
     pub fn is_ack(self) -> bool {
         matches!(self, Self::AckRange | Self::AckEvent)
+    }
+
+    pub fn is_control(self) -> bool {
+        matches!(self, Self::AckRange | Self::AckEvent | Self::Reset | Self::Progress)
     }
 
     pub fn final_frame(self) -> bool {
@@ -276,6 +283,27 @@ pub fn encode_ack_frame(
     )
 }
 
+pub fn encode_control_frame(
+    kind: FrameKind,
+    stream_id: u8,
+    index: u8,
+    frame_budget: usize,
+) -> Result<Vec<u8>, TransportError> {
+    if !kind.is_control() || kind.is_payload() {
+        return Err(TransportError::BadKind(kind.wire()));
+    }
+    validate_budget(
+        encode_frame(TransportFrame {
+            kind,
+            stream_id,
+            index,
+            final_frame: false,
+            payload: Vec::new(),
+        })?,
+        frame_budget,
+    )
+}
+
 pub fn decode_frame(raw: &[u8]) -> Result<TransportFrame, TransportError> {
     if raw.len() < HEADER_LEN {
         return Err(TransportError::TooShort);
@@ -295,7 +323,7 @@ pub fn decode_frame(raw: &[u8]) -> Result<TransportFrame, TransportError> {
     }
     let kind = FrameKind::from_wire(raw[1] & 0x0f)?;
     let payload = raw[HEADER_LEN..].to_vec();
-    if kind.is_ack() && !payload.is_empty() {
+    if kind.is_control() && !payload.is_empty() {
         return Err(TransportError::AckHasPayload);
     }
     if kind.is_payload() {
@@ -317,7 +345,7 @@ pub fn decode_frame(raw: &[u8]) -> Result<TransportFrame, TransportError> {
 }
 
 fn encode_frame(frame: TransportFrame) -> Result<Vec<u8>, TransportError> {
-    if frame.kind.is_ack() && !frame.payload.is_empty() {
+    if frame.kind.is_control() && !frame.payload.is_empty() {
         return Err(TransportError::AckHasPayload);
     }
     if frame.kind.is_payload() {
@@ -408,6 +436,18 @@ mod tests {
         assert_eq!(frames.len(), 37);
         assert_eq!(decode_frame(&frames[0]).unwrap().payload.len(), 16);
         assert!(decode_frame(frames.last().unwrap()).unwrap().final_frame);
+    }
+
+    #[test]
+    fn progress_control_frame_fits_in_one_header_only_packet() {
+        let raw = encode_control_frame(FrameKind::Progress, 11, 3, 20).unwrap();
+
+        assert_eq!(raw.len(), FRAME_HEADER_LEN);
+        let frame = decode_frame(&raw).unwrap();
+        assert_eq!(frame.kind, FrameKind::Progress);
+        assert_eq!(frame.stream_id, 11);
+        assert_eq!(frame.index, 3);
+        assert!(frame.payload.is_empty());
     }
 
     #[test]

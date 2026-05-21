@@ -9,6 +9,7 @@
 - 后 16 字节是请求或响应 JSON 的 payload 片段。
 - 请求方向使用 `RequestChunk` / `RequestFinal`。
 - 响应方向使用 `ResponseChunk` / `ResponseFinal`。
+- 耗时命令的周期性“正在进行”提示使用 header-only `Progress` 控制帧。
 - 确认使用 `AckRange` / `AckEvent`，不再依赖 JSON `link.ack`。
 
 本文后面提到的 `360 bytes` 和 `data.chunk` 是 legacy JSON chunking 路径，仍用于旧客户端兼容、通用 BLE 调试工具兜底和历史实现解释；正常 CLI/GUI 不再把它作为主传输方式。
@@ -198,8 +199,8 @@ legacy 中间件当时的修复方式是：
 ### 响应路径
 
 - Server 执行 typed command。
-- Server 生成一个 typed `CommandResponse` 事件；V2 下耗时命令可能先发送 `accepted/progress` 小事件，最终 `result` 大事件也走同一分片链路。
-- 主路径下 server 用 V2 transport 把该事件拆成 `ResponseChunk` / `ResponseFinal`，每个逻辑响应事件使用独立 response stream。
+- Server 生成 typed `CommandResponse` 事件；V2 下耗时命令会先发送完整 JSON `accepted`，周期性发送 header-only `Progress` 控制帧，最终 `result` 仍走完整 JSON 响应链路。
+- 主路径下 server 用 V2 transport 把 `accepted` 和 `result` 拆成 `ResponseChunk` / `ResponseFinal`；`Progress` 不携带 JSON payload，也不进入 ACK 窗口。
 - legacy fallback 下，`protocol::chunking::chunk_response(...)` 把它转换成一个或多个 JSON chunk envelope。
 - Client 侧会先做 V2 transport reassembly；如果收到 legacy JSON chunk，再由 `ResponseDecoder + ChunkAssembler` 在业务/UI 看见之前恢复成原始响应。
 
@@ -229,6 +230,7 @@ V2 transport verbose 解释方式：
 - `stream`：transport stream id；请求和每个响应事件分开计数。
 - `index`：当前 stream 内的 frame 序号，从 1 开始。
 - `final=true`：该 stream 的最后一个 payload frame。
+- `Progress`：header-only 控制帧，表示长任务仍在进行，不携带 JSON payload。
 - `AckRange`：确认某个 stream 已连续收到到哪个 index，用于推进窗口。
 - `AckEvent`：确认某个响应事件已经完整交付到业务层。
 
@@ -271,7 +273,7 @@ Client --> GUI: 返回完整 typed response
 
 - V2 transport payload frame encode/decode 与 reassembly
 - transport ACK 窗口推进、重试和重复 final 防御
-- 同一请求的 `accepted/progress/result` 使用不同 response stream
+- 同一请求的 `accepted/result` 使用不同 response stream，周期性 progress 使用 header-only control frame
 - 不分片响应的 round-trip
 - 大文本响应的 round-trip
 - 大 typed data 响应的 round-trip

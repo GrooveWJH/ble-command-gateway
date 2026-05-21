@@ -149,7 +149,7 @@ UUID: Nordic UART Service
 - `seq` 是同一请求内递增序号。
 - `final=true` 表示本次请求结束。
 
-耗时命令会先回 `accepted`，执行中回 `progress`，最后回 `result`。调试工具里要等 `final=true` 才算真正结束。
+耗时命令会先回 `accepted`，执行中表示“仍在进行”，最后回 `result`。正式 CLI/GUI 的 V2 transport 路径里，周期性进行中提示是 header-only `Progress` 控制帧；通用 BLE 调试工具走 JSON fallback 时，仍可能看到 `phase=progress` 的 JSON 事件。调试工具里要等 `final=true` 才算真正结束。
 
 ## 4. 最小连通性测试：`link.heartbeat`
 
@@ -217,6 +217,7 @@ UUID: Nordic UART Service
       "qos_ack_retry",
       "ble_transport_framing",
       "transport_ack",
+      "transport_progress_control",
       "response_windowing",
       "wifi_profile_management"
     ],
@@ -276,7 +277,11 @@ UUID: Nordic UART Service
 {"id":"debug-wifi-001","cmd":"wifi.scan","phase":"accepted","seq":1,"final":false,"ok":true,"code":"ACCEPTED","text":"accepted","v":"YundroneBT-V2.1.0"}
 ```
 
-```json
+```text
+V2 verbose:
+[RX:packet] transport Progress stream=0 index=2 final=false payload=0
+
+legacy JSON fallback:
 {"id":"debug-wifi-001","cmd":"wifi.scan","phase":"progress","seq":2,"final":false,"ok":true,"code":"IN_PROGRESS","text":"please wait","v":"YundroneBT-V2.1.0"}
 ```
 
@@ -426,6 +431,7 @@ UUID: Nordic UART Service
 [QOS:tx] kind=transport-ack ...
 [RX:packet] transport ResponseChunk stream=25 index=2 final=false payload=16
 ...
+[RX:packet] transport Progress stream=0 index=2 final=false payload=0
 [RX:packet] transport ResponseFinal stream=25 index=64 final=true payload=7
 [QOS:tx] kind=transport-ack ...
 [RX:assembled] bytes=1015
@@ -438,6 +444,7 @@ UUID: Nordic UART Service
 3. `payload=16` 表示该帧最多携带 16 字节业务 JSON 片段。
 4. `ResponseFinal` 表示这个 stream 的最后一片。
 5. `[RX:assembled]` 才是完整重组后的业务 JSON。
+6. `Progress` 是 4 字节控制帧，只表示长任务仍在进行，不需要 JSON 重组。
 
 如果用通用 BLE 调试工具走 legacy JSON fallback，某个最终响应超过兼容预算 `360 bytes` 时，你会看到多条带 `data.chunk` 的 Notify：
 
@@ -520,7 +527,7 @@ ble.request.received request_id=debug-heartbeat-001 cmd=link.heartbeat
 ble.response.sent request_id=debug-heartbeat-001 cmd=link.heartbeat response_code=OK phase=Result chunk_count=1
 ```
 
-如果是 `wifi.scan` 这类大响应，日志应显示 `accepted/progress/result` 事件，以及最终结果是否进入 `chunked response_json`。
+如果是 `wifi.scan` 这类大响应，日志应显示 `accepted`、V2 `Progress` 控制帧和最终 `result`。最终结果在正式路径下应走 compact transport frame；只有 legacy fallback 才会进入 `chunked response_json`。
 
 ## 14. 快速检查清单
 

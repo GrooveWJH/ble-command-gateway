@@ -8,6 +8,7 @@
 - 设备能暴露同一套 BLE service 与 characteristic。
 - 设备能接收 V2.1 JSON 请求，并在正式客户端路径上支持 BLE Transport V2 紧凑二进制帧。
 - 大请求/大响应能按 4 字节头 + 16 字节载荷的 V2 frame 拆包和重组。
+- 耗时命令的周期性 progress 能用 header-only `Progress` 控制帧表达，而不是完整 JSON progress。
 - 设备能处理 `AckRange` / `AckEvent`，支持 response window、重试、独立 response stream 与服务端去重。
 - legacy JSON `response_json` 分片和 `link.ack` 可作为旧客户端或通用 BLE 调试工具兼容路径。
 - 客户端现有心跳、系统信息、Wi-Fi 扫描、配网、Wi-Fi 记忆管理页面能正常工作。
@@ -253,13 +254,15 @@ YundroneBT-V2.1.0
 | `data` | object | 否 | 命令返回数据 |
 | `v` | string | 是 | `YundroneBT-V2.1.0` |
 
-这里的“事件”不是 BLE event，而是业务响应事件。一个 `wifi.scan` 请求可能先产生“已接受”事件，再产生几个“请等待”事件，最后产生“扫描完成”事件。客户端只有看到 `final=true`，才认为这个请求真正结束。
+这里的“事件”不是 BLE event，而是业务响应事件。一个 `wifi.scan` 请求会先产生“已接受”事件，执行期间通过 V2 `Progress` 控制帧表示仍在运行，最后产生“扫描完成”事件。客户端只有看到 `final=true`，才认为这个请求真正结束。
 
-快速命令只返回一个 `phase=result, final=true` 事件。耗时命令返回三类事件：
+快速命令只返回一个 `phase=result, final=true` 事件。耗时命令在正式 V2 transport 路径下使用：
 
 1. `accepted`：表示已经接收请求并开始处理。
-2. `progress`：表示还在执行中，建议每秒发一次。
+2. `Progress` 控制帧：header-only，表示还在执行中，建议每秒发一次。
 3. `result`：最终结果，必须 `final=true`。
+
+legacy JSON fallback 可以继续发送 `phase=progress` 事件，供通用 BLE 调试工具或旧客户端观察。
 
 ```plantuml
 @startuml
@@ -275,7 +278,7 @@ alt 快速命令
 else 耗时命令
   Server -> Client: accepted, seq=1, final=false
   loop 每秒
-    Server -> Client: progress, seq递增, final=false
+    Server -> Client: Progress control frame
   end
   Server -> Client: result, seq递增, final=true
 end
@@ -445,6 +448,7 @@ event ACK 请求：
     "qos_ack_retry",
     "ble_transport_framing",
     "transport_ack",
+    "transport_progress_control",
     "response_windowing",
     "wifi_profile_management"
   ],
@@ -660,6 +664,13 @@ event ACK 请求：
 
 推荐事件顺序如下：
 
+```text
+V2 transport progress:
+Progress control frame, header-only, index=2
+
+legacy JSON fallback:
+```
+
 ```json
 {
   "id": "req-wifi-scan",
@@ -710,7 +721,7 @@ event ACK 请求：
 实现建议：
 
 - `accepted` 必须尽快返回，让用户知道点击已生效。
-- `progress` 不需要包含复杂百分比；当前客户端只需要知道任务仍在运行。
+- 正式 V2 transport 中，周期性 progress 不需要 JSON payload；当前客户端只需要知道任务仍在运行。
 - `result` 才更新业务卡片。
 - 同一时间建议只运行一个前台耗时命令。若已有耗时命令正在运行，第二个耗时命令可以返回 `BUSY`。
 - `link.heartbeat` 不应被前台耗时任务阻塞。
@@ -802,6 +813,7 @@ byte 4..19: payload，最多 16 bytes
 | `RequestFinal` | Client -> Server | 请求 JSON 的最后一片 |
 | `ResponseChunk` | Server -> Client | 响应 JSON 的中间片 |
 | `ResponseFinal` | Server -> Client | 响应 JSON 的最后一片 |
+| `Progress` | Server -> Client | 长任务仍在进行；header-only，不携带 JSON payload |
 | `AckRange` | Client -> Server | 确认连续收到的 frame index |
 | `AckEvent` | Client -> Server | 确认完整响应事件已交付 |
 
@@ -812,6 +824,7 @@ byte 4..19: payload，最多 16 bytes
 - payload frame index 从 `1` 开始；ACK event 可使用 index `0`。
 - 每个请求 stream 最多承载 `255 * 16 = 4080` bytes。
 - 服务端给同一业务请求的 `accepted`、`progress`、`result` 分配不同 response stream，避免长任务多个事件串包。
+- 周期性 `progress` 不应再构造完整 JSON response；正式路径发送单个 `Progress` 控制帧即可。
 - 服务端 response window 当前为 `2`，收到 `AckRange` 后再推进后续 frame。
 - 客户端收到 `ResponseFinal` 并重组成完整 JSON 后，再发送 `AckEvent`。
 
@@ -1216,11 +1229,12 @@ GATT：
 - 只接受 `YundroneBT-V2.1.0`。
 - 所有响应带回同一个 `id`。
 - 快速命令返回单个 `result`。
-- 耗时命令返回 `accepted/progress/result`。
+- 耗时命令返回 `accepted` 和最终 `result`；正式 V2 transport 用 `Progress` 控制帧表达进行中，legacy fallback 可返回 `phase=progress` JSON。
 - `final=true` 只出现在最终事件。
 - 服务端按请求 `id` 做 120 秒左右的去重缓存，客户端重发同一个 `id` 时不重复执行副作用。
 - 正式路径按 V2 transport frame 传输请求和响应，单帧 4 字节 header + 16 字节 payload。
-- 每个 `accepted/progress/result` 逻辑响应事件使用独立 response stream。
+- 每个 `accepted/result` 逻辑响应事件使用独立 response stream；`Progress` 控制帧不进入 response stream。
+- 周期性 progress 使用 header-only `Progress` 控制帧；`accepted` 和 `result` 仍使用完整 JSON response。
 - 收到 `AckRange` 后推进 response window；收到 `AckEvent` 后清理对应响应事件缓存。
 - legacy fallback 才按 `response_json` 分片、`ack_required: true`、`link.ack` 和 360B JSON notify 预算处理。
 
@@ -1245,8 +1259,8 @@ GATT：
 5. 订阅 notify characteristic。
 6. 写入 `link.heartbeat`，确认返回 `alive=true`。
 7. 写入 `system.capabilities`，确认命令列表完整。
-8. 写入 `wifi.scan`，确认先收到 `accepted`，再收到 `progress`，最后收到 `result`。
-9. 开启 CLI 的 `--trace-chunks --trace-qos`，确认客户端会显示 `ResponseChunk/ResponseFinal` 和 `AckRange/AckEvent`。
+8. 写入 `wifi.scan`，确认先收到 `accepted`，执行中看到 `Progress` 控制帧，最后收到 `result`。
+9. 开启 CLI 的 `--trace-chunks --trace-qos`，确认客户端会显示 `ResponseChunk/ResponseFinal`、`Progress` 和 `AckRange/AckEvent`。
 10. 制造一个超过 20B transport frame 的 `wifi.scan` 结果，确认客户端能重组到 `[RX:assembled]`。
 11. 人为重发同一个请求 `id`，确认服务端不会重复执行耗时任务。
 12. 写入 `wifi.profiles.list`，确认 GUI 能显示已保存 Wi-Fi。
@@ -1296,7 +1310,7 @@ Notify:  6e400003-b5a3-f393-e0a9-e50e24dcca9e
 协议:    YundroneBT-V2.1.0
 V2帧:    4B header + 16B payload，最大逻辑载荷 4080B
 兼容帧:  legacy JSON notify <= 360 bytes
-长任务:  accepted -> progress -> result
+长任务:  accepted -> Progress control -> result
 QoS:     AckRange + AckEvent + response window + request-id 去重
 ```
 

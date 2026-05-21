@@ -56,6 +56,13 @@ impl DeliveryMode {
     fn is_transport(self) -> bool {
         matches!(self, Self::Transport { .. })
     }
+
+    fn transport_frame_budget(self) -> Option<usize> {
+        match self {
+            Self::LegacyJson => None,
+            Self::Transport { frame_budget, .. } => Some(frame_budget),
+        }
+    }
 }
 
 impl ReliableEventSender {
@@ -77,6 +84,26 @@ impl ReliableEventSender {
         command_name: &str,
         delivery: DeliveryMode,
     ) {
+        if resp.phase == protocol::ResponsePhase::Progress {
+            if let Some(frame_budget) = delivery.transport_frame_budget() {
+                if let Ok(raw) = protocol::transport::encode_control_frame(
+                    protocol::transport::FrameKind::Progress,
+                    0,
+                    u8::try_from(resp.seq).unwrap_or(u8::MAX),
+                    frame_budget,
+                ) {
+                    let _ = self.tx.send(raw);
+                    info!(
+                        request_id = %resp.id,
+                        cmd = %command_name,
+                        response_seq = resp.seq,
+                        "ble.qos.progress.sent"
+                    );
+                }
+                return;
+            }
+        }
+
         let (chunks, key, initial_send_count) = {
             let mut state = self.state.lock().await;
             let stream_id = delivery

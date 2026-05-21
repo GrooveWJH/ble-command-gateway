@@ -34,6 +34,9 @@ async fn system_capabilities_command_is_supported() {
     assert!(data.features.contains(&"qos_ack_retry".to_string()));
     assert!(data.features.contains(&"ble_transport_framing".to_string()));
     assert!(data.features.contains(&"transport_ack".to_string()));
+    assert!(data
+        .features
+        .contains(&"transport_progress_control".to_string()));
     assert!(data.features.contains(&"response_windowing".to_string()));
     let transport = data.transport.as_ref().expect("transport capabilities");
     assert_eq!(transport.frame_version, 2);

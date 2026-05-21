@@ -98,7 +98,7 @@ sudo systemctl status yundrone-ble-command-gateway.service --no-pager
 sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-The service runs `/opt/ble-command-gateway/target/release/yundrone-ble-server` in production deployments. Full deployment details, BlueZ settings, pairing policy, advertising interval checks, and recovery steps live in [docs/systemd.md](./docs/systemd.md).
+Production installs run a systemd-managed release binary. Current field deployments use `/opt/yundrone/ble-command-gateway/current/yundrone-ble-server`; the repository systemd template also supports source builds under `/opt/ble-command-gateway`. Full deployment details, BlueZ settings, pairing policy, advertising interval checks, and recovery steps live in [docs/systemd.md](./docs/systemd.md).
 
 ## Client And GUI
 
@@ -168,13 +168,13 @@ cargo run -p yundrone-ble-client -- debug-ble \
 
 With `--trace-chunks` and `--trace-qos`, the log shows the BLE transport rather than only the business JSON. Current clients use a compact V2 binary frame so every conservative 20-byte BLE write/notify carries a 4-byte header and up to 16 bytes of request or response payload:
 
-- `[TX:packet]` / `[RX:packet]`: each V2 transport packet, including `RequestChunk`, `RequestFinal`, `ResponseChunk`, `ResponseFinal`, `AckRange`, or `AckEvent`.
+- `[TX:packet]` / `[RX:packet]`: each V2 transport packet, including `RequestChunk`, `RequestFinal`, `ResponseChunk`, `ResponseFinal`, one-frame `Progress`, `AckRange`, or `AckEvent`.
 - `[RX:transport]`: decoded transport metadata such as stream id, frame index, final flag, and payload length.
 - `[RX:assembled]`: the fully reassembled response JSON.
 - `[QOS:tx]`: request or ACK writes sent by the client.
 - `[OK] rx`: the decoded final response summary.
 
-Large commands such as `wifi.scan` can print many packets because each response event is split into 16-byte payload frames and then reassembled. The older JSON `data.chunk` / `link.ack` path is still documented for compatibility and manual BLE debugger fallback, but the normal CLI path is V2 compact transport.
+Large final results such as `wifi.scan` can print many packets because each result event is split into 16-byte payload frames and then reassembled. Periodic in-progress ticks are single header-only `Progress` control frames. The older JSON `data.chunk` / `link.ack` path is still documented for compatibility and manual BLE debugger fallback, but the normal CLI path is V2 compact transport.
 
 Common local checks:
 

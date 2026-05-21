@@ -261,6 +261,25 @@ mod transport_tests {
         assert!(event.transport_progress);
         assert!(event.response.is_none());
     }
+
+    #[test]
+    fn transport_progress_control_frame_marks_progress_without_ack_or_json_decode() {
+        let raw = protocol::transport::encode_control_frame(
+            protocol::transport::FrameKind::Progress,
+            0,
+            2,
+            20,
+        )
+        .unwrap();
+        let mut decoder = TransportResponseDecoder::new();
+
+        let event = decoder.decode_event(&raw).unwrap();
+
+        assert!(event.transport_progress);
+        assert!(event.response.is_none());
+        assert_eq!(event.transport_ack, None);
+        assert!(!event.assembled_from_transport);
+    }
 }
 
 impl Default for ResponseDecoder {
@@ -318,6 +337,18 @@ impl TransportResponseDecoder {
     pub fn decode_event(&mut self, raw: &[u8]) -> Result<DecodedEvent, DecodeError> {
         if !protocol::transport::is_transport_frame(raw) {
             return self.legacy.decode_event(raw).map_err(DecodeError::Protocol);
+        }
+
+        let frame = protocol::transport::decode_frame(raw).map_err(DecodeError::Transport)?;
+        if frame.kind == protocol::transport::FrameKind::Progress {
+            return Ok(DecodedEvent {
+                chunk_receipt: None,
+                transport_ack: None,
+                response: None,
+                transport_progress: true,
+                assembled_from_chunks: false,
+                assembled_from_transport: false,
+            });
         }
 
         match decoded_transport_frame(raw)? {

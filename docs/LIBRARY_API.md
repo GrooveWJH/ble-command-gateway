@@ -30,7 +30,7 @@
 - `BleSession::next_event(timeout_secs)`
   与 `next_response` 等价，语义上表示读取 V2 事件
 - `BleSession::run_request_until_final(request, timeout_secs, on_event)`
-  发送请求，并在回调里交付 `accepted/progress/result` 事件，直到最终 `final=true`
+  发送请求，并在回调里交付可见的长任务事件直到最终 `final=true`；V2 transport 的 header-only `Progress` 控制帧只用于延长等待，不会伪造成完整业务响应
 - `CommandResponse::decode_data::<T>()`
   将 `data` 解码为 `protocol::responses::*` 中的 typed 结构
 
@@ -75,7 +75,7 @@ async fn scan_wifi(session: &mut BleSession) -> anyhow::Result<WifiScanResponseD
     let response = session
         .run_request_until_final(&request, 30, |event| {
             if !event.final_flag {
-                eprintln!("{} #{}: {}", event.phase.as_str(), event.seq, event.text);
+                eprintln!("{} #{}", event.phase.as_str(), event.seq);
             }
         })
         .await?;

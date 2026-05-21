@@ -382,10 +382,8 @@ mod tests {
         task.abort();
 
         let frame = protocol::transport::decode_frame(&raw).unwrap();
-        assert!(matches!(
-            frame.kind,
-            protocol::transport::FrameKind::ResponseChunk
-                | protocol::transport::FrameKind::ResponseFinal
-        ));
+        assert_eq!(frame.kind, protocol::transport::FrameKind::Progress);
+        assert_eq!(frame.index, 2);
+        assert!(frame.payload.is_empty());
     }
 }

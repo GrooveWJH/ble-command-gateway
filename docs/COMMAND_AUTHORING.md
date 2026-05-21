@@ -62,13 +62,13 @@ let response = session.next_response(10).await?;
 let data: protocol::responses::MyNewThingResponseData = response.decode_data()?;
 ```
 
-如果命令可能耗时较久，推荐把它纳入 V2 事件流：服务端先回 `accepted`，执行期间每秒回 `progress`，最后回 `result`。客户端统一使用：
+如果命令可能耗时较久，推荐把它纳入 V2 事件流：服务端先回完整 JSON `accepted`，执行期间通过 header-only `Progress` 控制帧表示仍在运行，最后回完整 JSON `result`。legacy JSON fallback 可继续发送 `phase=progress` 事件。客户端统一使用：
 
 ```rust
 let response = session
     .run_request_until_final(&request, 30, |event| {
         if !event.final_flag {
-            println!("{}: {}", event.phase.as_str(), event.text);
+            println!("{} #{}", event.phase.as_str(), event.seq);
         }
     })
     .await?;

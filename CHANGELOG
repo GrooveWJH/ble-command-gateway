@@ -8,14 +8,15 @@
 2026.2.1 - 2026-05-20
 
 - 引入 BLE Transport V2 紧凑二进制帧，使用 4 字节头和 16 字节载荷适配 20B 保守 MTU，并通过 `AckRange` / `AckEvent` 支持窗口确认。
-- 修复 `wifi.scan` 等长任务的 `accepted/progress/result` 响应串包问题，服务端为每个逻辑响应事件分配独立 response stream。
+- 将长任务周期性 progress 压缩为 header-only `Progress` 控制帧，避免为“正在进行”状态反复发送完整 JSON envelope。
+- 修复 `wifi.scan` 等长任务的 `accepted/result` 响应串包问题，服务端为每个可靠逻辑响应事件分配独立 response stream。
 - 更新 README、命令契约、MTU 分片、BLE 调试器和兼容 server 文档，明确 V2 compact transport 为主路径，legacy JSON chunking / `link.ack` 为兼容回退。
 - 增强 `yundrone-ble-client interactive` 调试体验，扫描阶段加入动态 loading、倒计时和候选设备即时刷新，支持按 Enter 提前进入选择。
 - 新增 `interactive --verbose` 原包观测模式，在交互式菜单执行命令时展示 TX/RX、分片重组与 QoS ACK 细节。
 - 新增 `interactive --verbose-unsafe-raw` 危险开关；默认 verbose 输出会脱敏 Wi-Fi 密码等敏感字段，避免调试日志泄露凭据。
 - 将 verbose 原包输出整理为单包单框的 Rich-like 视图，保留完整 packet 内容，并提升长 JSON、分片和 ACK 日志的可读性。
 - 修复 CLI 在 macOS 下误触发 `.app` relaunch 的问题，使 `yundrone-ble-client` 保持纯终端调试工具行为。
-- 更新兼容 BLE Server 实现指南为 v26.2.0 快照文档，补齐 V2.1 QoS、分片 ACK 和服务端实现注意事项。
+- 更新兼容 BLE Server 实现指南，补齐 V2.1 QoS、compact transport、Progress 控制帧和服务端实现注意事项。
 
 2026.2.0 - 2026-05-19
 

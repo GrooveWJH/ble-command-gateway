@@ -46,12 +46,12 @@ V2 is a breaking protocol. Legacy commands such as `ping`, `help`, `status`, `sy
 Fast commands usually return one `result` event. Slow foreground commands return:
 
 1. `accepted`
-2. one or more `progress` events, usually once per second
+2. one or more header-only `Progress` transport control frames, usually once per second
 3. one final `result`
 
 Current GUI/CLI clients prefer V2 compact BLE transport. A logical request or response JSON is split into binary frames with a 4-byte header and up to 16 bytes of payload per 20-byte BLE write/notify, then reassembled before business decoding.
 
-V2 transport acknowledgements use compact `AckRange` and `AckEvent` frames. The older JSON response chunking middleware and `link.ack` command remain as a compatibility/debug fallback; applications should not expose transport ACKs as user-facing commands.
+V2 transport acknowledgements use compact `AckRange` and `AckEvent` frames. Slow-command in-progress ticks use a header-only `Progress` control frame instead of a full JSON response event. The older JSON response chunking middleware and `link.ack` command remain as a compatibility/debug fallback; applications should not expose transport controls as user-facing commands.
 
 ## Commands
 
@@ -127,7 +127,7 @@ Arguments:
 
 - `ifname`: optional Wi-Fi interface name, for example `wlan0`
 
-Event behavior: slow command with `accepted/progress/result`.
+Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
 
 Final response:
 
@@ -145,7 +145,7 @@ Arguments:
 - `ssid`: required target SSID
 - `pwd`: optional password. Omit for open networks.
 
-Event behavior: slow command with `accepted/progress/result`.
+Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
 
 Final success:
 
@@ -182,7 +182,7 @@ Arguments:
 - `uuids`: required string array of profile UUIDs
 - `force`: optional boolean, default `false`
 
-Event behavior: slow command with `accepted/progress/result`.
+Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
 
 Safety:
 

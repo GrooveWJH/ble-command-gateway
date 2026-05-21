@@ -21,6 +21,7 @@ pub(super) fn run_capabilities() -> SystemExecResult {
             "qos_ack_retry".to_string(),
             "ble_transport_framing".to_string(),
             "transport_ack".to_string(),
+            "transport_progress_control".to_string(),
             "response_windowing".to_string(),
             "wifi_profile_management".to_string(),
         ],

@@ -98,7 +98,7 @@ sudo systemctl status yundrone-ble-command-gateway.service --no-pager
 sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-生产部署时，systemd 服务运行 `/opt/ble-command-gateway/target/release/yundrone-ble-server`。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
+生产安装运行由 systemd 管理的 release 二进制。当前现场部署路径是 `/opt/yundrone/ble-command-gateway/current/yundrone-ble-server`；仓库 systemd 模板也支持 `/opt/ble-command-gateway` 下的源码构建路径。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
 
 ## 客户端和 GUI
 
@@ -168,13 +168,13 @@ cargo run -p yundrone-ble-client -- debug-ble \
 
 开启 `--trace-chunks` 和 `--trace-qos` 后，日志展示的是 BLE 传输层，而不只是业务 JSON。当前客户端使用 V2 紧凑二进制帧：每个保守 20 字节 BLE write/notify 里包含 4 字节帧头和最多 16 字节请求或响应载荷。
 
-- `[TX:packet]` / `[RX:packet]`：每个 V2 传输包，类型可能是 `RequestChunk`、`RequestFinal`、`ResponseChunk`、`ResponseFinal`、`AckRange` 或 `AckEvent`。
+- `[TX:packet]` / `[RX:packet]`：每个 V2 传输包，类型可能是 `RequestChunk`、`RequestFinal`、`ResponseChunk`、`ResponseFinal`、单帧 `Progress`、`AckRange` 或 `AckEvent`。
 - `[RX:transport]`：解码后的 stream id、frame index、final 标记和 payload 长度。
 - `[RX:assembled]`：所有分片合并后的完整响应 JSON。
 - `[QOS:tx]`：客户端发出的请求或 ACK 写入。
 - `[OK] rx`：最终解码后的业务响应摘要。
 
-`wifi.scan` 这类大响应刷屏是正常现象：每个响应事件会被拆成 16 字节载荷的小帧传输，客户端再重组成完整 JSON。旧的 JSON `data.chunk` / `link.ack` 路径仍保留在文档中，用于旧客户端兼容和通用 BLE 调试工具兜底；正常 CLI 主路径已经是 V2 compact transport。
+`wifi.scan` 这类大结果刷屏是正常现象：最终结果事件会被拆成 16 字节载荷的小帧传输，客户端再重组成完整 JSON。周期性“正在进行”提示是 4 字节 header-only 的 `Progress` 控制帧。旧的 JSON `data.chunk` / `link.ack` 路径仍保留在文档中，用于旧客户端兼容和通用 BLE 调试工具兜底；正常 CLI 主路径已经是 V2 compact transport。
 
 常用本地检查命令：
 
