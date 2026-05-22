@@ -12,15 +12,22 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 
 | Goal | Start here | Notes |
 | --- | --- | --- |
+| Choose server deployment or client launch from one TUI | `bash <(curl -fsSL https://install.yundrone.cn/ble.sh)` | Recommended entry. Downloads Gum, caches the client CLI binary, and delegates server deployment. |
 | Use the desktop app on macOS | Download the macOS release asset | Current official prebuilt asset is Apple Silicon only. |
 | Run from source on your workstation | Build `gui` or `yundrone-ble-client` | Best for development and debugging. |
-| Deploy the BLE server on Linux | Build `yundrone-ble-server` and install systemd | Target device needs BlueZ and NetworkManager. |
+| Deploy the BLE server on Linux | Run the unified entry or server-only entry | Target device needs BlueZ and NetworkManager. |
 | Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, notify frames, chunks, and QoS ACKs. |
 
 ## Quick Use
 
-1. Start the Linux server on the target device.
-2. Open the GUI or CLI on your workstation.
+Recommended one-command entry:
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+```
+
+1. On the Linux target device, choose “Deploy / manage local BLE Server”.
+2. On your workstation, choose “Launch BLE Client CLI”, or open the GUI.
 3. Scan for a BLE local name starting with `yundrone-`, for example `yundrone-ytcwln`.
 4. Connect to the matching device.
 5. Run Wi-Fi scan, Wi-Fi provision, system status, or saved Wi-Fi profile actions.
@@ -31,6 +38,18 @@ The project uses one public BLE name per device. The name is persisted in `/var/
 ## Server Deployment
 
 The server package is `yundrone-ble-server`. It is intended for Linux target devices such as ARM development boards, Jetson, Raspberry Pi, or similar edge computers.
+
+Recommended deployment entry:
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+```
+
+If you only want the server installer, the compatibility entry remains available:
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
+```
 
 Install runtime and build dependencies on Ubuntu or Debian:
 
@@ -82,6 +101,14 @@ sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 The service runs `/opt/ble-command-gateway/target/release/yundrone-ble-server` in production deployments. Full deployment details, BlueZ settings, pairing policy, advertising interval checks, and recovery steps live in [docs/systemd.md](./docs/systemd.md).
 
 ## Client And GUI
+
+Use the unified entry to download and launch the raw client CLI binary:
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- client
+```
+
+The client binary distribution targets are `macos-arm64`, `linux-amd64`, and `linux-arm64`. The macOS CLI distribution intentionally does not use an `.app` bundle.
 
 Build the desktop GUI and CLI from source:
 
@@ -155,7 +182,7 @@ scripts/ci/check.sh quality
 
 This script is the same entry point used by GitHub Actions for formatting, tests, clippy, release script tests, and version checks. The Rust version is pinned by [rust-toolchain.toml](./rust-toolchain.toml), so local checks and CI use the same toolchain. Build parity commands are also available: `scripts/ci/check.sh build-full`, `scripts/ci/check.sh build-desktop`, and `scripts/ci/check.sh package-macos`.
 
-Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG). Tagged releases use the release workflow to publish the macOS app asset.
+Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG). Tagged releases use the release workflow to publish the macOS app asset; the install service is synchronized manually with `scripts/release/*` for `ble.sh`, the server installer, raw client binaries, and tools.
 
 ## Documentation Map
 
@@ -177,7 +204,8 @@ GitHub Releases currently provide one official prebuilt asset:
 Platform status:
 
 - macOS: official prebuilt GUI app is attached to tagged releases.
-- Linux: source deployment and systemd documentation are supported; no official prebuilt binary is attached yet.
+- macOS / Linux: `install.yundrone.cn` distributes raw client CLI binaries for `macos-arm64`, `linux-amd64`, and `linux-arm64`.
+- Linux: the server is deployed as a systemd service through the unified or server-only installer.
 - Windows: CI validates desktop builds; no official prebuilt binary is attached yet.
 
 ## Project Layout

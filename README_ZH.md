@@ -12,15 +12,22 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 
 | 目标 | 从这里开始 | 说明 |
 | --- | --- | --- |
+| 一键选择部署 server 或启动 client | `bash <(curl -fsSL https://install.yundrone.cn/ble.sh)` | 推荐入口。会下载 Gum TUI、按平台缓存 client 裸二进制，并可委托 server 安装器。 |
 | 直接使用 macOS 桌面程序 | 下载 GitHub Release 里的 macOS 包 | 当前官方预编译包只提供 Apple Silicon 版本。 |
 | 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
-| 在 Linux 设备上部署 BLE 服务 | 构建 `yundrone-ble-server` 并安装 systemd 服务 | 目标设备需要 BlueZ 和 NetworkManager。 |
+| 在 Linux 设备上部署 BLE 服务 | 运行统一入口或 server-only 入口 | 目标设备需要 BlueZ 和 NetworkManager。 |
 | 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、notify 数据、分片和 QoS ACK。 |
 
 ## 快速使用
 
-1. 在目标 Linux 设备上启动 server。
-2. 在电脑上打开 GUI 或 CLI。
+推荐先运行统一入口：
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+```
+
+1. 在目标 Linux 设备上选择“部署 / 管理本机 BLE Server”。
+2. 在电脑上选择“启动 BLE Client CLI”，或打开 GUI。
 3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-ytcwln`。
 4. 选择对应设备并连接。
 5. 连接后执行 Wi-Fi 扫描、Wi-Fi 配网、系统状态或已保存 Wi-Fi 管理。
@@ -31,6 +38,18 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 ## Server 部署
 
 服务端 package 名是 `yundrone-ble-server`。它部署在 Linux ARM 开发板、Jetson、树莓派或类似边缘 Linux 设备上。
+
+推荐使用统一入口部署：
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+```
+
+如果只想进入 server 安装器，也可以使用兼容入口：
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
+```
 
 在 Ubuntu / Debian 系目标设备上安装运行和构建依赖：
 
@@ -82,6 +101,14 @@ sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 生产部署时，systemd 服务运行 `/opt/ble-command-gateway/target/release/yundrone-ble-server`。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
 
 ## Client 和 GUI
+
+推荐用统一入口下载并启动 client 裸 CLI 二进制：
+
+```bash
+bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- client
+```
+
+当前 client 裸二进制分发目标是 `macos-arm64`、`linux-amd64`、`linux-arm64`。macOS 的 CLI 分发不使用 `.app`。
 
 从源码构建桌面 GUI 和 CLI：
 
@@ -155,7 +182,7 @@ scripts/ci/check.sh quality
 
 这个脚本就是 GitHub Actions 里格式化、测试、clippy、release 脚本测试和版本一致性检查使用的同一个入口。Rust 版本由 [rust-toolchain.toml](./rust-toolchain.toml) 固定，因此本地检查和 CI 会使用同一套工具链。构建对齐命令也在同一个脚本里：`scripts/ci/check.sh build-full`、`scripts/ci/check.sh build-desktop`、`scripts/ci/check.sh package-macos`。
 
-Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产。
+Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产；安装服务使用 `scripts/release/*` 手动同步 `ble.sh`、server 安装器、client 裸二进制和工具包。
 
 ## 文档导航
 
@@ -177,7 +204,8 @@ GitHub Releases 当前只提供一个官方预编译资产：
 平台状态：
 
 - macOS：正式 tag release 会附带官方 GUI app。
-- Linux：支持源码部署和 systemd 文档，但暂不附带官方预编译二进制。
+- macOS / Linux：`install.yundrone.cn` 安装服务分发 `macos-arm64`、`linux-amd64`、`linux-arm64` 的 client 裸 CLI 二进制。
+- Linux：server 通过统一入口或 server-only 入口部署为 systemd 服务。
 - Windows：CI 会验证桌面构建，但暂不附带官方预编译二进制。
 
 ## 项目结构

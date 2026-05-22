@@ -7,6 +7,11 @@ MODE="${1:-quality}"
 cd "$ROOT_DIR"
 
 run_quality() {
+  bash -n scripts/install/ble.sh
+  bash -n scripts/install/ble-server.sh
+  bash -n scripts/install/launcher/main.sh scripts/install/launcher/lib/*.sh
+  bash -n scripts/install/installer/main.sh scripts/install/installer/lib/*.sh scripts/install/installer/commands/*.sh
+  python3 -m py_compile scripts/release/*.py
   python3 scripts/release/check_version_consistency.py
   python3 -m unittest discover -s scripts/release -p 'test_*.py'
   cargo fmt --all --check

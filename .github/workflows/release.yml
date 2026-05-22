@@ -62,6 +62,10 @@ jobs:
         shell: bash
         run: scripts/ci/check.sh package-macos
 
+      - name: Build macOS client CLI package
+        shell: bash
+        run: scripts/release/package-client-release.sh
+
       - name: Archive macOS app bundle
         shell: bash
         run: |
@@ -91,4 +95,5 @@ jobs:
         run: |
           gh release upload "${GITHUB_REF_NAME}" \
             "yundrone-ble-client-macos-arm64.zip" \
+            "dist/ble-client/releases/$(cat VERSION)/yundrone-ble-client-macos-arm64.tar.gz" \
             --clobber

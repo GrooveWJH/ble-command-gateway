@@ -29,6 +29,7 @@ __pycache__/
 
 # Local investigation outputs
 reports/
+dist/
 
 # Private planning notes and deployment docs that should not be published.
 internal/
