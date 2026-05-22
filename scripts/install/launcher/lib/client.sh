@@ -10,13 +10,28 @@ client_current_bin() {
   printf '%s/yundrone-ble-client' "$(client_current_link)"
 }
 
-client_status_label() {
-  local bin
-  bin="$(client_current_bin)"
-  if [ -x "$bin" ]; then
-    "$bin" --version 2>/dev/null | head -n 1 || printf '%s' "已安装"
+client_current_version() {
+  local current
+  current="$(client_current_link)"
+  if [ -f "${current}/VERSION" ]; then
+    tr -d '\r\n' <"${current}/VERSION"
   else
-    printf '%s' "未安装"
+    printf '%s' ""
+  fi
+}
+
+client_status_label() {
+  local bin version
+  bin="$(client_current_bin)"
+  version="$(client_current_version)"
+  if [ -x "$bin" ]; then
+    if [ -n "$version" ]; then
+      printf '%s' "$(tr_text "已安装" "Installed") ${version}"
+    else
+      printf '%s' "$(tr_text "已安装" "Installed")"
+    fi
+  else
+    printf '%s' "$(tr_text "未安装" "Not installed")"
   fi
 }
 
@@ -32,7 +47,7 @@ client_resolve_asset() {
   version="$(json_value "latest" "$metadata" 2>/dev/null || json_value "version" "$metadata")"
   url="$(json_asset_value "url" "$platform" "$metadata" 2>/dev/null || true)"
   expected="$(json_asset_value "sha256" "$platform" "$metadata" 2>/dev/null || true)"
-  [ -n "$url" ] && [ -n "$expected" ] || fail "安装源没有提供 ${platform} 的 client 包"
+  [ -n "$url" ] && [ -n "$expected" ] || fail "$(tr_text "安装源没有提供 ${platform} 的客户端包" "The install source does not provide a client package for ${platform}")"
 
   cp "$metadata" "$(client_metadata_path)"
   printf '%s\n' "$version" >"${tmp}/version"
@@ -41,17 +56,17 @@ client_resolve_asset() {
 }
 
 client_install_or_update() {
-  local platform tmp version url expected tarball actual target_dir found
+  local platform tmp version url expected tarball actual target_dir found current_version
   platform="$(detect_platform)"
   case "$platform" in
     macos-arm64|linux-amd64|linux-arm64) ;;
-    *) fail "当前平台不支持 client 预编译包：$(uname -s) $(uname -m)" ;;
+    *) fail "$(tr_text "当前平台不支持客户端预编译包" "This platform is not supported by the prebuilt client")：$(uname -s) $(uname -m)" ;;
   esac
 
-  have python3 || fail "需要 python3 解析 client release metadata"
-  have tar || fail "需要 tar 解包 client"
-  have_sha256 || fail "需要 sha256sum 或 shasum 校验 client"
-  { have curl || have wget; } || fail "需要 curl 或 wget 下载 client"
+  have python3 || fail "$(tr_text "需要 python3 解析客户端版本信息" "python3 is required to parse client release metadata")"
+  have tar || fail "$(tr_text "需要 tar 解包客户端" "tar is required to extract the client")"
+  have_sha256 || fail "$(tr_text "需要 sha256sum 或 shasum 校验客户端" "sha256sum or shasum is required to verify the client")"
+  { have curl || have wget; } || fail "$(tr_text "需要 curl 或 wget 下载客户端" "curl or wget is required to download the client")"
 
   tmp="$(mktemp -d)"
   client_resolve_asset "$platform" "$tmp"
@@ -60,32 +75,42 @@ client_install_or_update() {
   expected="$(cat "${tmp}/sha256")"
   tarball="${tmp}/client.tar.gz"
   target_dir="${CLIENT_CACHE_ROOT}/versions/${version}/${platform}"
+  current_version="$(client_current_version)"
 
   if [ -x "${target_dir}/yundrone-ble-client" ]; then
     debug "client cache hit=${target_dir}/yundrone-ble-client"
     ln -sfn "$target_dir" "$(client_current_link)"
     rm -rf "$tmp"
+    if [ "$current_version" = "$version" ]; then
+      ok "$(tr_text "客户端已是最新版本" "Client is already up to date")：$(version_text "$version")"
+    else
+      ok "$(tr_text "客户端已切换到最新版本" "Client switched to latest version")：$(version_text "$version")"
+    fi
     return 0
   fi
 
-  info "下载 YunDrone BLE Client：$(version_text "$version") / $(accent "$platform")"
+  if [ -n "$current_version" ]; then
+    info "$(tr_text "发现新版客户端，正在升级" "New client version found, upgrading")：$(version_text "$current_version") -> $(version_text "$version")"
+  else
+    info "$(tr_text "未检测到客户端，正在安装" "Client not found, installing")：$(version_text "$version")"
+  fi
   debug "client url=${url}"
   fetch "$url" "$tarball" progress
   actual="$(sha256_file "$tarball")"
   debug "client sha256 expected=${expected} actual=${actual}"
-  [ "$actual" = "$expected" ] || fail "client 校验失败：${platform}"
+  [ "$actual" = "$expected" ] || fail "$(tr_text "客户端校验失败" "Client checksum verification failed")：${platform}"
 
   rm -rf "${tmp}/extract" "$target_dir"
   mkdir -p "${tmp}/extract" "$target_dir"
   tar -xzf "$tarball" -C "${tmp}/extract"
   found="$(find "${tmp}/extract" -type f -name yundrone-ble-client | head -n 1)"
-  [ -n "$found" ] || fail "client 安装包中没有 yundrone-ble-client"
+  [ -n "$found" ] || fail "$(tr_text "客户端安装包中没有 yundrone-ble-client" "The client package does not contain yundrone-ble-client")"
   cp "$found" "${target_dir}/yundrone-ble-client"
   chmod +x "${target_dir}/yundrone-ble-client"
   printf '%s\n' "$version" >"${target_dir}/VERSION"
   ln -sfn "$target_dir" "$(client_current_link)"
   rm -rf "$tmp"
-  ok "client 已就绪：$(version_text "$version")"
+  ok "$(tr_text "客户端已就绪" "Client is ready")：$(version_text "$version")"
 }
 
 client_launch() {
@@ -94,25 +119,25 @@ client_launch() {
 
   local bin
   bin="$(client_current_bin)"
-  [ -x "$bin" ] || fail "client 未安装成功"
-  info "启动 BLE Client CLI"
-  exec "$bin" interactive --lang zh
+  [ -x "$bin" ] || fail "$(tr_text "客户端未安装成功" "Client was not installed successfully")"
+  info "$(tr_text "启动交互式客户端" "Launching interactive client")"
+  exec "$bin" interactive --lang "${UI_LANG:-zh}"
 }
 
 client_update_only() {
   client_install_or_update
   if use_tui; then
-    gum style --foreground 42 "✓ Client 已更新"
+    gum style --foreground 42 "✓ $(tr_text "客户端已更新" "Client updated")"
     tui_pause
   fi
 }
 
 client_clear_cache() {
   if use_tui; then
-    tui_confirm "确认删除本地 client 缓存？" || return 0
+    tui_confirm "$(tr_text "确认删除本地客户端缓存？" "Delete the local client cache?")" || return 0
   fi
   rm -rf "$CLIENT_CACHE_ROOT"
-  ok "已删除 client 缓存"
+  ok "$(tr_text "已删除客户端缓存" "Client cache removed")"
 }
 
 client_menu() {
@@ -121,23 +146,22 @@ client_menu() {
   while true; do
     tui_clear
     tui_title
-    tui_card "Client CLI
-
-状态：$(client_status_label)
-平台：$(detect_platform)
-缓存：${CLIENT_CACHE_ROOT}
-
-Client 将以裸二进制方式启动，不使用 macOS .app。" 99
+    tui_card "$(printf '%s\n\n%s：%s\n%s：%s\n%s：%s\n\n%s' \
+      "$(tr_text "客户端 CLI" "Client CLI")" \
+      "$(tr_text "状态" "Status")" "$(client_status_label)" \
+      "$(tr_text "平台" "Platform")" "$(detect_platform)" \
+      "$(tr_text "缓存" "Cache")" "$CLIENT_CACHE_ROOT" \
+      "$(tr_text "启动前会自动检查最新版本；未安装或不是最新时会自动安装/升级。macOS 使用裸二进制，不使用 .app。" "Before launch, the tool checks the latest version and installs/upgrades automatically. macOS uses a raw binary, not an .app bundle.")")" 99
     choice="$(printf '%s\n' \
-      "启动交互式 Client" \
-      "下载 / 更新 Client" \
-      "删除本地 Client 缓存" \
-      "返回" | tui_choose "Client 操作")" || return 0
+      "$(tr_text "启动交互式客户端" "Launch interactive client")" \
+      "$(tr_text "检查并更新客户端" "Check and update client")" \
+      "$(tr_text "删除本地客户端缓存" "Delete local client cache")" \
+      "$(tr_text "返回" "Back")" | tui_choose "$(tr_text "客户端操作" "Client actions")")" || return 0
     case "$choice" in
-      启动交互式\ Client) client_launch ;;
-      "下载 / 更新 Client") client_update_only ;;
-      删除本地\ Client\ 缓存) client_clear_cache ;;
-      返回) return 0 ;;
+      "$(tr_text "启动交互式客户端" "Launch interactive client")") client_launch ;;
+      "$(tr_text "检查并更新客户端" "Check and update client")") client_update_only ;;
+      "$(tr_text "删除本地客户端缓存" "Delete local client cache")") client_clear_cache ;;
+      "$(tr_text "返回" "Back")") return 0 ;;
     esac
   done
 }

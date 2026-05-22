@@ -95,18 +95,19 @@ parse_bootstrap_args() {
         ;;
       --help|-h)
         cat <<'EOF'
-YunDrone BLE 统一入口
+YunDrone BLE Wi-Fi 工具
 
 用法:
   ble-wifi-tool.sh [命令] [选项]
 
 命令:
   menu      打开统一 TUI，默认动作
-  client    下载/启动 YunDrone BLE Client CLI
-  server    打开 BLE Server 部署/管理向导
-  doctor    检查 launcher、client、server 安装源
+  client    安装/升级并启动 BLE 客户端 CLI
+  server    打开被控端部署/管理向导
+  doctor    检查启动器、客户端、被控端安装源
 
 选项:
+  --lang <zh|en>      界面语言
   --yes               跳过确认，适合自动化
   --verbose, -v       输出下载、缓存、校验和路径细节
   -h, --help          显示帮助
@@ -241,7 +242,7 @@ ensure_min_bash_version() {
 
 prepare_launcher() {
   parse_bootstrap_args "$@"
-  section "正在准备 YunDrone BLE 入口"
+  section "正在准备 YunDrone BLE Wi-Fi 工具"
 
   have bash || fail "需要 bash"
   have sha256sum || run_cached_or_fail "缺少 sha256sum，无法校验 launcher" "$@"

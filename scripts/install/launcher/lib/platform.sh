@@ -37,7 +37,7 @@ detect_platform() {
 }
 
 tool_ok() {
-  have "$1" && printf '%s' "OK" || printf '%s' "缺失"
+  have "$1" && printf '%s' "OK" || tr_text "缺失" "Missing"
 }
 
 have_sha256() {

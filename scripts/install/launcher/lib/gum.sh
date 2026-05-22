@@ -74,6 +74,8 @@ tui_clear() {
 }
 
 tui_title() {
+  local subtitle
+  subtitle="$(tr_text "启动客户端，或部署 Linux 被控端" "Launch the client, or deploy a Linux controlled device")"
   gum style \
     --foreground 15 \
     --background 24 \
@@ -81,12 +83,12 @@ tui_title() {
     --width 76 \
     --padding "0 2" \
     --margin "1 0 0 2" \
-    "YunDrone BLE"
+    "YunDrone BLE Wi-Fi Tool"
   gum style \
     --foreground 245 \
     --width 76 \
     --margin "0 0 1 2" \
-    "Deploy edge BLE servers or launch the local BLE client"
+    "$subtitle"
 }
 
 tui_card() {
@@ -100,6 +102,10 @@ tui_card() {
 }
 
 tui_choose() {
+  tui_choose_raw "$@"
+}
+
+tui_choose_raw() {
   gum choose \
     --cursor "▸ " \
     --cursor.foreground 212 \
@@ -113,8 +119,8 @@ tui_choose() {
 
 tui_confirm() {
   gum confirm \
-    --affirmative "继续" \
-    --negative "取消" \
+    --affirmative "$(tr_text "继续" "Continue")" \
+    --negative "$(tr_text "取消" "Cancel")" \
     --prompt.foreground 214 \
     "$1"
 }
@@ -131,5 +137,5 @@ tui_spin() {
 }
 
 tui_pause() {
-  gum input --placeholder "按回车返回" >/dev/null || true
+  gum input --placeholder "$(tr_text "按回车返回" "Press Enter to return")" >/dev/null || true
 }
