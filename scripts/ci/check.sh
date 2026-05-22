@@ -7,7 +7,7 @@ MODE="${1:-quality}"
 cd "$ROOT_DIR"
 
 run_quality() {
-  bash -n scripts/install/ble.sh
+  bash -n scripts/install/ble-wifi-tool.sh
   bash -n scripts/install/ble-server.sh
   bash -n scripts/install/launcher/main.sh scripts/install/launcher/lib/*.sh
   bash -n scripts/install/installer/main.sh scripts/install/installer/lib/*.sh scripts/install/installer/commands/*.sh

@@ -74,7 +74,7 @@ YunDrone BLE Server 安装器
 
 示例:
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- server
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- server
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- install --yes
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- doctor
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- uninstall

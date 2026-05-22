@@ -31,7 +31,7 @@ usage() {
 YunDrone BLE 统一入口
 
 用法:
-  ble.sh [命令] [选项]
+  ble-wifi-tool.sh [命令] [选项]
 
 命令:
   menu      打开统一 TUI，默认动作
@@ -45,10 +45,10 @@ YunDrone BLE 统一入口
   -h, --help          显示帮助
 
 示例:
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- client
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- server
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- doctor
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- client
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- server
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- doctor
 EOF
 }
 

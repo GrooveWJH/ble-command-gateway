@@ -12,7 +12,7 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 
 | Goal | Start here | Notes |
 | --- | --- | --- |
-| Choose server deployment or client launch from one TUI | `bash <(curl -fsSL https://install.yundrone.cn/ble.sh)` | Recommended entry. Downloads Gum, caches the client CLI binary, and delegates server deployment. |
+| Choose server deployment or client launch from one TUI | `bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)` | Recommended entry. Downloads Gum, caches the client CLI binary, and delegates server deployment. |
 | Use the desktop app on macOS | Download the macOS release asset | Current official prebuilt asset is Apple Silicon only. |
 | Run from source on your workstation | Build `gui` or `yundrone-ble-client` | Best for development and debugging. |
 | Deploy the BLE server on Linux | Run the unified entry or server-only entry | Target device needs BlueZ and NetworkManager. |
@@ -23,7 +23,7 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 Recommended one-command entry:
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 ```
 
 1. On the Linux target device, choose “Deploy / manage local BLE Server”.
@@ -42,7 +42,7 @@ The server package is `yundrone-ble-server`. It is intended for Linux target dev
 Recommended deployment entry:
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 ```
 
 If you only want the server installer, the compatibility entry remains available:
@@ -105,7 +105,7 @@ The service runs `/opt/ble-command-gateway/target/release/yundrone-ble-server` i
 Use the unified entry to download and launch the raw client CLI binary:
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- client
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- client
 ```
 
 The client binary distribution targets are `macos-arm64`, `linux-amd64`, and `linux-arm64`. The macOS CLI distribution intentionally does not use an `.app` bundle.
@@ -182,7 +182,7 @@ scripts/ci/check.sh quality
 
 This script is the same entry point used by GitHub Actions for formatting, tests, clippy, release script tests, and version checks. The Rust version is pinned by [rust-toolchain.toml](./rust-toolchain.toml), so local checks and CI use the same toolchain. Build parity commands are also available: `scripts/ci/check.sh build-full`, `scripts/ci/check.sh build-desktop`, and `scripts/ci/check.sh package-macos`.
 
-Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG). Tagged releases use the release workflow to publish the macOS app asset; the install service is synchronized manually with `scripts/release/*` for `ble.sh`, the server installer, raw client binaries, and tools.
+Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG). Tagged releases use the release workflow to publish the macOS app asset; the install service is synchronized manually with `scripts/release/*` for `ble-wifi-tool.sh`, the server installer, raw client binaries, and tools.
 
 ## Documentation Map
 

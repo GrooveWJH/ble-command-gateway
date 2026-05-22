@@ -98,7 +98,7 @@ parse_bootstrap_args() {
 YunDrone BLE 统一入口
 
 用法:
-  ble.sh [命令] [选项]
+  ble-wifi-tool.sh [命令] [选项]
 
 命令:
   menu      打开统一 TUI，默认动作
@@ -112,7 +112,7 @@ YunDrone BLE 统一入口
   -h, --help          显示帮助
 
 推荐:
-  bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+  bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 EOF
         exit 0
         ;;

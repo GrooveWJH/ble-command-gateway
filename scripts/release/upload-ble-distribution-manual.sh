@@ -27,7 +27,7 @@ stage_launcher() {
     --base-url "https://install.yundrone.cn/yundrone/ble/launcher" \
     --output "$launcher_dist/installer/latest.json"
   cp "$launcher_dist/installer/latest.json" "$launcher_dist/installer/versions/$VERSION/MANIFEST.json"
-  cp "$ROOT_DIR/scripts/install/ble.sh" "$DIST_DIR/ble.sh"
+  cp "$ROOT_DIR/scripts/install/ble-wifi-tool.sh" "$DIST_DIR/ble-wifi-tool.sh"
   cp "$ROOT_DIR/scripts/install/ble-server.sh" "$DIST_DIR/ble-server.sh"
 }
 
@@ -88,7 +88,7 @@ main() {
   stage_gum_tools
   stage_client_release
   upload_dist
-  curl -fsSL https://install.yundrone.cn/ble.sh >/dev/null
+  curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh >/dev/null
   curl -fsSL https://install.yundrone.cn/ble-server.sh >/dev/null
   echo "uploaded installer entrypoints to https://install.yundrone.cn"
 }

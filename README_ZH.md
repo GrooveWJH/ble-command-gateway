@@ -12,7 +12,7 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 
 | 目标 | 从这里开始 | 说明 |
 | --- | --- | --- |
-| 一键选择部署 server 或启动 client | `bash <(curl -fsSL https://install.yundrone.cn/ble.sh)` | 推荐入口。会下载 Gum TUI、按平台缓存 client 裸二进制，并可委托 server 安装器。 |
+| 一键选择部署 server 或启动 client | `bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)` | 推荐入口。会下载 Gum TUI、按平台缓存 client 裸二进制，并可委托 server 安装器。 |
 | 直接使用 macOS 桌面程序 | 下载 GitHub Release 里的 macOS 包 | 当前官方预编译包只提供 Apple Silicon 版本。 |
 | 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
 | 在 Linux 设备上部署 BLE 服务 | 运行统一入口或 server-only 入口 | 目标设备需要 BlueZ 和 NetworkManager。 |
@@ -23,7 +23,7 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 推荐先运行统一入口：
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 ```
 
 1. 在目标 Linux 设备上选择“部署 / 管理本机 BLE Server”。
@@ -42,7 +42,7 @@ bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
 推荐使用统一入口部署：
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh)
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 ```
 
 如果只想进入 server 安装器，也可以使用兼容入口：
@@ -105,7 +105,7 @@ sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 推荐用统一入口下载并启动 client 裸 CLI 二进制：
 
 ```bash
-bash <(curl -fsSL https://install.yundrone.cn/ble.sh) -- client
+bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- client
 ```
 
 当前 client 裸二进制分发目标是 `macos-arm64`、`linux-amd64`、`linux-arm64`。macOS 的 CLI 分发不使用 `.app`。
@@ -182,7 +182,7 @@ scripts/ci/check.sh quality
 
 这个脚本就是 GitHub Actions 里格式化、测试、clippy、release 脚本测试和版本一致性检查使用的同一个入口。Rust 版本由 [rust-toolchain.toml](./rust-toolchain.toml) 固定，因此本地检查和 CI 会使用同一套工具链。构建对齐命令也在同一个脚本里：`scripts/ci/check.sh build-full`、`scripts/ci/check.sh build-desktop`、`scripts/ci/check.sh package-macos`。
 
-Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产；安装服务使用 `scripts/release/*` 手动同步 `ble.sh`、server 安装器、client 裸二进制和工具包。
+Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推送语义化 tag 后，release workflow 会发布 macOS app 资产；安装服务使用 `scripts/release/*` 手动同步 `ble-wifi-tool.sh`、server 安装器、client 裸二进制和工具包。
 
 ## 文档导航
 
