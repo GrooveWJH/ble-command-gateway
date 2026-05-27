@@ -1,0 +1,56 @@
+.journey-rail h2 {
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.journey-steps {
+  display: grid;
+  gap: 0.875rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.journey-steps__item {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  color: var(--cds-text-secondary);
+}
+
+.journey-steps__marker {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.25rem;
+  border: 2px solid var(--cds-border-strong-01);
+  border-radius: 999px;
+}
+
+.journey-steps__item--current {
+  color: var(--cds-text-primary);
+}
+
+.journey-steps__item--current .journey-steps__marker {
+  border-color: var(--cds-border-interactive);
+  background: var(--cds-border-interactive);
+}
+
+.journey-steps__item--done .journey-steps__marker {
+  border-color: var(--cds-support-success);
+  background: var(--cds-support-success);
+}
+
+.journey-steps strong {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.journey-steps span {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}

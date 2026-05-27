@@ -1,17 +1,7 @@
 import { Button, Select, SelectItem, TextArea } from "@carbon/react";
 
-import { commandLabel } from "../../protocol/commands";
+import { USER_COMMANDS, commandLabel } from "../../protocol/commands";
 import type { GatewayCommand } from "../../types";
-
-const COMMANDS: GatewayCommand[] = [
-  "link.heartbeat",
-  "system.status",
-  "system.capabilities",
-  "wifi.scan",
-  "wifi.provision",
-  "wifi.profiles.list",
-  "wifi.profiles.delete",
-];
 
 export function RawPanel({
   busy,
@@ -38,8 +28,8 @@ export function RawPanel({
         value={command}
         onChange={(event) => onCommandChange(event.target.value as GatewayCommand)}
       >
-        {COMMANDS.map((item) => (
-          <SelectItem value={item} text={`${item} · ${commandLabel(item)}`} key={item} />
+        {USER_COMMANDS.map((item) => (
+          <SelectItem value={item} key={item} text={`${item} · ${commandLabel(item)}`} />
         ))}
       </Select>
       <TextArea

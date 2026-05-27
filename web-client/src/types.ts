@@ -55,10 +55,68 @@ export interface WifiProfile {
   autoconnect: boolean;
 }
 
+export interface StatusInterfaceIpv4 {
+  ifname: string;
+  kind: "wifi" | "ethernet" | "other";
+  ipv4: string;
+}
+
+export interface StatusResponseData {
+  device_name: string;
+  hostname: string;
+  system: string;
+  user: string;
+  network?: string;
+  ip?: string;
+  interfaces: StatusInterfaceIpv4[];
+}
+
+export interface TransportCapabilities {
+  frame_version: number;
+  frame_header_size: number;
+  max_frame_payload: number;
+  max_inbound_logical_payload: number;
+  response_window: number;
+  ack_strategy: string;
+}
+
+export interface CapabilitiesResponseData {
+  protocol_version: string;
+  commands: string[];
+  features: string[];
+  payload_limit: number;
+  transport?: TransportCapabilities;
+}
+
+export interface HeartbeatResponseData {
+  alive: boolean;
+}
+
+export interface WifiProfileDeleteItem {
+  uuid: string;
+  name: string;
+  ssid: string;
+}
+
+export interface WifiProfileSkippedItem extends WifiProfileDeleteItem {
+  reason: string;
+}
+
+export interface WifiProfileFailedItem extends WifiProfileDeleteItem {
+  error: string;
+}
+
+export interface WifiProfilesDeleteResponseData {
+  deleted: WifiProfileDeleteItem[];
+  skipped: WifiProfileSkippedItem[];
+  failed: WifiProfileFailedItem[];
+}
+
 export interface BrowserSupportState {
   supported: boolean;
   secureContext: boolean;
   hasBluetoothApi: boolean;
+  userAgent: string;
   reason?: string;
 }
 

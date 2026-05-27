@@ -1,10 +1,4 @@
-import {
-  Button,
-  InlineNotification,
-  PasswordInput,
-  TextInput,
-  Tile,
-} from "@carbon/react";
+import { Button, InlineNotification, PasswordInput, TextInput, Tile } from "@carbon/react";
 
 import type { ProvisionResultView, UserFacingError } from "../../types";
 
@@ -36,12 +30,11 @@ export function ProvisionSidePanel(props: {
       <PasswordInput
         id="wifi-password"
         labelText="Wi-Fi 密码"
+        type="password"
         value={props.password}
         onChange={(event) => props.onPasswordChange(event.target.value)}
         placeholder="开放网络可留空"
         disabled={!props.connected || props.busy}
-        hidePasswordLabel="隐藏密码"
-        showPasswordLabel="显示密码"
       />
       <Tile className="summary-tile">
         <strong>确认摘要</strong>
@@ -90,7 +83,7 @@ function ResultNotice({
         title={result.ok ? "配网成功" : `配网失败：${result.code}`}
         subtitle={result.ip ? `${result.text} IP: ${result.ip}` : result.text}
       />
-      <Button kind="tertiary" size="sm" onClick={onReset}>
+      <Button kind="secondary" onClick={onReset}>
         继续配置其他网络
       </Button>
     </div>

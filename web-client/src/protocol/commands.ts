@@ -1,6 +1,15 @@
 import type { CommandRequest, CommandResponse, GatewayCommand, JsonObject } from "../types";
 
 export const PROTOCOL_VERSION = "YundroneBT-V2.1.0";
+export const USER_COMMANDS = [
+  "link.heartbeat",
+  "system.status",
+  "system.capabilities",
+  "wifi.scan",
+  "wifi.provision",
+  "wifi.profiles.list",
+  "wifi.profiles.delete",
+] as const satisfies readonly GatewayCommand[];
 
 const EMPTY_ARGS = new Set<GatewayCommand>([
   "link.heartbeat",

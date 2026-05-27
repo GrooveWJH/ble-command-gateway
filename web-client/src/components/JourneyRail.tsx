@@ -1,5 +1,3 @@
-import { ProgressIndicator, ProgressStep } from "@carbon/react";
-
 import { JOURNEY_STEPS, journeyIndex } from "../ui/journey";
 import type { ProvisionJourneyStep } from "../types";
 
@@ -7,17 +5,28 @@ export function JourneyRail({ current }: { current: ProvisionJourneyStep }) {
   return (
     <aside className="journey-rail" aria-label="配网步骤">
       <h2>用户旅程</h2>
-      <ProgressIndicator currentIndex={journeyIndex(current)} vertical>
+      <ol className="journey-steps">
         {JOURNEY_STEPS.map((step) => (
-          <ProgressStep
+          <li
             key={step.id}
-            label={step.label}
-            description={stepDescription(step.id)}
-          />
+            className={stepClass(journeyIndex(current), journeyIndex(step.id))}
+          >
+            <span className="journey-steps__marker" />
+            <div>
+              <strong>{step.label}</strong>
+              <span>{stepDescription(step.id)}</span>
+            </div>
+          </li>
         ))}
-      </ProgressIndicator>
+      </ol>
     </aside>
   );
+}
+
+function stepClass(currentIndex: number, stepIndex: number): string {
+  if (stepIndex < currentIndex) return "journey-steps__item journey-steps__item--done";
+  if (stepIndex === currentIndex) return "journey-steps__item journey-steps__item--current";
+  return "journey-steps__item";
 }
 
 function stepDescription(step: ProvisionJourneyStep): string {

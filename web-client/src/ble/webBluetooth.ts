@@ -15,24 +15,35 @@ export interface BleUartConnection {
 export function getBrowserSupport(): BrowserSupportState {
   const secureContext = globalThis.isSecureContext === true;
   const hasBluetoothApi = "bluetooth" in navigator;
+  const userAgent = navigator.userAgent;
+  const isEdge = /\bEdg\//.test(userAgent);
+  const isLinux = /Linux/.test(userAgent);
+  const isWindows = /Windows NT/.test(userAgent);
+  const base = {
+    secureContext,
+    hasBluetoothApi,
+    userAgent,
+  };
   if (!secureContext) {
     return {
+      ...base,
       supported: false,
-      secureContext,
-      hasBluetoothApi,
       reason:
-        "当前浏览器无法使用 Web Bluetooth：需要 HTTPS 或 localhost 安全上下文。请使用桌面 Chrome/Edge 或 Android Chrome。",
+        "当前浏览器无法使用 Web Bluetooth：需要 HTTPS 或 localhost 安全上下文。请使用 Google Chrome 或 Android Chrome。",
     };
   }
   if (!hasBluetoothApi) {
     return {
+      ...base,
       supported: false,
-      secureContext,
-      hasBluetoothApi,
-      reason: "当前浏览器无法使用 Web Bluetooth，请使用桌面 Chrome/Edge 或 Android Chrome。",
+      reason: isEdge && isLinux
+        ? "当前 Linux Edge 未暴露 Web Bluetooth。请改用 Google Chrome，并启用 chrome://flags/#enable-experimental-web-platform-features 后重启浏览器。"
+        : isWindows
+          ? "当前 Windows 浏览器未暴露 Web Bluetooth。请使用最新版 Chrome/Edge，并确认系统蓝牙已开启；仍不可用时启用 chrome://flags/#enable-experimental-web-platform-features 后重启。"
+        : "当前浏览器未暴露 Web Bluetooth，请使用 Google Chrome 或 Android Chrome。",
     };
   }
-  return { supported: true, secureContext, hasBluetoothApi };
+  return { ...base, supported: true };
 }
 
 export function isStableYundroneName(name: string, prefix = "yundrone"): boolean {

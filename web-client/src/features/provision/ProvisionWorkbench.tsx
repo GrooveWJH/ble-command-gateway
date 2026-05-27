@@ -1,4 +1,4 @@
-import { Button, InlineNotification, Layer } from "@carbon/react";
+import { Button, InlineNotification } from "@carbon/react";
 
 import { WifiTable } from "./WifiTable";
 import { ProvisionSidePanel } from "./ProvisionSidePanel";
@@ -29,7 +29,7 @@ export function ProvisionWorkbench(props: {
     network.ssid.toLowerCase().includes(props.networkFilter.trim().toLowerCase()),
   );
   return (
-    <Layer className="workbench">
+    <div className="workbench">
       <section className="main-panel">
         <div className="panel-heading">
           <div>
@@ -57,6 +57,6 @@ export function ProvisionWorkbench(props: {
         />
       </section>
       <ProvisionSidePanel {...props} />
-    </Layer>
+    </div>
   );
 }

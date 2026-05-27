@@ -1,6 +1,6 @@
 {
   "max_lines": 250,
-  "include_exts": ["ts", "tsx", "scss", "md"],
+  "include_exts": ["ts", "tsx", "scss", "md", "mjs", "html"],
   "exclude_dirs": ["node_modules", "dist", "coverage"],
   "exclude_globs": ["src/vite-env.d.ts"]
 }

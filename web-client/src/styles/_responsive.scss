@@ -1,0 +1,33 @@
+@media (max-width: 1056px) {
+  .operator-grid,
+  .workbench,
+  .support-strip,
+  .summary-tile dl div {
+    grid-template-columns: 1fr;
+  }
+
+  .journey-rail {
+    min-height: auto;
+  }
+
+  .app-header__bar .status-text {
+    display: none;
+  }
+
+  .debug-toolbar,
+  .panel-heading,
+  .table-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row,
+  .support-strip > .cds--btn {
+    justify-self: stretch;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .table-heading .cds--search {
+    min-width: 0;
+  }
+}

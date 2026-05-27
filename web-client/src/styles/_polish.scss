@@ -1,0 +1,70 @@
+.support-strip {
+  grid-template-columns: minmax(0, 1fr) 10rem;
+  align-items: start;
+  padding-block: 0.875rem;
+}
+
+.support-strip h1 {
+  margin-top: 0.75rem;
+  font-size: 1.875rem;
+  line-height: 1.2;
+}
+
+.support-strip > .cds--btn {
+  justify-self: end;
+  width: 10rem;
+  min-width: 10rem;
+  white-space: nowrap;
+}
+
+.support-diagnostics {
+  max-width: 46rem;
+}
+
+.support-diagnostics .cds--inline-notification {
+  margin-block: 0;
+  max-width: 100%;
+}
+
+.main-panel,
+.utility-panel {
+  min-width: 0;
+}
+
+.panel-heading,
+.table-heading {
+  min-width: 0;
+}
+
+.panel-heading > div,
+.table-heading > div {
+  min-width: 0;
+}
+
+.table-heading .cds--search {
+  width: min(24rem, 100%);
+  min-width: 14rem;
+}
+
+.button-row {
+  justify-content: flex-end;
+}
+
+.button-row .cds--btn {
+  min-width: 8.5rem;
+}
+
+.utility-panel > .cds--list-box,
+.utility-panel > .cds--form-item,
+.utility-panel > .cds--text-area__wrapper {
+  margin-top: 1rem;
+}
+
+.utility-panel > .cds--btn {
+  margin-top: 1rem;
+  min-width: 11rem;
+}
+
+.profile-grid {
+  align-items: start;
+}

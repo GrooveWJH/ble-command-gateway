@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:bluetooth": "node scripts/dev-bluetooth.mjs",
+    "open:bluetooth": "node scripts/dev-bluetooth.mjs --open-only",
     "build": "tsc -b && vite build",
+    "build:static": "npm run build && npm run check:static && npm run check:maxlines",
+    "check:static": "node scripts/check-static-build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview --host 0.0.0.0",

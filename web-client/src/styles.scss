@@ -2,6 +2,10 @@
   $use-akamai-cdn: true
 );
 @use "@carbon/react";
+@use "./styles/journey";
+@use "./styles/polish";
+@use "./styles/workspace";
+@use "./styles/responsive";
 
 body {
   margin: 0;
@@ -12,7 +16,8 @@ body {
 
 .mono,
 .trace-entry,
-.cds--snippet-container {
+.cds--snippet-container,
+.code-block {
   font-family: "IBM Plex Mono", monospace;
 }
 
@@ -31,7 +36,7 @@ body {
 
 .app-content {
   min-height: 100vh;
-  padding: 3rem 0 0;
+  padding: 0;
   background: var(--cds-background);
 }
 
@@ -50,6 +55,10 @@ body {
   margin: 0.5rem 0 0;
 }
 
+.support-diagnostics {
+  grid-column: 1 / -1;
+}
+
 .operator-grid {
   display: grid;
   grid-template-columns: 18rem minmax(0, 1fr);
@@ -65,9 +74,16 @@ body {
   background: var(--cds-layer-01);
 }
 
+.journey-rail,
+.main-panel,
+.side-panel,
+.utility-panel,
+.debug-panel {
+  padding: 1rem;
+}
+
 .journey-rail {
   min-height: calc(100vh - 12rem);
-  padding: 1rem;
 }
 
 .journey-rail h2,
@@ -84,14 +100,8 @@ body {
   background: var(--cds-border-subtle-01);
 }
 
-.main-panel,
-.side-panel,
-.utility-panel,
-.debug-panel {
-  padding: 1rem;
-}
-
-.panel-heading {
+.panel-heading,
+.table-heading {
   display: flex;
   gap: 1rem;
   align-items: start;
@@ -100,15 +110,81 @@ body {
 }
 
 .panel-heading p,
+.table-heading p,
 .utility-panel p {
   color: var(--cds-text-secondary);
 }
 
 .side-panel,
 .profile-grid,
-.debug-toolbar {
+.debug-toolbar,
+.diagnostic-grid,
+.result-stack {
   display: grid;
   gap: 1rem;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.summary-tile,
+.profile-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.summary-tile dl {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.summary-tile dl div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.summary-tile dt {
+  color: var(--cds-text-secondary);
+}
+
+.summary-tile dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wifi-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.wifi-table th,
+.wifi-table td {
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  padding: 0.625rem;
+  text-align: left;
+}
+
+.wifi-table tbody tr {
+  cursor: pointer;
+}
+
+.wifi-table tbody tr:hover {
+  background: var(--cds-layer-hover-01);
+}
+
+.code-block {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-02);
+  padding: 0.75rem;
+  white-space: pre-wrap;
 }
 
 .debug-panel {
@@ -127,27 +203,6 @@ body {
 
 .debug-toolbar p {
   color: var(--cds-text-secondary);
-}
-
-.result-stack {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.summary-tile {
-  display: grid;
-  gap: 0.375rem;
-}
-
-.button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.profile-card {
-  display: grid;
-  gap: 0.5rem;
 }
 
 .trace-list {
@@ -178,22 +233,8 @@ body {
   border-left: 0.25rem solid var(--cds-support-error);
 }
 
-@media (max-width: 1056px) {
-  .operator-grid,
-  .workbench,
-  .support-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .journey-rail {
-    min-height: auto;
-  }
-
-  .app-header__bar .status-text {
-    display: none;
-  }
-
-  .debug-toolbar {
-    grid-template-columns: 1fr;
-  }
+.checkbox-line {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }

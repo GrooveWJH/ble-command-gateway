@@ -1,4 +1,4 @@
-import { Content, Tab, TabList, TabPanel, TabPanels, Tabs, Theme } from "@carbon/react";
+import { Content, Theme } from "@carbon/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getBrowserSupport, requestYundroneDevice } from "./ble/webBluetooth";
@@ -17,22 +17,28 @@ import { currentJourneyStep } from "./ui/journey";
 import { safeStorageGet, safeStorageSet } from "./ui/storage";
 import type {
   CommandResponse,
+  CapabilitiesResponseData,
   DebugMode,
   GatewayCommand,
   GatewayState,
+  HeartbeatResponseData,
   JsonObject,
+  StatusResponseData,
   TraceEntry,
   UserFacingError,
   WifiNetwork,
   WifiProfile,
+  WifiProfilesDeleteResponseData,
 } from "./types";
 
 interface AppProps {
   initialTrace?: TraceEntry[];
 }
 
+type PanelId = "provision" | "diagnostics" | "profiles" | "raw";
+
 const DEFAULT_TRACE = [
-  traceEntry("SYS", "Web console ready. 使用 Chrome/Edge 或 Android Chrome 连接设备。"),
+  traceEntry("SYS", "Web console ready. 使用 Google Chrome 或 Android Chrome 连接设备。"),
 ];
 
 export default function App({ initialTrace }: AppProps) {
@@ -46,6 +52,10 @@ export default function App({ initialTrace }: AppProps) {
   });
   const [networks, setNetworks] = useState<WifiNetwork[]>([]);
   const [profiles, setProfiles] = useState<WifiProfile[]>([]);
+  const [statusData, setStatusData] = useState<StatusResponseData | undefined>();
+  const [capabilitiesData, setCapabilitiesData] = useState<CapabilitiesResponseData | undefined>();
+  const [heartbeatData, setHeartbeatData] = useState<HeartbeatResponseData | undefined>();
+  const [profileDeleteResult, setProfileDeleteResult] = useState<WifiProfilesDeleteResponseData | undefined>();
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [networkFilter, setNetworkFilter] = useState("");
@@ -54,6 +64,7 @@ export default function App({ initialTrace }: AppProps) {
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [rawCommand, setRawCommand] = useState<GatewayCommand>("system.status");
   const [rawArgs, setRawArgs] = useState("{}");
+  const [activePanel, setActivePanel] = useState<PanelId>("provision");
   const [traceFilter, setTraceFilter] = useState("");
   const [tracePaused, setTracePaused] = useState(false);
   const [traceExpanded, setTraceExpanded] = useState(safeStorageGet("traceExpanded") === "true");
@@ -73,7 +84,16 @@ export default function App({ initialTrace }: AppProps) {
   };
 
   const connect = async () => {
-    if (!support.supported) return;
+    if (!support.supported) {
+      const message = support.reason ?? "当前浏览器无法使用 Web Bluetooth。";
+      setError({
+        title: "当前浏览器不可用",
+        subtitle: message,
+        nextStep: "请使用支持 Web Bluetooth 的浏览器后再试。",
+      });
+      addTrace(traceEntry("ERR", message, undefined, "error"));
+      return;
+    }
     setState((current) => ({ ...current, connection: "connecting" }));
     try {
       const connection = await requestYundroneDevice(targetPrefix);
@@ -104,6 +124,13 @@ export default function App({ initialTrace }: AppProps) {
     clientRef.current?.disconnect();
     handleDisconnected();
     addTrace(traceEntry("SYS", "Disconnected"));
+  };
+
+  const runLinkCheck = async () => {
+    for (const cmd of ["link.heartbeat", "system.capabilities", "system.status"] as const) {
+      const response = await runCommand(cmd);
+      if (!response?.ok) break;
+    }
   };
 
   const runCommand = async (cmd: GatewayCommand, args: JsonObject = {}) => {
@@ -138,12 +165,23 @@ export default function App({ initialTrace }: AppProps) {
       setNetworks([...loaded].sort((left, right) => right.signal - left.signal));
       setNetworkFilter("");
     }
+    if (cmd === "system.status" && response.ok) {
+      setStatusData(response.data as unknown as StatusResponseData);
+    }
+    if (cmd === "system.capabilities" && response.ok) {
+      setCapabilitiesData(response.data as unknown as CapabilitiesResponseData);
+    }
+    if (cmd === "link.heartbeat" && response.ok) {
+      setHeartbeatData(response.data as unknown as HeartbeatResponseData);
+    }
     if (cmd === "wifi.provision" && !response.ok) setError(explainError(response.text));
     if (cmd === "wifi.profiles.list") {
       const loaded = Array.isArray(response.data?.profiles) ? response.data.profiles as unknown as WifiProfile[] : [];
       setProfiles(loaded);
+      setProfileDeleteResult(undefined);
     }
     if (cmd === "wifi.profiles.delete") {
+      setProfileDeleteResult(response.data as unknown as WifiProfilesDeleteResponseData);
       setSelectedProfiles([]);
       void runCommand("wifi.profiles.list");
     }
@@ -168,22 +206,37 @@ export default function App({ initialTrace }: AppProps) {
         <SupportNotice support={support} state={state} busy={busy} onConnect={connect} onDisconnect={disconnect} />
         <div className="operator-grid">
           <JourneyRail current={journeyStep} />
-          <Tabs>
-            <TabList aria-label="工作区">
-              <Tab>配网</Tab><Tab>诊断</Tab><Tab>Wi-Fi 记忆</Tab><Tab>Raw</Tab>
-            </TabList>
-            <TabPanels>
-              <TabPanel><ProvisionWorkbench connected={connected} busy={busy} deviceName={state.deviceName} networks={networks} ssid={ssid} password={password} networkFilter={networkFilter} result={provisionResult} error={error} onSsidChange={setSsid} onPasswordChange={setPassword} onNetworkFilterChange={setNetworkFilter} onScan={() => void runCommand("wifi.scan")} onProvision={() => window.confirm(`确认将设备 ${state.deviceName ?? ""} 连接到 Wi-Fi「${ssid}」？`) && void runCommand("wifi.provision", { ssid, pwd: password })} onResetResult={() => setResult(undefined)} /></TabPanel>
-              <TabPanel><DiagnosticsPanel busy={busy} lastResponse={state.lastResponse} onStatus={() => void runCommand("system.status")} onCapabilities={() => void runCommand("system.capabilities")} onHeartbeat={() => void runCommand("link.heartbeat")} /></TabPanel>
-              <TabPanel><ProfilesPanel busy={busy} profiles={profiles} selected={selectedProfiles} onRefresh={() => void runCommand("wifi.profiles.list")} onToggle={(uuid) => setSelectedProfiles((items) => items.includes(uuid) ? items.filter((item) => item !== uuid) : [...items, uuid])} onDelete={() => window.confirm(`确认删除 ${selectedProfiles.length} 条 Wi-Fi 记忆？`) && void runCommand("wifi.profiles.delete", { uuids: selectedProfiles, force: true })} /></TabPanel>
-              <TabPanel><RawPanel busy={busy} command={rawCommand} args={rawArgs} onCommandChange={setRawCommand} onArgsChange={setRawArgs} onSend={() => sendRaw(rawCommand, rawArgs, runCommand, addTrace)} /></TabPanel>
-            </TabPanels>
-          </Tabs>
+          <section className="workspace">
+            <div className="tab-list" role="tablist" aria-label="工作区">
+              <WorkspaceTab id="provision" active={activePanel} onSelect={setActivePanel}>配网</WorkspaceTab>
+              <WorkspaceTab id="diagnostics" active={activePanel} onSelect={setActivePanel}>诊断</WorkspaceTab>
+              <WorkspaceTab id="profiles" active={activePanel} onSelect={setActivePanel}>Wi-Fi 记忆</WorkspaceTab>
+              <WorkspaceTab id="raw" active={activePanel} onSelect={setActivePanel}>Raw</WorkspaceTab>
+            </div>
+            {activePanel === "provision" && <ProvisionWorkbench connected={connected} busy={busy} deviceName={state.deviceName} networks={networks} ssid={ssid} password={password} networkFilter={networkFilter} result={provisionResult} error={error} onSsidChange={setSsid} onPasswordChange={setPassword} onNetworkFilterChange={setNetworkFilter} onScan={() => void runCommand("wifi.scan")} onProvision={() => window.confirm(`确认将设备 ${state.deviceName ?? ""} 连接到 Wi-Fi「${ssid}」？`) && void runCommand("wifi.provision", { ssid, pwd: password })} onResetResult={() => setResult(undefined)} />}
+            {activePanel === "diagnostics" && <DiagnosticsPanel busy={busy} lastResponse={state.lastResponse} status={statusData} capabilities={capabilitiesData} heartbeat={heartbeatData} onLinkCheck={() => void runLinkCheck()} onStatus={() => void runCommand("system.status")} onCapabilities={() => void runCommand("system.capabilities")} onHeartbeat={() => void runCommand("link.heartbeat")} />}
+            {activePanel === "profiles" && <ProfilesPanel busy={busy} profiles={profiles} selected={selectedProfiles} deleteResult={profileDeleteResult} onRefresh={() => void runCommand("wifi.profiles.list")} onToggle={(uuid) => setSelectedProfiles((items) => items.includes(uuid) ? items.filter((item) => item !== uuid) : [...items, uuid])} onDelete={() => window.confirm(`确认删除 ${selectedProfiles.length} 条非 active Wi-Fi 记忆？`) && void runCommand("wifi.profiles.delete", { uuids: selectedProfiles, force: false })} />}
+            {activePanel === "raw" && <RawPanel busy={busy} command={rawCommand} args={rawArgs} onCommandChange={setRawCommand} onArgsChange={setRawArgs} onSend={() => sendRaw(rawCommand, rawArgs, runCommand, addTrace)} />}
+          </section>
         </div>
         <DebugConsole debugMode={debugMode} traceFilter={traceFilter} tracePaused={tracePaused} expanded={traceExpanded} trace={trace} onDebugModeChange={setDebugMode} onTraceFilterChange={setTraceFilter} onTracePausedChange={setTracePaused} onExpandedChange={setTraceExpanded} onClear={() => setState((current) => ({ ...current, trace: [] }))} />
       </Content>
     </Theme>
   );
+}
+
+function WorkspaceTab({
+  id,
+  active,
+  children,
+  onSelect,
+}: {
+  id: PanelId;
+  active: string;
+  children: string;
+  onSelect: (id: PanelId) => void;
+}) {
+  return <button className="tab-button" aria-selected={active === id} role="tab" type="button" onClick={() => onSelect(id)}>{children}</button>;
 }
 
 function sendRaw(command: GatewayCommand, args: string, run: (cmd: GatewayCommand, args?: JsonObject) => void, trace: (entry: TraceEntry) => void) {

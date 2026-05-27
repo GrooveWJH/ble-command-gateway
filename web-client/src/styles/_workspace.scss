@@ -1,0 +1,27 @@
+.workspace {
+  min-width: 0;
+  background: var(--cds-layer-01);
+}
+
+.tab-list {
+  display: flex;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-02);
+}
+
+.tab-button {
+  min-height: 2.75rem;
+  border: 0;
+  border-right: 1px solid var(--cds-border-subtle-01);
+  background: transparent;
+  padding: 0 1rem;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+}
+
+.tab-button[aria-selected="true"] {
+  border-bottom: 3px solid var(--cds-border-interactive);
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  font-weight: 600;
+}

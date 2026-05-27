@@ -8,7 +8,16 @@ describe("App shell", () => {
     render(<App />);
 
     expect(screen.getByText("当前浏览器无法使用 Web Bluetooth")).toBeInTheDocument();
-    expect(screen.getByText(/桌面 Chrome\/Edge 或 Android Chrome/)).toBeInTheDocument();
+    expect(screen.getByText(/Google Chrome 或 Android Chrome/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "连接设备" })).not.toBeDisabled();
+  });
+
+  it("keeps the connect trigger actionable when Web Bluetooth is unavailable", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
+
+    expect(screen.getByText("当前浏览器不可用")).toBeInTheDocument();
   });
 
   it("keeps debug controls visible in the unsupported state", () => {

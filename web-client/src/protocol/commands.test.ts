@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PROTOCOL_VERSION,
+  USER_COMMANDS,
   buildCommandRequest,
   buildLinkAckRequest,
   commandLabel,
@@ -10,6 +11,18 @@ import {
 } from "./commands";
 
 describe("main branch JSON command protocol", () => {
+  it("tracks every user-facing Rust protocol command", () => {
+    expect([...USER_COMMANDS]).toEqual([
+      "link.heartbeat",
+      "system.status",
+      "system.capabilities",
+      "wifi.scan",
+      "wifi.provision",
+      "wifi.profiles.list",
+      "wifi.profiles.delete",
+    ]);
+  });
+
   it.each([
     ["link.heartbeat", {}, {}],
     ["system.status", {}, {}],

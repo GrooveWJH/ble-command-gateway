@@ -5,7 +5,7 @@ export function explainError(message: string): UserFacingError {
   if (lower.includes("web bluetooth") || lower.includes("secure context")) {
     return {
       title: "当前浏览器不可用",
-      subtitle: "WebBluetooth 需要桌面 Chrome/Edge 或 Android Chrome，并通过 HTTPS 或 localhost 打开。",
+      subtitle: "WebBluetooth 需要 Google Chrome 或 Android Chrome，并通过 HTTPS 或 localhost 打开。",
       nextStep: "请更换浏览器或发布到 HTTPS 后再试。",
     };
   }

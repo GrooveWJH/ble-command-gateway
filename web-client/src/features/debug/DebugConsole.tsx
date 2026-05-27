@@ -63,7 +63,7 @@ export function DebugConsole({
           清空
         </Button>
         <Button
-          kind="tertiary"
+          kind="secondary"
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
         >
