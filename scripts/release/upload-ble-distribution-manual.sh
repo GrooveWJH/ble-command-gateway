@@ -72,8 +72,29 @@ stage_client_release() {
   fi
 }
 
+stage_server_release() {
+  local server_source="${SERVER_RELEASE_DIR:-$ROOT_DIR/dist/ble-server/releases/$VERSION}"
+  local server_dist="$DIST_DIR/yundrone/ble-server"
+  if compgen -G "$server_source/yundrone-ble-server-*.tar.gz" >/dev/null; then
+    mkdir -p "$server_dist/releases/$VERSION"
+    cp "$server_source"/yundrone-ble-server-*.tar.gz "$server_dist/releases/$VERSION/"
+    python3 "$ROOT_DIR/scripts/release/generate_server_release_metadata.py" \
+      --version "$VERSION" \
+      --release-dir "$server_source" \
+      --base-url "https://install.yundrone.cn/yundrone/ble-server" \
+      --output "$server_dist/latest.json"
+    cp "$server_dist/latest.json" "$server_dist/releases/$VERSION/release.json"
+  else
+    echo "warn: no server tarballs found in $server_source; skipping server release metadata" >&2
+  fi
+}
+
 upload_dist() {
-  tar -C "$DIST_DIR" -czf "$DIST_DIR.tar.gz" .
+  if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
+    tar --format=ustar --no-xattrs -C "$DIST_DIR" -czf "$DIST_DIR.tar.gz" .
+  else
+    COPYFILE_DISABLE=1 tar -C "$DIST_DIR" -czf "$DIST_DIR.tar.gz" .
+  fi
   scp "$DIST_DIR.tar.gz" "$REMOTE:/tmp/yundrone-install-site.tar.gz"
   remote_sudo "mkdir -p '$REMOTE_ROOT'"
   remote_sudo "tar -xzf /tmp/yundrone-install-site.tar.gz -C '$REMOTE_ROOT'"
@@ -87,6 +108,7 @@ main() {
   stage_server_installer
   stage_gum_tools
   stage_client_release
+  stage_server_release
   upload_dist
   curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh >/dev/null
   curl -fsSL https://install.yundrone.cn/ble-server.sh >/dev/null

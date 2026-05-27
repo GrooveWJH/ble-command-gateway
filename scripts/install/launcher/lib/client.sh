@@ -20,6 +20,16 @@ client_current_version() {
   fi
 }
 
+client_current_sha256() {
+  local current
+  current="$(client_current_link)"
+  if [ -f "${current}/SHA256" ]; then
+    tr -d '\r\n' <"${current}/SHA256"
+  else
+    printf '%s' ""
+  fi
+}
+
 client_status_label() {
   local bin version
   bin="$(client_current_bin)"
@@ -33,6 +43,18 @@ client_status_label() {
   else
     printf '%s' "$(tr_text "未安装" "Not installed")"
   fi
+}
+
+client_verify_binary() {
+  local bin="$1"
+  [ -x "$bin" ] || fail "$(tr_text "客户端未安装成功" "Client was not installed successfully")"
+  if ! "$bin" --version >/dev/null 2>"${bin}.compat-error"; then
+    local detail
+    detail="$(cat "${bin}.compat-error" 2>/dev/null || true)"
+    rm -f "${bin}.compat-error"
+    fail "$(tr_text "客户端二进制无法在当前系统运行。请重新运行一键安装器获取兼容包；如果仍失败，请把下面的错误发给开发者。" "The client binary cannot run on this system. Re-run the installer to fetch a compatible package; if it still fails, send the error below to the developer.")\n${detail}"
+  fi
+  rm -f "${bin}.compat-error"
 }
 
 client_resolve_asset() {
@@ -56,7 +78,7 @@ client_resolve_asset() {
 }
 
 client_install_or_update() {
-  local platform tmp version url expected tarball actual target_dir found current_version
+  local platform tmp version url expected tarball actual target_dir found current_version current_sha target_sha_file
   platform="$(detect_platform)"
   case "$platform" in
     macos-arm64|linux-amd64|linux-arm64) ;;
@@ -76,12 +98,15 @@ client_install_or_update() {
   tarball="${tmp}/client.tar.gz"
   target_dir="${CLIENT_CACHE_ROOT}/versions/${version}/${platform}"
   current_version="$(client_current_version)"
+  current_sha="$(client_current_sha256)"
+  target_sha_file="${target_dir}/SHA256"
 
-  if [ -x "${target_dir}/yundrone-ble-client" ]; then
+  if [ -x "${target_dir}/yundrone-ble-client" ] && [ -f "$target_sha_file" ] && [ "$(tr -d '\r\n' <"$target_sha_file")" = "$expected" ]; then
     debug "client cache hit=${target_dir}/yundrone-ble-client"
     ln -sfn "$target_dir" "$(client_current_link)"
     rm -rf "$tmp"
-    if [ "$current_version" = "$version" ]; then
+    client_verify_binary "${target_dir}/yundrone-ble-client"
+    if [ "$current_version" = "$version" ] && [ "$current_sha" = "$expected" ]; then
       ok "$(tr_text "客户端已是最新版本" "Client is already up to date")：$(version_text "$version")"
     else
       ok "$(tr_text "客户端已切换到最新版本" "Client switched to latest version")：$(version_text "$version")"
@@ -89,7 +114,9 @@ client_install_or_update() {
     return 0
   fi
 
-  if [ -n "$current_version" ]; then
+  if [ -x "${target_dir}/yundrone-ble-client" ]; then
+    info "$(tr_text "检测到同版本客户端包已更新，正在刷新缓存" "Client package changed for the same version, refreshing cache")：$(version_text "$version")"
+  elif [ -n "$current_version" ]; then
     info "$(tr_text "发现新版客户端，正在升级" "New client version found, upgrading")：$(version_text "$current_version") -> $(version_text "$version")"
   else
     info "$(tr_text "未检测到客户端，正在安装" "Client not found, installing")：$(version_text "$version")"
@@ -108,6 +135,8 @@ client_install_or_update() {
   cp "$found" "${target_dir}/yundrone-ble-client"
   chmod +x "${target_dir}/yundrone-ble-client"
   printf '%s\n' "$version" >"${target_dir}/VERSION"
+  printf '%s\n' "$expected" >"${target_dir}/SHA256"
+  client_verify_binary "${target_dir}/yundrone-ble-client"
   ln -sfn "$target_dir" "$(client_current_link)"
   rm -rf "$tmp"
   ok "$(tr_text "客户端已就绪" "Client is ready")：$(version_text "$version")"

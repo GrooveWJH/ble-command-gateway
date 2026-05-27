@@ -38,13 +38,15 @@ print_service_diagnostics() {
   printf '  %s\n' "$(command_text "sudo journalctl -u ${SERVICE_NAME} -f -o cat")"
 }
 
-start_service_checked() {
+enable_service() {
   info "启用服务"
   if ! run_root systemctl enable "$SERVICE_NAME" >/dev/null 2>&1; then
     print_service_diagnostics
     fail "服务设置为开机自启失败"
   fi
+}
 
+start_or_restart_service() {
   local action
   if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
     action="restart"
@@ -62,7 +64,9 @@ start_service_checked() {
     print_service_diagnostics
     fail "服务${action}超时或失败"
   fi
+}
 
+wait_service_active() {
   local waited=0
   while [ "$waited" -lt "$SERVICE_START_TIMEOUT" ]; do
     if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
@@ -76,6 +80,12 @@ start_service_checked() {
   fail "服务启动后未进入 active 状态"
 }
 
+start_service_checked() {
+  enable_service
+  start_or_restart_service
+  wait_service_active
+}
+
 stop_service_for_install() {
   if ! unit_file_exists; then
     return 0
@@ -85,8 +95,36 @@ stop_service_for_install() {
   fi
 
   info "停止旧服务"
-  if ! run_root_with_timeout "$SERVICE_START_TIMEOUT" systemctl stop "$SERVICE_NAME" >/dev/null 2>&1; then
+  if ! run_root_no_block_systemctl stop "$SERVICE_NAME" >/dev/null 2>&1; then
     print_service_diagnostics
-    fail "旧服务停止超时或失败，已取消替换安装文件"
+    fail "旧服务停止请求提交失败，已取消替换安装文件"
   fi
+
+  local waited=0
+  while [ "$waited" -lt "$SERVICE_START_TIMEOUT" ]; do
+    if ! systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  warn "旧服务停止超时，尝试终止残留进程。"
+  run_root systemctl kill --kill-who=all --signal=TERM "$SERVICE_NAME" >/dev/null 2>&1 || true
+  sleep 2
+  if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+    run_root systemctl kill --kill-who=all --signal=KILL "$SERVICE_NAME" >/dev/null 2>&1 || true
+  fi
+
+  waited=0
+  while [ "$waited" -lt 10 ]; do
+    if ! systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  print_service_diagnostics
+  fail "旧服务停止超时或失败，已取消替换安装文件"
 }

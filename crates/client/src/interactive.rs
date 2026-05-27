@@ -85,6 +85,7 @@ async fn scan_candidates_dynamic(
     let (cancel_tx, mut cancel_rx) = watch::channel(false);
     let start = Instant::now();
     let mut candidates = BTreeMap::<String, ScannedDevice>::new();
+    let mut renderer = ScanRenderer::new(io::stdout().is_terminal());
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -114,10 +115,10 @@ async fn scan_candidates_dynamic(
             }
             Some(device) = candidate_rx.recv() => {
                 upsert_scan_candidate(&mut candidates, device);
-                render_scan_status(lang, target, timeout, start, &candidates, true)?;
+                renderer.render(lang, target, timeout, start, &candidates, true)?;
             }
             _ = tick.tick() => {
-                render_scan_status(lang, target, timeout, start, &candidates, false)?;
+                renderer.render(lang, target, timeout, start, &candidates, false)?;
             }
         }
     };
@@ -125,7 +126,7 @@ async fn scan_candidates_dynamic(
     while let Ok(device) = candidate_rx.try_recv() {
         upsert_scan_candidate(&mut candidates, device);
     }
-    clear_scan_status()?;
+    renderer.clear()?;
 
     let summary = scan_result?;
     let mut devices = candidates.into_values().collect::<Vec<_>>();
@@ -168,47 +169,107 @@ fn enter_pressed() -> Result<bool> {
     ))
 }
 
-fn render_scan_status(
-    lang: &Lang,
-    target: &str,
-    timeout: u64,
-    start: Instant,
-    candidates: &BTreeMap<String, ScannedDevice>,
-    force: bool,
-) -> Result<()> {
-    static SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let elapsed = start.elapsed().as_secs();
-    let remaining = timeout.saturating_sub(elapsed);
-    let frame = ((start.elapsed().as_millis() / 250) as usize) % SPINNER.len();
-    let mut out = io::stdout();
-
-    write!(out, "\x1b[2J\x1b[H")?;
-    writeln!(
-        out,
-        "{}",
-        lang.scan_live_status(SPINNER[frame], target, remaining, candidates.len())
-    )?;
-    writeln!(out)?;
-    if candidates.is_empty() {
-        writeln!(out, "{}", lang.t("scan_waiting"))?;
-    } else {
-        for device in candidates.values() {
-            writeln!(out, "  - {}", format_scan_candidate_label(&device.info))?;
-        }
-        writeln!(out)?;
-        writeln!(out, "{}", lang.t("scan_enter_to_select"))?;
-    }
-    if force {
-        out.flush()?;
-    }
-    Ok(())
+struct ScanRenderer {
+    interactive: bool,
+    rendered_lines: usize,
+    last_log_second: Option<u64>,
 }
 
-fn clear_scan_status() -> Result<()> {
-    let mut out = io::stdout();
-    write!(out, "\x1b[2J\x1b[H")?;
-    out.flush()?;
-    Ok(())
+impl ScanRenderer {
+    fn new(interactive: bool) -> Self {
+        Self {
+            interactive,
+            rendered_lines: 0,
+            last_log_second: None,
+        }
+    }
+
+    fn render(
+        &mut self,
+        lang: &Lang,
+        target: &str,
+        timeout: u64,
+        start: Instant,
+        candidates: &BTreeMap<String, ScannedDevice>,
+        force: bool,
+    ) -> Result<()> {
+        static SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let elapsed = start.elapsed().as_secs();
+        let remaining = timeout.saturating_sub(elapsed);
+        let frame = ((start.elapsed().as_millis() / 250) as usize) % SPINNER.len();
+        let lines = scan_status_lines(lang, SPINNER[frame], target, remaining, candidates);
+
+        if !self.interactive {
+            if force || elapsed.is_multiple_of(5) && self.last_log_second != Some(elapsed) {
+                self.last_log_second = Some(elapsed);
+                println!("{}", lines.first().map(String::as_str).unwrap_or_default());
+            }
+            return Ok(());
+        }
+
+        let mut out = io::stdout();
+        if self.rendered_lines > 0 {
+            write!(out, "\x1b[{}A", self.rendered_lines)?;
+        }
+
+        for line in &lines {
+            write!(out, "\x1b[2K\r{line}\n")?;
+        }
+
+        for _ in lines.len()..self.rendered_lines {
+            write!(out, "\x1b[2K\r\n")?;
+        }
+
+        if self.rendered_lines > lines.len() {
+            write!(out, "\x1b[{}A", self.rendered_lines - lines.len())?;
+        }
+
+        self.rendered_lines = lines.len();
+        out.flush()?;
+        Ok(())
+    }
+
+    fn clear(&mut self) -> Result<()> {
+        if !self.interactive || self.rendered_lines == 0 {
+            return Ok(());
+        }
+
+        let mut out = io::stdout();
+        write!(out, "\x1b[{}A", self.rendered_lines)?;
+        for _ in 0..self.rendered_lines {
+            write!(out, "\x1b[2K\r\n")?;
+        }
+        write!(out, "\x1b[{}A", self.rendered_lines)?;
+        out.flush()?;
+        self.rendered_lines = 0;
+        Ok(())
+    }
+}
+
+fn scan_status_lines(
+    lang: &Lang,
+    spinner: &str,
+    target: &str,
+    remaining: u64,
+    candidates: &BTreeMap<String, ScannedDevice>,
+) -> Vec<String> {
+    let mut lines = vec![
+        lang.scan_live_status(spinner, target, remaining, candidates.len()),
+        String::new(),
+    ];
+
+    if candidates.is_empty() {
+        lines.push(lang.t("scan_waiting").to_string());
+    } else {
+        lines.extend(
+            candidates
+                .values()
+                .map(|device| format!("  - {}", format_scan_candidate_label(&device.info))),
+        );
+        lines.push(String::new());
+        lines.push(lang.t("scan_enter_to_select").to_string());
+    }
+    lines
 }
 
 async fn run_menu_loop(

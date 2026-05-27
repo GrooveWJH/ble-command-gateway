@@ -109,12 +109,16 @@ activate_release() {
   run_root ln -sfn "$release_dir" "${INSTALL_ROOT}/current"
 }
 
+prepare_release_permissions() {
+  local staging_dir="$1"
+  run_root chmod +x "${staging_dir}/yundrone-ble-server"
+  if [ -f "${staging_dir}/deploy/systemd/prepare-ble-adapter.sh" ]; then
+    run_root chmod +x "${staging_dir}/deploy/systemd/prepare-ble-adapter.sh"
+  fi
+}
+
 install_or_update() {
   validate_prefix
-  need_sudo
-  maybe_install_dependencies
-  ensure_basic_tools
-  ensure_python
 
   local arch adapter tmp tarball selected_version release_dir staging_dir
   arch="$(detect_arch)"
@@ -139,6 +143,11 @@ install_or_update() {
   fi
   confirm_yes "是否继续安装？" || fail "已取消安装"
 
+  ensure_sudo_step
+  tui_run_step "检查安装依赖" maybe_install_dependencies
+  tui_run_step "检查基础工具" ensure_basic_tools
+  ensure_python
+
   tui_run_step "解析 server release 信息" resolve_release_asset "$arch" "$tmp"
   download_release_tarball "$tmp"
   tui_run_step "校验 server release" verify_release_tarball "$arch" "$tmp"
@@ -155,10 +164,7 @@ install_or_update() {
     run_root find "$staging_dir" -maxdepth 3 -print || true
     fail "安装包缺少 yundrone-ble-server"
   fi
-  run_root chmod +x "${staging_dir}/yundrone-ble-server"
-  if [ -f "${staging_dir}/deploy/systemd/prepare-ble-adapter.sh" ]; then
-    run_root chmod +x "${staging_dir}/deploy/systemd/prepare-ble-adapter.sh"
-  fi
+  tui_run_step "设置 server 执行权限" prepare_release_permissions "$staging_dir"
 
   tui_run_step "停止旧服务" stop_service_for_install
   tui_run_step "切换 release 目录" activate_release "$staging_dir" "$release_dir"
@@ -170,7 +176,9 @@ install_or_update() {
   tui_run_step "写入 systemd service" write_service "$PREFIX" "$BACKEND"
   tui_run_step "刷新 systemd" run_root systemctl daemon-reload
 
-  tui_run_step "启动 YunDrone BLE Server" start_service_checked
+  tui_run_step "启用开机自启" enable_service
+  tui_run_step "启动 YunDrone BLE Server" start_or_restart_service
+  tui_run_step "确认服务运行状态" wait_service_active
 
   render_install_success "$selected_version"
   if confirm_no "是否查看最近服务日志？"; then
@@ -206,7 +214,6 @@ BLE 名称：$(identity_name)
 }
 
 uninstall() {
-  need_sudo
   section "准备卸载"
   if tui_ready; then
     if [ "$PURGE" = "yes" ]; then
@@ -242,6 +249,7 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
   confirm_yes "是否继续卸载？" || fail "已取消卸载"
   fi
 
+  ensure_sudo_step
   run_root systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
   run_root rm -f "$SERVICE_PATH"
   run_root systemctl daemon-reload
@@ -270,7 +278,6 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
 }
 
 reset_name() {
-  need_sudo
   if tui_ready; then
     tui_confirm_danger "重置 BLE 名称
 
@@ -279,6 +286,7 @@ reset_name() {
   else
     confirm_yes "是否删除 ${IDENTITY_FILE} 并重启服务？" || fail "已取消重置"
   fi
+  ensure_sudo_step
   run_root rm -f "$IDENTITY_FILE"
   run_root systemctl restart "$SERVICE_NAME"
   sleep 2
@@ -290,7 +298,7 @@ reset_name() {
 }
 
 restart_service() {
-  need_sudo
+  ensure_sudo_step
   info "重启 ${SERVICE_NAME}"
   run_root systemctl restart "$SERVICE_NAME"
   sleep 2

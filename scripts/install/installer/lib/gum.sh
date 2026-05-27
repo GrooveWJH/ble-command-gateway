@@ -94,5 +94,8 @@ ensure_gum() {
 }
 
 gum() {
-  "$GUM_BIN" "$@"
+  TERM="${TERM:-xterm-256color}" \
+    COLORTERM="${COLORTERM:-truecolor}" \
+    COLORFGBG="${COLORFGBG:-15;0}" \
+    "$GUM_BIN" "$@"
 }

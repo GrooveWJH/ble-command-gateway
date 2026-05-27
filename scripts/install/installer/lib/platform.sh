@@ -10,6 +10,37 @@ need_sudo() {
   sudo -v || fail "sudo 验证失败"
 }
 
+ensure_sudo_step() {
+  if [ "$(id -u)" -eq 0 ]; then
+    if tui_ready; then
+      gum style --foreground 42 "✓ 已获得系统权限：root"
+    else
+      ok "已获得系统权限：root"
+    fi
+    return 0
+  fi
+
+  have sudo || fail "需要 sudo 权限。请使用 root 或具备 sudo 权限的用户执行。"
+
+  if tui_ready; then
+    tui_info_card "需要系统权限
+
+接下来会写入安装目录、更新 systemd service，并启动 YunDrone BLE Server。
+请在下面的 sudo 提示中输入当前用户密码。"
+    gum style --foreground 39 "• 获取系统权限"
+  else
+    info "需要 sudo 权限，接下来会请求当前用户密码。"
+  fi
+
+  sudo -v || fail "sudo 验证失败"
+
+  if tui_ready; then
+    gum style --foreground 42 "✓ 系统权限验证通过"
+  else
+    ok "系统权限验证通过"
+  fi
+}
+
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -37,6 +68,14 @@ run_root_with_timeout() {
     sudo timeout "${seconds}s" "$@"
   else
     sudo "$@"
+  fi
+}
+
+run_root_no_block_systemctl() {
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl --no-block "$@"
+  else
+    sudo systemctl --no-block "$@"
   fi
 }
 
