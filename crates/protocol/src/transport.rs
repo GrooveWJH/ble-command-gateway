@@ -3,10 +3,11 @@ use std::collections::HashMap;
 const MAGIC: u8 = 0x59;
 const VERSION: u8 = 2;
 const HEADER_LEN: usize = 4;
-const FRAME_BUDGET: usize = 20;
+pub const DEFAULT_FRAME_BUDGET: usize = 20;
+pub const MAX_FRAME_BUDGET: usize = 180;
 const MIN_FRAME_LEN: usize = HEADER_LEN + 1;
 pub const FRAME_HEADER_LEN: usize = HEADER_LEN;
-pub const MAX_FRAME_PAYLOAD_LEN: usize = FRAME_BUDGET - HEADER_LEN;
+pub const MAX_FRAME_PAYLOAD_LEN: usize = MAX_FRAME_BUDGET - HEADER_LEN;
 pub const MAX_LOGICAL_PAYLOAD_LEN: usize = u8::MAX as usize * MAX_FRAME_PAYLOAD_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,7 +62,10 @@ impl FrameKind {
     }
 
     pub fn is_control(self) -> bool {
-        matches!(self, Self::AckRange | Self::AckEvent | Self::Reset | Self::Progress)
+        matches!(
+            self,
+            Self::AckRange | Self::AckEvent | Self::Reset | Self::Progress
+        )
     }
 
     pub fn final_frame(self) -> bool {
@@ -231,7 +235,8 @@ pub fn encode_payload_frames(
     if frame_budget < MIN_FRAME_LEN {
         return Err(TransportError::FrameBudgetTooSmall);
     }
-    let payload_budget = (frame_budget - HEADER_LEN).min(MAX_FRAME_PAYLOAD_LEN);
+    let payload_budget =
+        (frame_budget.min(MAX_FRAME_BUDGET) - HEADER_LEN).min(MAX_FRAME_PAYLOAD_LEN);
     let total = payload.len().div_ceil(payload_budget);
     if total == 0 || total > u8::MAX as usize {
         return Err(TransportError::PayloadTooLarge);
@@ -308,10 +313,10 @@ pub fn decode_frame(raw: &[u8]) -> Result<TransportFrame, TransportError> {
     if raw.len() < HEADER_LEN {
         return Err(TransportError::TooShort);
     }
-    if raw.len() > FRAME_BUDGET {
+    if raw.len() > MAX_FRAME_BUDGET {
         return Err(TransportError::FrameTooLarge {
             actual: raw.len(),
-            budget: FRAME_BUDGET,
+            budget: MAX_FRAME_BUDGET,
         });
     }
     if raw[0] != MAGIC {
@@ -358,7 +363,7 @@ fn encode_frame(frame: TransportFrame) -> Result<Vec<u8>, TransportError> {
         if frame.payload.len() > MAX_FRAME_PAYLOAD_LEN {
             return Err(TransportError::FrameTooLarge {
                 actual: HEADER_LEN + frame.payload.len(),
-                budget: FRAME_BUDGET,
+                budget: MAX_FRAME_BUDGET,
             });
         }
     }
@@ -404,9 +409,9 @@ mod tests {
     }
 
     #[test]
-    fn v2_twenty_byte_frames_carry_sixteen_payload_bytes() {
+    fn requested_twenty_byte_frames_still_carry_sixteen_payload_bytes() {
         assert_eq!(FRAME_HEADER_LEN, 4);
-        assert_eq!(MAX_FRAME_PAYLOAD_LEN, 16);
+        assert_eq!(MAX_FRAME_PAYLOAD_LEN, 176);
 
         let payload = [b'a'; 101];
         let frames = encode_payload_frames(FrameKind::RequestChunk, 7, &payload, 20).unwrap();
@@ -436,6 +441,25 @@ mod tests {
         assert_eq!(frames.len(), 37);
         assert_eq!(decode_frame(&frames[0]).unwrap().payload.len(), 16);
         assert!(decode_frame(frames.last().unwrap()).unwrap().final_frame);
+    }
+
+    #[test]
+    fn v2_response_payload_uses_large_notify_frames_when_budget_allows() {
+        let payload = vec![b'x'; 591];
+        let frames = encode_payload_frames(FrameKind::ResponseChunk, 9, &payload, 180).unwrap();
+
+        assert_eq!(frames.len(), 4);
+        assert!(frames.iter().all(|frame| frame.len() <= 180));
+        assert_eq!(decode_frame(&frames[0]).unwrap().payload.len(), 176);
+        assert!(decode_frame(frames.last().unwrap()).unwrap().final_frame);
+
+        let mut reassembler = PayloadReassembler::new();
+        let mut completed = None;
+        for raw in frames {
+            completed = reassembler.accept_frame(&raw).unwrap().payload;
+        }
+
+        assert_eq!(completed.as_deref(), Some(payload.as_slice()));
     }
 
     #[test]
@@ -495,7 +519,7 @@ mod tests {
         let zero_index = [0x59, (2 << 4) | FrameKind::RequestFinal.wire(), 1, 0, b'x'];
         let oversized = [
             vec![0x59, (2 << 4) | FrameKind::RequestFinal.wire(), 1, 1],
-            vec![b'x'; 17],
+            vec![b'x'; 177],
         ]
         .concat();
 
@@ -506,8 +530,8 @@ mod tests {
         assert_eq!(
             decode_frame(&oversized).unwrap_err(),
             TransportError::FrameTooLarge {
-                actual: 21,
-                budget: 20
+                actual: 181,
+                budget: MAX_FRAME_BUDGET
             }
         );
     }

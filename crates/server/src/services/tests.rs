@@ -41,9 +41,15 @@ async fn system_capabilities_command_is_supported() {
     let transport = data.transport.as_ref().expect("transport capabilities");
     assert_eq!(transport.frame_version, 2);
     assert_eq!(transport.frame_header_size, 4);
-    assert_eq!(transport.max_frame_payload, 16);
-    assert_eq!(transport.max_inbound_logical_payload, 4080);
-    assert_eq!(transport.response_window, 2);
+    assert_eq!(
+        transport.max_frame_payload,
+        protocol::transport::MAX_FRAME_PAYLOAD_LEN
+    );
+    assert_eq!(
+        transport.max_inbound_logical_payload,
+        protocol::transport::MAX_LOGICAL_PAYLOAD_LEN
+    );
+    assert_eq!(transport.response_window, 1);
     assert_eq!(transport.ack_strategy, "range");
 }
 

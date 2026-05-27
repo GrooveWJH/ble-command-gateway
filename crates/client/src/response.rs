@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-const TRANSPORT_RESPONSE_ACK_WINDOW: u8 = 2;
+const TRANSPORT_RESPONSE_ACK_WINDOW: u8 = 1;
 
 pub struct ResponseDecoder {
     assembler: protocol::chunking::ChunkAssembler,
@@ -111,7 +111,14 @@ mod transport_tests {
         let event = decoder.decode_event(&frames[0]).unwrap();
 
         assert!(event.response.is_none());
-        assert_eq!(event.transport_ack, None);
+        assert_eq!(
+            event.transport_ack,
+            Some(TransportAckReceipt {
+                stream_id: 23,
+                ack_type: TransportAckType::Range,
+                index: 1,
+            })
+        );
     }
 
     #[test]
@@ -130,7 +137,14 @@ mod transport_tests {
         let first = decoder.decode_event(&frames[0]).unwrap();
         let second = decoder.decode_event(&frames[1]).unwrap();
 
-        assert_eq!(first.transport_ack, None);
+        assert_eq!(
+            first.transport_ack,
+            Some(TransportAckReceipt {
+                stream_id: 25,
+                ack_type: TransportAckType::Range,
+                index: 1,
+            })
+        );
         assert_eq!(
             second.transport_ack,
             Some(TransportAckReceipt {
@@ -157,7 +171,14 @@ mod transport_tests {
         let first = decoder.decode_event(&frames[0]).unwrap();
         let third = decoder.decode_event(&frames[2]).unwrap();
 
-        assert_eq!(first.transport_ack, None);
+        assert_eq!(
+            first.transport_ack,
+            Some(TransportAckReceipt {
+                stream_id: 26,
+                ack_type: TransportAckType::Range,
+                index: 1,
+            })
+        );
         assert_eq!(third.transport_ack, None);
     }
 
@@ -221,7 +242,9 @@ mod transport_tests {
         for raw in &accepted_frames {
             decoder.decode_event(raw).unwrap();
         }
-        let duplicate_final = decoder.decode_event(accepted_frames.last().unwrap()).unwrap();
+        let duplicate_final = decoder
+            .decode_event(accepted_frames.last().unwrap())
+            .unwrap();
         assert_eq!(
             duplicate_final.transport_ack,
             Some(TransportAckReceipt {
@@ -369,7 +392,8 @@ impl TransportResponseDecoder {
                 });
             }
             CompletedFrameCheck::NewResponseStream(stream_id) => {
-                self.completed.retain(|completed| completed.stream_id != stream_id);
+                self.completed
+                    .retain(|completed| completed.stream_id != stream_id);
             }
             _ => {}
         }
@@ -424,9 +448,7 @@ impl TransportResponseDecoder {
                 while state.received.contains(&state.contiguous.saturating_add(1)) {
                     state.contiguous = state.contiguous.saturating_add(1);
                 }
-                let advanced = state
-                    .contiguous
-                    .saturating_sub(state.last_acked_contiguous);
+                let advanced = state.contiguous.saturating_sub(state.last_acked_contiguous);
                 if advanced < TRANSPORT_RESPONSE_ACK_WINDOW || state.contiguous != event.frame.index
                 {
                     return None;

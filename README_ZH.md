@@ -17,6 +17,7 @@ YunDrone BLE Gateway 用低功耗蓝牙连接一台还没有网络、没有显�
 | 在电脑上从源码运行 | 构建 `gui` 或 `yundrone-ble-client` | 适合开发、调试和日常验证。 |
 | 在 Linux 设备上部署 BLE 服务 | 运行统一入口或被控端专用入口 | 目标设备需要 BlueZ 和 NetworkManager。 |
 | 排查蓝牙链路 | 运行 `yundrone-ble-client debug-ble` | 会展示扫描、连接、GATT 发现、V2 传输帧、重组和 ACK。 |
+| 使用 WebBluetooth 配网工作台 | 进入 `web-client/` 运行 `npm run dev` | 纯静态页面，仅支持 `localhost` 或 HTTPS 下的 Chrome/Edge / Android Chrome，尚未进入正式发布链路。 |
 
 ## 快速使用
 
@@ -98,7 +99,7 @@ sudo systemctl status yundrone-ble-command-gateway.service --no-pager
 sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-生产安装运行由 systemd 管理的 release 二进制。当前现场部署路径是 `/opt/yundrone/ble-command-gateway/current/yundrone-ble-server`；仓库 systemd 模板也支持 `/opt/ble-command-gateway` 下的源码构建路径。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
+生产部署时，systemd 服务运行 `/opt/ble-command-gateway/target/release/yundrone-ble-server`。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
 
 ## 客户端和 GUI
 
@@ -152,6 +153,20 @@ cargo run -p yundrone-ble-client -- debug-ble --help
 
 使用 `cargo run` 时，`--` 用来分隔 Cargo 参数和程序参数。直接运行 `./target/release/yundrone-ble-client` 时不需要这个分隔符。
 
+### WebBluetooth 配网工作台
+
+仓库根目录下的 `web-client/` 提供一个 Carbon Design System 风格的纯前端 WebBluetooth 配网工作台，可在支持 WebBluetooth 的浏览器里直接连接附近的 YunDrone BLE 设备：
+
+```bash
+cd web-client
+npm install
+npm run dev
+```
+
+本地开发使用 `http://localhost:5173`。公网试用必须部署到 HTTPS；普通公网 HTTP 页面不能使用 WebBluetooth。当前建议浏览器是桌面 Chrome / Edge 或 Android Chrome。Safari、Firefox、iPhone / iPad 上的普通浏览器不作为支持目标。
+
+这个 Web client 构建后是纯静态 HTML/CSS/JS，目前还没有纳入 `install.yundrone.cn`、release asset 或正式部署流程。它的主流程是：连接 `yundrone-*` 设备、扫描 Wi-Fi、选择或手动输入 SSID、输入密码、确认下发并查看成功/失败结果。更多说明见 [docs/WEB_CLIENT_ZH.md](./docs/WEB_CLIENT_ZH.md)。
+
 ## Debug 和开发
 
 当设备搜不到、连接很卡、服务列表不出现，或者怀疑响应被截断时，先用 debug CLI：
@@ -168,13 +183,13 @@ cargo run -p yundrone-ble-client -- debug-ble \
 
 开启 `--trace-chunks` 和 `--trace-qos` 后，日志展示的是 BLE 传输层，而不只是业务 JSON。当前客户端使用 V2 紧凑二进制帧：每个保守 20 字节 BLE write/notify 里包含 4 字节帧头和最多 16 字节请求或响应载荷。
 
-- `[TX:packet]` / `[RX:packet]`：每个 V2 传输包，类型可能是 `RequestChunk`、`RequestFinal`、`ResponseChunk`、`ResponseFinal`、单帧 `Progress`、`AckRange` 或 `AckEvent`。
+- `[TX:packet]` / `[RX:packet]`：每个 V2 传输包，类型可能是 `RequestChunk`、`RequestFinal`、`ResponseChunk`、`ResponseFinal`、`AckRange` 或 `AckEvent`。
 - `[RX:transport]`：解码后的 stream id、frame index、final 标记和 payload 长度。
 - `[RX:assembled]`：所有分片合并后的完整响应 JSON。
 - `[QOS:tx]`：客户端发出的请求或 ACK 写入。
 - `[OK] rx`：最终解码后的业务响应摘要。
 
-`wifi.scan` 这类大结果刷屏是正常现象：最终结果事件会被拆成 16 字节载荷的小帧传输，客户端再重组成完整 JSON。周期性“正在进行”提示是 4 字节 header-only 的 `Progress` 控制帧。旧的 JSON `data.chunk` / `link.ack` 路径仍保留在文档中，用于旧客户端兼容和通用 BLE 调试工具兜底；正常 CLI 主路径已经是 V2 compact transport。
+`wifi.scan` 这类大响应刷屏是正常现象：每个响应事件会被拆成 16 字节载荷的小帧传输，客户端再重组成完整 JSON。旧的 JSON `data.chunk` / `link.ack` 路径仍保留在文档中，用于旧客户端兼容和通用 BLE 调试工具兜底；正常 CLI 主路径已经是 V2 compact transport。
 
 常用本地检查命令：
 
@@ -191,8 +206,9 @@ Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推
 - 被控端部署和 systemd 运维：[docs/systemd.md](./docs/systemd.md)
 - BLE 调试器 JSON 指令指南：[docs/BLE_DEBUGGER_GUIDE_ZH.md](./docs/BLE_DEBUGGER_GUIDE_ZH.md)
 - 协议命令与响应结构：[docs/COMMANDS.md](./docs/COMMANDS.md)
-- 兼容 BLE 被控端 实现说明：[docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md)
+- 兼容 BLE 被控端 实现说明：[docs/[v26.2.0]COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/[v26.2.0]COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md)
 - BLE MTU 分片中间件：[docs/MTU_CHUNKING_ZH.md](./docs/MTU_CHUNKING_ZH.md)
+- WebBluetooth 配网工作台：[docs/WEB_CLIENT_ZH.md](./docs/WEB_CLIENT_ZH.md)
 - 微信小程序搜索方案：[docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md](./docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md)
 - Rust 客户端 library API：[docs/LIBRARY_API.md](./docs/LIBRARY_API.md)
 - 新增命令开发指南：[docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
@@ -219,6 +235,7 @@ GitHub Releases 当前只提供一个官方预编译资产：
 - `crates/client`：BLE central library 和 CLI。Cargo package 与二进制名是 `yundrone-ble-client`。
 - `crates/gui`：基于 `egui` 的原生桌面 GUI。
 - `crates/platform_runtime`：平台启动辅助，主要服务 macOS app bundle 行为。
+- `web-client`：纯前端 WebBluetooth 配网工作台，不属于 Cargo workspace。
 
 旧 Python 服务入口已经移除。当前部署路径使用 Rust 被控端。
 

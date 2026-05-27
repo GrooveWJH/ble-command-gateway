@@ -7,6 +7,10 @@ compile_error!("The 'server' crate depends on Linux-specific APIs (BlueZ/bluer) 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use futures::FutureExt;
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
     use tokio::sync::broadcast;
     use tracing::{info, warn};
 
@@ -56,12 +60,18 @@ async fn main() -> anyhow::Result<()> {
     let write_notify_tx = notify_tx.clone();
     let read_notify_tx = notify_tx.clone();
     let command_events = server::command_events::CommandEventSender::new(
-        write_notify_tx,
+        write_notify_tx.clone(),
         server::services::ServiceContext::new(runtime.identity.name.clone()),
     );
     let write_router = std::sync::Arc::new(tokio::sync::Mutex::new(
         server::transport::WriteRouter::new(),
     ));
+    let notify_session_seq = Arc::new(AtomicU64::new(0));
+    let write_router_for_write = write_router.clone();
+    let write_router_for_notify = write_router.clone();
+    let link_diagnostics = server::ble_diagnostics::BleLinkDiagnostics::default();
+    let link_diagnostics_for_write = link_diagnostics.clone();
+    let link_diagnostics_for_notify = link_diagnostics.clone();
 
     // We process incoming writes here. Because we used Io method, bluer will actually provide a stream of writes.
     // However, writing an async handler in bluer requires registering an Io handler, but for simplicity we can use Fun.
@@ -70,11 +80,32 @@ async fn main() -> anyhow::Result<()> {
         uuid: runtime.write_uuid,
         write: Some(CharacteristicWrite {
             write: true,
-            write_without_response: true,
-            method: CharacteristicWriteMethod::Fun(Box::new(move |new_value, _req| {
+            write_without_response: false,
+            method: CharacteristicWriteMethod::Fun(Box::new(move |new_value, req| {
                 let command_events = command_events.clone();
-                let write_router = write_router.clone();
+                let write_router = write_router_for_write.clone();
+                let write_notify_tx = write_notify_tx.clone();
+                let link_diagnostics = link_diagnostics_for_write.clone();
                 Box::pin(async move {
+                    let diagnostics =
+                        server::ble_diagnostics::WriteDiagnostics::from_raw(&new_value);
+                    link_diagnostics.record_write(&diagnostics);
+                    info!(
+                        adapter_name = %req.adapter_name,
+                        device_address = %req.device_address,
+                        offset = req.offset,
+                        mtu = req.mtu,
+                        op_type = ?req.op_type,
+                        link = ?req.link,
+                        prepare_authorize = req.prepare_authorize,
+                        payload_bytes = diagnostics.payload_bytes,
+                        frame_kind = diagnostics.frame_kind,
+                        stream_id = diagnostics.stream_id,
+                        frame_index = diagnostics.frame_index,
+                        likely_probe = diagnostics.likely_probe,
+                        preview_hex = %diagnostics.preview_hex,
+                        "ble.write.received"
+                    );
                     let route_result = {
                         let mut router = write_router.lock().await;
                         router.accept_write(&new_value)
@@ -84,6 +115,14 @@ async fn main() -> anyhow::Result<()> {
                             request: req,
                             transport,
                         }) => {
+                            if let Some(transport) = transport.as_ref() {
+                                server::gatt_write::schedule_transport_request_ack(
+                                    write_notify_tx.clone(),
+                                    transport.stream_id,
+                                    transport.final_frame_index,
+                                    diagnostics.likely_probe,
+                                );
+                            }
                             let command_name = req.payload.command_name().to_string();
                             info!(
                                 request_id = %req.id,
@@ -94,29 +133,65 @@ async fn main() -> anyhow::Result<()> {
                                 "ble.request.received"
                             );
 
-                            match req.payload.clone() {
-                                protocol::requests::CommandPayload::LinkAck(ack) => {
-                                    command_events.handle_ack(ack, &req.id).await;
-                                }
-                                _ => {
-                                    if let Some(transport) = transport {
-                                        command_events
-                                            .handle_transport_request(req, command_name, transport)
-                                            .await;
-                                    } else {
-                                        command_events.handle_request(req, command_name).await;
+                            tokio::spawn(async move {
+                                match req.payload.clone() {
+                                    protocol::requests::CommandPayload::LinkAck(ack) => {
+                                        command_events.handle_ack(ack, &req.id).await;
+                                    }
+                                    _ => {
+                                        if let Some(transport) = transport {
+                                            command_events
+                                                .handle_transport_request(
+                                                    req,
+                                                    command_name,
+                                                    transport,
+                                                )
+                                                .await;
+                                        } else {
+                                            command_events.handle_request(req, command_name).await;
+                                        }
                                     }
                                 }
-                            }
+                            });
                         }
                         Ok(server::transport::WriteEvent::TransportAck(ack)) => {
-                            command_events.handle_transport_ack(ack).await;
+                            info!(
+                                frame_kind = server::ble_diagnostics::frame_kind_name(ack.kind),
+                                stream_id = ack.stream_id,
+                                frame_index = ack.index,
+                                likely_probe = diagnostics.likely_probe,
+                                "ble.transport.ack.received"
+                            );
+                            tokio::spawn(async move {
+                                command_events.handle_transport_ack(ack).await;
+                            });
                         }
-                        Ok(server::transport::WriteEvent::Incomplete) => {}
+                        Ok(server::transport::WriteEvent::Incomplete { transport }) => {
+                            info!(
+                                frame_kind = diagnostics.frame_kind,
+                                stream_id = diagnostics.stream_id,
+                                frame_index = diagnostics.frame_index,
+                                duplicate = transport.as_ref().map(|context| context.duplicate),
+                                "ble.write.incomplete"
+                            );
+                            if let Some(transport) = transport {
+                                server::gatt_write::schedule_transport_request_ack(
+                                    write_notify_tx.clone(),
+                                    transport.stream_id,
+                                    transport.index,
+                                    diagnostics.likely_probe,
+                                );
+                            }
+                        }
                         Err(e) => {
                             warn!(
                                 error = %e,
                                 payload_bytes = new_value.len(),
+                                frame_kind = diagnostics.frame_kind,
+                                stream_id = diagnostics.stream_id,
+                                frame_index = diagnostics.frame_index,
+                                likely_probe = diagnostics.likely_probe,
+                                preview_hex = %diagnostics.preview_hex,
                                 "ble.request.parse_failed"
                             );
                             if let Some(response) = parse_router_error_response(&new_value, &e) {
@@ -142,24 +217,109 @@ async fn main() -> anyhow::Result<()> {
             notify: true,
             method: CharacteristicNotifyMethod::Fun(Box::new(move |mut notifier| {
                 let mut rx = read_notify_tx.subscribe();
+                let notify_session_seq = notify_session_seq.clone();
+                let write_router = write_router_for_notify.clone();
+                let link_diagnostics = link_diagnostics_for_notify.clone();
                 async move {
                     tokio::spawn(async move {
-                        info!("ble.notify.subscribed");
+                        let session_id = notify_session_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                        let confirming = notifier.confirming();
+                        {
+                            let mut router = write_router.lock().await;
+                            router.reset();
+                        }
+                        link_diagnostics.reset();
+                        info!(
+                            notify_session_id = session_id,
+                            confirming,
+                            "ble.notify.subscribed"
+                        );
+                        info!(
+                            notify_session_id = session_id,
+                            "ble.transport.router.reset"
+                        );
+                        let stopped = notifier.stopped();
+                        tokio::pin!(stopped);
                         loop {
-                            match rx.recv().await {
-                                Ok(value) => {
-                                    if let Err(err) = notifier.notify(value).await {
-                                        warn!(error = %err, "ble.notify.failed");
+                            tokio::select! {
+                                _ = &mut stopped => {
+                                    let snapshot = link_diagnostics.snapshot();
+                                    warn!(
+                                        notify_session_id = session_id,
+                                        last_notify = ?snapshot,
+                                        "ble.notify.stopped"
+                                    );
+                                    break;
+                                }
+                                received = rx.recv() => {
+                                    match received {
+                                        Ok(value) => {
+                                            let preview_hex =
+                                                server::ble_diagnostics::preview_hex(&value, 24);
+                                            let snapshot = link_diagnostics.next_notify(&value);
+                                            info!(
+                                                notify_session_id = session_id,
+                                                notify_seq = snapshot.notify_seq,
+                                                bytes = value.len(),
+                                                stopped = notifier.is_stopped(),
+                                                frame_kind = snapshot.frame_kind,
+                                                stream_id = snapshot.stream_id,
+                                                frame_index = snapshot.frame_index,
+                                                ms_since_prev_notify = snapshot.ms_since_prev_notify,
+                                                last_ack_stream_id = snapshot.last_ack_stream_id,
+                                                last_ack_index = snapshot.last_ack_index,
+                                                ms_since_last_ack = snapshot.ms_since_last_ack,
+                                                last_write_kind = snapshot.last_write_kind,
+                                                last_write_stream_id = snapshot.last_write_stream_id,
+                                                last_write_index = snapshot.last_write_index,
+                                                ms_since_last_write = snapshot.ms_since_last_write,
+                                                preview_hex = %preview_hex,
+                                                "ble.notify.tx.start"
+                                            );
+                                            if let Err(err) = notifier.notify(value).await {
+                                                let latest = link_diagnostics.snapshot();
+                                                warn!(
+                                                    notify_session_id = session_id,
+                                                    notify_seq = snapshot.notify_seq,
+                                                    error = %err,
+                                                    last_notify = ?latest,
+                                                    "ble.notify.failed"
+                                                );
+                                                break;
+                                            }
+                                            let finished = link_diagnostics.mark_notify_finished(snapshot.notify_seq);
+                                            info!(
+                                                notify_session_id = session_id,
+                                                notify_seq = snapshot.notify_seq,
+                                                last_notify = ?finished,
+                                                "ble.notify.tx.done"
+                                            );
+                                        }
+                                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                                            warn!(
+                                                notify_session_id = session_id,
+                                                skipped,
+                                                "ble.notify.lagged"
+                                            );
+                                        }
+                                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                    }
+                                    if notifier.is_stopped() {
+                                        let snapshot = link_diagnostics.snapshot();
+                                        warn!(
+                                            notify_session_id = session_id,
+                                            last_notify = ?snapshot,
+                                            "ble.notify.stopped"
+                                        );
                                         break;
                                     }
                                 }
-                                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                                    warn!(skipped, "ble.notify.lagged");
-                                }
-                                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                             }
                         }
-                        info!("ble.notify.closed");
+                        info!(
+                            notify_session_id = session_id,
+                            "ble.notify.closed"
+                        );
                     });
                 }
                 .boxed()

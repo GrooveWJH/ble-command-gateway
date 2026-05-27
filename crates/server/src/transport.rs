@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransportContext {
     pub stream_id: u8,
+    pub final_frame_index: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,13 +12,23 @@ pub struct TransportAck {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransportRequestFrame {
+    pub kind: protocol::transport::FrameKind,
+    pub stream_id: u8,
+    pub index: u8,
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteEvent {
     Request {
         request: protocol::CommandRequest,
         transport: Option<TransportContext>,
     },
     TransportAck(TransportAck),
-    Incomplete,
+    Incomplete {
+        transport: Option<TransportRequestFrame>,
+    },
 }
 
 #[derive(Default)]
@@ -28,6 +39,10 @@ pub struct WriteRouter {
 impl WriteRouter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn reset(&mut self) {
+        self.reassembler = protocol::transport::PayloadReassembler::new();
     }
 
     pub fn accept_write(&mut self, raw: &[u8]) -> Result<WriteEvent, WriteRouterError> {
@@ -44,13 +59,21 @@ impl WriteRouter {
             protocol::transport::FrameKind::RequestChunk
             | protocol::transport::FrameKind::RequestFinal => {
                 let Some(payload) = event.payload else {
-                    return Ok(WriteEvent::Incomplete);
+                    return Ok(WriteEvent::Incomplete {
+                        transport: Some(TransportRequestFrame {
+                            kind: event.frame.kind,
+                            stream_id: event.frame.stream_id,
+                            index: event.frame.index,
+                            duplicate: event.duplicate,
+                        }),
+                    });
                 };
                 let request = protocol::parse_request(&payload)?;
                 Ok(WriteEvent::Request {
                     request,
                     transport: Some(TransportContext {
                         stream_id: event.frame.stream_id,
+                        final_frame_index: event.frame.index,
                     }),
                 })
             }
@@ -59,7 +82,7 @@ impl WriteRouter {
                 stream_id: event.frame.stream_id,
                 index: event.frame.index,
             })),
-            _ => Ok(WriteEvent::Incomplete),
+            _ => Ok(WriteEvent::Incomplete { transport: None }),
         }
     }
 }
@@ -94,7 +117,17 @@ mod tests {
 
         let event = router.accept_write(&frames[0]).unwrap();
 
-        assert!(matches!(event, WriteEvent::Incomplete));
+        assert_eq!(
+            event,
+            WriteEvent::Incomplete {
+                transport: Some(TransportRequestFrame {
+                    kind: protocol::transport::FrameKind::RequestChunk,
+                    stream_id: 3,
+                    index: 1,
+                    duplicate: false,
+                }),
+            }
+        );
     }
 
     #[test]
@@ -113,6 +146,7 @@ mod tests {
         .unwrap();
         let mut router = WriteRouter::new();
         let mut completed = None;
+        let frame_count = frames.len() as u8;
 
         for frame in frames {
             if let WriteEvent::Request { request, transport } = router.accept_write(&frame).unwrap()
@@ -127,7 +161,55 @@ mod tests {
             decoded.payload,
             protocol::requests::CommandPayload::SystemStatus
         );
-        assert_eq!(transport.map(|context| context.stream_id), Some(4));
+        assert_eq!(
+            transport,
+            Some(TransportContext {
+                stream_id: 4,
+                final_frame_index: frame_count,
+            })
+        );
+    }
+
+    #[test]
+    fn reset_clears_stale_inbound_transport_streams() {
+        let stale_request = protocol::CommandRequest::new(
+            "req-stale",
+            protocol::requests::CommandPayload::SystemStatus,
+        );
+        let stale_payload = protocol::encode_request(&stale_request).unwrap();
+        let stale_frames = protocol::transport::encode_payload_frames(
+            protocol::transport::FrameKind::RequestChunk,
+            1,
+            &stale_payload,
+            20,
+        )
+        .unwrap();
+        let fresh_payload = br#"{"id":"a1","cmd":"system.status"}"#;
+        let fresh_frames = protocol::transport::encode_payload_frames(
+            protocol::transport::FrameKind::RequestChunk,
+            1,
+            fresh_payload,
+            20,
+        )
+        .unwrap();
+        let mut router = WriteRouter::new();
+
+        for frame in stale_frames.iter().take(2) {
+            assert!(matches!(
+                router.accept_write(frame).unwrap(),
+                WriteEvent::Incomplete { .. }
+            ));
+        }
+        router.reset();
+
+        let mut completed = None;
+        for frame in fresh_frames {
+            if let WriteEvent::Request { request, .. } = router.accept_write(&frame).unwrap() {
+                completed = Some(request);
+            }
+        }
+
+        assert_eq!(completed.expect("fresh request should complete").id, "a1");
     }
 
     #[test]

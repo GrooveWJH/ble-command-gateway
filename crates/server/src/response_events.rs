@@ -16,7 +16,7 @@ pub(crate) async fn send_response_event_with_delivery(
     delivery: crate::qos::DeliveryMode,
 ) {
     let summary = ResponseSummary::from_response(&resp, command_name);
-    summary.emit_structured_log(&resp);
+    summary.emit_structured_log(&resp, delivery);
     summary.emit_human_log(&resp);
     tx.send_event_with_delivery(resp, command_name, delivery)
         .await;
@@ -68,7 +68,12 @@ impl<'a> ResponseSummary<'a> {
         }
     }
 
-    fn emit_structured_log(&self, resp: &protocol::CommandResponse) {
+    fn emit_structured_log(
+        &self,
+        resp: &protocol::CommandResponse,
+        delivery: crate::qos::DeliveryMode,
+    ) {
+        let transport_frame_count = transport_frame_count(resp, delivery);
         info!(
             request_id = %resp.id,
             cmd = %self.command_name,
@@ -83,6 +88,9 @@ impl<'a> ResponseSummary<'a> {
             payload_limit = protocol::config::MAX_BLE_PAYLOAD_BYTES,
             response_bytes = self.response_bytes,
             max_chunk_bytes = self.max_chunk_bytes(),
+            transport_frame_count,
+            transport_frame_budget = delivery.transport_frame_budget(),
+            transport_window_size = delivery.transport_window_size(),
             "ble.response.sent"
         );
     }
@@ -105,4 +113,23 @@ impl<'a> ResponseSummary<'a> {
     fn max_chunk_bytes(&self) -> usize {
         self.chunk_sizes.iter().copied().max().unwrap_or(0)
     }
+}
+
+fn transport_frame_count(
+    resp: &protocol::CommandResponse,
+    delivery: crate::qos::DeliveryMode,
+) -> Option<usize> {
+    let frame_budget = delivery.transport_frame_budget()?;
+    protocol::encode_response(resp)
+        .ok()
+        .and_then(|payload| {
+            protocol::transport::encode_payload_frames(
+                protocol::transport::FrameKind::ResponseChunk,
+                1,
+                &payload,
+                frame_budget,
+            )
+            .ok()
+        })
+        .map(|frames| frames.len())
 }

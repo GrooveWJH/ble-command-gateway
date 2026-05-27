@@ -25,13 +25,31 @@ hostnamectl set-hostname --pretty "$DEVICE_PREFIX" || true
 ensure_general_key "Name" "$DEVICE_PREFIX"
 ensure_general_key "ControllerMode" "dual"
 
+run_btmgmt() {
+    action="$1"
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        if timeout 5s btmgmt "$@"; then
+            printf 'ble.adapter.prepare.btmgmt.%s ok\n' "$action"
+        else
+            status="$?"
+            printf 'ble.adapter.prepare.btmgmt.%s skipped status=%s\n' "$action" "$status" >&2
+        fi
+    elif btmgmt "$@"; then
+        printf 'ble.adapter.prepare.btmgmt.%s ok\n' "$action"
+    else
+        status="$?"
+        printf 'ble.adapter.prepare.btmgmt.%s skipped status=%s\n' "$action" "$status" >&2
+    fi
+}
+
 if command -v btmgmt >/dev/null 2>&1; then
     # Keep the controller in the vendor default dual-mode shape. On some
     # combo Wi-Fi/Bluetooth controllers, forcing LE-only/static-addr made
     # iOS/macOS connect but then stall before ATT MTU exchange completed.
-    btmgmt power off || true
-    btmgmt bredr on || true
-    btmgmt connectable on || true
-    btmgmt bondable off || true
-    btmgmt power on || true
+    run_btmgmt power_off power off
+    run_btmgmt bredr_on bredr on
+    run_btmgmt connectable_on connectable on
+    run_btmgmt bondable_off bondable off
+    run_btmgmt power_on power on
 fi

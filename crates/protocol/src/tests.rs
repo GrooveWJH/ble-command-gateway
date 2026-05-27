@@ -73,6 +73,15 @@ fn parse_request_rejects_missing_id() {
 }
 
 #[test]
+fn parse_request_accepts_compact_wire_defaults() {
+    let decoded = parse_request(br#"{"id":"a1","cmd":"system.status"}"#).unwrap();
+
+    assert_eq!(decoded.id, "a1");
+    assert_eq!(decoded.payload, requests::CommandPayload::SystemStatus);
+    assert_eq!(decoded.v, PROTOCOL_VERSION);
+}
+
+#[test]
 fn parse_request_rejects_bad_command_args() {
     let err =
         parse_request(br#"{"id":"req-1","cmd":"system.status","args":{"bad":true}}"#).unwrap_err();
@@ -216,8 +225,8 @@ fn every_typed_response_data_round_trips_through_json_maps() {
         transport: Some(responses::TransportCapabilities {
             frame_version: 2,
             frame_header_size: 4,
-            max_frame_payload: 16,
-            max_inbound_logical_payload: 4080,
+            max_frame_payload: 176,
+            max_inbound_logical_payload: 44880,
             response_window: 2,
             ack_strategy: "range".to_string(),
         }),

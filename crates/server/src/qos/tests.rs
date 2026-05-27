@@ -16,7 +16,11 @@ fn reliable_sender_constants_match_qos_policy() {
     assert_eq!(ACK_TIMEOUT, std::time::Duration::from_millis(750));
     assert_eq!(MAX_RETRIES, 5);
     assert_eq!(MAX_EVENTS, 32);
-    assert_eq!(TRANSPORT_WINDOW_SIZE, 2);
+    assert_eq!(
+        TRANSPORT_FRAME_BUDGET,
+        protocol::transport::MAX_FRAME_BUDGET
+    );
+    assert_eq!(TRANSPORT_WINDOW_SIZE, 1);
 }
 
 #[tokio::test]
@@ -145,6 +149,74 @@ async fn transport_delivery_sends_window_one_and_uses_compact_acks() {
 }
 
 #[tokio::test]
+async fn default_transport_delivery_uses_large_notify_frames() {
+    let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+    let sender = ReliableEventSender::new(tx);
+    let response = protocol::CommandResponse::ok("req-large-notify", "x".repeat(500), None);
+
+    sender
+        .send_event_with_delivery(
+            response,
+            "system.status",
+            DeliveryMode::Transport {
+                frame_budget: TRANSPORT_FRAME_BUDGET,
+                window_size: 1,
+            },
+        )
+        .await;
+
+    let first = rx.recv().await.unwrap();
+    let frame = protocol::transport::decode_frame(&first).unwrap();
+
+    assert_eq!(first.len(), protocol::transport::MAX_FRAME_BUDGET);
+    assert_eq!(
+        frame.payload.len(),
+        protocol::transport::MAX_FRAME_PAYLOAD_LEN
+    );
+}
+
+#[tokio::test]
+async fn transport_ack_pacing_delays_next_frame_after_range_ack() {
+    let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+    let sender = ReliableEventSender::new(tx);
+    let response = protocol::CommandResponse::ok("req-paced", "x".repeat(120), None);
+
+    sender
+        .send_event_with_delivery(
+            response,
+            "system.status",
+            DeliveryMode::Transport {
+                frame_budget: 20,
+                window_size: 1,
+            },
+        )
+        .await;
+    let first = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+
+    sender
+        .ack_transport(
+            protocol::transport::FrameKind::AckRange,
+            first.stream_id,
+            first.index,
+        )
+        .await;
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv())
+            .await
+            .is_err()
+    );
+    let second = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("paced frame should be sent")
+        .expect("broadcast should remain open");
+    let second_frame = protocol::transport::decode_frame(&second).unwrap();
+
+    assert_eq!(second_frame.stream_id, first.stream_id);
+    assert_eq!(second_frame.index, 2);
+}
+
+#[tokio::test]
 async fn transport_retry_respects_response_window() {
     let (tx, mut rx) = tokio::sync::broadcast::channel(16);
     let sender = ReliableEventSender::new(tx);
@@ -245,6 +317,143 @@ async fn transport_ack_range_two_advances_window_by_two_frames() {
     let third = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
     let fourth = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
     assert_eq!((third.index, fourth.index), (3, 4));
+}
+
+#[tokio::test]
+async fn transport_final_frame_send_completes_delivery_without_event_ack() {
+    let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+    let sender = ReliableEventSender::new(tx);
+    let response = protocol::CommandResponse::ok("req-final-range", "x".repeat(500), None);
+
+    sender
+        .send_event_with_delivery(
+            response,
+            "system.status",
+            DeliveryMode::Transport {
+                frame_budget: TRANSPORT_FRAME_BUDGET,
+                window_size: 1,
+            },
+        )
+        .await;
+
+    let first = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    let mut final_index = first.index;
+    sender
+        .ack_transport(
+            protocol::transport::FrameKind::AckRange,
+            first.stream_id,
+            first.index,
+        )
+        .await;
+    while let Ok(raw) = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await
+    {
+        let frame = protocol::transport::decode_frame(&raw.unwrap()).unwrap();
+        final_index = frame.index;
+        if frame.kind == protocol::transport::FrameKind::ResponseFinal {
+            break;
+        }
+        sender
+            .ack_transport(
+                protocol::transport::FrameKind::AckRange,
+                frame.stream_id,
+                frame.index,
+            )
+            .await;
+    }
+
+    let done = sender
+        .retry_missing_chunks(&EventKey {
+            request_id: "req-final-range".to_string(),
+            seq: 1,
+            stream_id: Some(first.stream_id),
+        })
+        .await;
+
+    assert!(done);
+    assert!(final_index > 1);
+}
+
+#[tokio::test]
+async fn duplicate_transport_ack_range_does_not_advance_window_again() {
+    let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+    let sender = ReliableEventSender::new(tx);
+    let response = protocol::CommandResponse::ok("req-duplicate-range", "x".repeat(500), None);
+
+    sender
+        .send_event_with_delivery(
+            response,
+            "system.status",
+            DeliveryMode::Transport {
+                frame_budget: 20,
+                window_size: 2,
+            },
+        )
+        .await;
+
+    let first = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    let second = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!((first.index, second.index), (1, 2));
+
+    sender
+        .ack_transport(protocol::transport::FrameKind::AckRange, first.stream_id, 2)
+        .await;
+    let third = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    let fourth = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!((third.index, fourth.index), (3, 4));
+
+    sender
+        .ack_transport(protocol::transport::FrameKind::AckRange, first.stream_id, 2)
+        .await;
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn transport_recent_window_frames_are_not_retried_immediately() {
+    let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+    let sender = ReliableEventSender::new(tx);
+    let response = protocol::CommandResponse::ok("req-recent-window", "x".repeat(500), None);
+
+    sender
+        .send_event_with_delivery(
+            response,
+            "system.status",
+            DeliveryMode::Transport {
+                frame_budget: 20,
+                window_size: 2,
+            },
+        )
+        .await;
+
+    let first = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    let second = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!((first.index, second.index), (1, 2));
+
+    sender
+        .ack_transport(protocol::transport::FrameKind::AckRange, first.stream_id, 2)
+        .await;
+    let third = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    let fourth = protocol::transport::decode_frame(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!((third.index, fourth.index), (3, 4));
+
+    let done = sender
+        .retry_missing_chunks(&EventKey {
+            request_id: "req-recent-window".to_string(),
+            seq: 1,
+            stream_id: Some(first.stream_id),
+        })
+        .await;
+
+    assert!(!done);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
