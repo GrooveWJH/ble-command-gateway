@@ -40,12 +40,6 @@ impl CommandEventSender {
         }
     }
 
-    pub async fn handle_transport_ack(&self, ack: crate::transport::TransportAck) {
-        self.tx
-            .ack_transport(ack.kind, ack.stream_id, ack.index)
-            .await;
-    }
-
     pub async fn handle_request(&self, req: protocol::CommandRequest, command_name: String) {
         let cacheable = is_cacheable_request(&req.payload);
         if cacheable {
@@ -64,40 +58,6 @@ impl CommandEventSender {
             let response = result_response(&req, &command_name, 1, result);
             self.mark_request_final(&response).await;
             self.send_response_event(response, &command_name);
-        }
-    }
-
-    pub async fn handle_transport_request(
-        &self,
-        req: protocol::CommandRequest,
-        command_name: String,
-        transport: crate::transport::TransportContext,
-    ) {
-        let cacheable = is_cacheable_request(&req.payload);
-        if cacheable {
-            if let Some(cached) = self.cached_response_for_duplicate(&req.id).await {
-                self.send_response_event_with_delivery(
-                    cached,
-                    &command_name,
-                    transport_delivery(transport),
-                );
-                return;
-            }
-            self.mark_request_started(&req.id, &command_name).await;
-        }
-        if is_long_running(&req.payload) {
-            self.spawn_long_running_with_delivery(req, command_name, transport_delivery(transport));
-        } else {
-            let result =
-                crate::services::run_payload_command(&self.service_context, &req.payload, 30.0)
-                    .await;
-            let response = result_response(&req, &command_name, 1, result);
-            self.mark_request_final(&response).await;
-            self.send_response_event_with_delivery(
-                response,
-                &command_name,
-                transport_delivery(transport),
-            );
         }
     }
 
@@ -120,19 +80,6 @@ impl CommandEventSender {
     }
 
     fn spawn_long_running(&self, req: protocol::CommandRequest, command_name: String) {
-        self.spawn_long_running_with_delivery(
-            req,
-            command_name,
-            crate::qos::DeliveryMode::LegacyJson,
-        );
-    }
-
-    fn spawn_long_running_with_delivery(
-        &self,
-        req: protocol::CommandRequest,
-        command_name: String,
-        delivery: crate::qos::DeliveryMode,
-    ) {
         let tx = self.tx.clone();
         let lock = self.foreground_lock.clone();
         let cache = self.request_cache.clone();
@@ -151,17 +98,12 @@ impl CommandEventSender {
                     let mut cache = cache.lock().await;
                     cache.mark_final(&response);
                 }
-                crate::response_events::send_response_event_with_delivery(
-                    tx.clone(),
-                    response,
-                    &command_name,
-                    delivery,
-                )
-                .await;
+                crate::response_events::send_response_event(tx.clone(), response, &command_name)
+                    .await;
                 return;
             };
 
-            crate::response_events::send_response_event_with_delivery(
+            crate::response_events::send_response_event(
                 tx.clone(),
                 protocol::CommandResponse::accepted(
                     req.id.clone(),
@@ -170,7 +112,6 @@ impl CommandEventSender {
                     None,
                 ),
                 &command_name,
-                delivery,
             )
             .await;
 
@@ -180,7 +121,6 @@ impl CommandEventSender {
                 req.id.clone(),
                 command_name.clone(),
                 next_seq.clone(),
-                delivery,
             );
             let result =
                 crate::services::run_payload_command(&service_context, &req.payload, 30.0).await;
@@ -192,13 +132,7 @@ impl CommandEventSender {
                 cache.mark_final(&response);
             }
 
-            crate::response_events::send_response_event_with_delivery(
-                tx,
-                response,
-                &command_name,
-                delivery,
-            )
-            .await;
+            crate::response_events::send_response_event(tx, response, &command_name).await;
         });
     }
 
@@ -216,32 +150,6 @@ impl CommandEventSender {
             crate::response_events::send_response_event(tx, resp, &command_name).await;
         });
     }
-
-    pub fn send_response_event_with_delivery(
-        &self,
-        resp: protocol::CommandResponse,
-        command_name: &str,
-        delivery: crate::qos::DeliveryMode,
-    ) {
-        if resp.final_flag {
-            let this = self.clone();
-            let response = resp.clone();
-            tokio::spawn(async move {
-                this.mark_request_final(&response).await;
-            });
-        }
-        let tx = self.tx.clone();
-        let command_name = command_name.to_string();
-        tokio::spawn(async move {
-            crate::response_events::send_response_event_with_delivery(
-                tx,
-                resp,
-                &command_name,
-                delivery,
-            )
-            .await;
-        });
-    }
 }
 
 fn spawn_progress_loop(
@@ -249,13 +157,12 @@ fn spawn_progress_loop(
     request_id: String,
     command_name: String,
     next_seq: Arc<AtomicU64>,
-    delivery: crate::qos::DeliveryMode,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let seq = next_seq.fetch_add(1, Ordering::SeqCst);
-            crate::response_events::send_response_event_with_delivery(
+            crate::response_events::send_response_event(
                 tx.clone(),
                 protocol::CommandResponse::progress(
                     request_id.clone(),
@@ -265,19 +172,10 @@ fn spawn_progress_loop(
                     None,
                 ),
                 &command_name,
-                delivery,
             )
             .await;
         }
     })
-}
-
-fn transport_delivery(context: crate::transport::TransportContext) -> crate::qos::DeliveryMode {
-    let _ = context;
-    crate::qos::DeliveryMode::Transport {
-        frame_budget: crate::qos::TRANSPORT_FRAME_BUDGET,
-        window_size: crate::qos::TRANSPORT_WINDOW_SIZE,
-    }
 }
 
 pub fn is_long_running(payload: &protocol::requests::CommandPayload) -> bool {
@@ -357,33 +255,5 @@ mod tests {
         assert!(super::is_cacheable_request(
             &protocol::requests::CommandPayload::WifiScan { ifname: None }
         ));
-    }
-
-    #[tokio::test]
-    async fn transport_long_running_progress_uses_transport_delivery() {
-        let (tx, mut rx) = tokio::sync::broadcast::channel(32);
-        let sender = crate::qos::ReliableEventSender::new(tx);
-        let next_seq = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(2));
-        let task = super::spawn_progress_loop(
-            sender,
-            "req-progress".to_string(),
-            "wifi.scan".to_string(),
-            next_seq,
-            crate::qos::DeliveryMode::Transport {
-                frame_budget: 20,
-                window_size: 1,
-            },
-        );
-
-        let raw = tokio::time::timeout(std::time::Duration::from_millis(1200), rx.recv())
-            .await
-            .expect("progress frame should be sent")
-            .unwrap();
-        task.abort();
-
-        let frame = protocol::transport::decode_frame(&raw).unwrap();
-        assert_eq!(frame.kind, protocol::transport::FrameKind::Progress);
-        assert_eq!(frame.index, 2);
-        assert!(frame.payload.is_empty());
     }
 }

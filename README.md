@@ -16,8 +16,7 @@ The gateway can scan nearby Wi-Fi networks, provision credentials, read system s
 | Use the desktop app on macOS | Download the macOS release asset | Current official prebuilt asset is Apple Silicon only. |
 | Run from source on your workstation | Build `gui` or `yundrone-ble-client` | Best for development and debugging. |
 | Deploy the BLE server on Linux | Run the unified entry or server-only entry | Target device needs BlueZ and NetworkManager. |
-| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, V2 transport frames, reassembly, and ACKs. |
-| Use the WebBluetooth provisioning workbench | Run `npm run dev` in `web-client/` | Static page. Requires `localhost` or HTTPS and Chrome/Edge / Android Chrome. Not part of the official release flow yet. |
+| Debug a BLE link | Run `yundrone-ble-client debug-ble` | Shows scan, connect, GATT discovery, notify frames, chunks, and QoS ACKs. |
 
 ## Quick Use
 
@@ -153,20 +152,6 @@ cargo run -p yundrone-ble-client -- debug-ble --help
 
 When using `cargo run`, the `--` separates Cargo arguments from program arguments. When running `./target/release/yundrone-ble-client` directly, do not include that separator.
 
-### WebBluetooth Provisioning Workbench
-
-The repository root now includes `web-client/`, a Carbon Design System styled pure frontend WebBluetooth workbench for browser-based BLE provisioning and diagnostics:
-
-```bash
-cd web-client
-npm install
-npm run dev
-```
-
-Local development uses `http://localhost:5173`. Public testing requires HTTPS; public HTTP pages cannot use WebBluetooth. The intended browsers are desktop Chrome / Edge and Android Chrome. Safari, Firefox, and ordinary iPhone / iPad browsers are not supported targets.
-
-This Web client builds to static HTML/CSS/JS and is not wired into `install.yundrone.cn`, release assets, or the production deployment flow yet. Its primary flow is connecting a `yundrone-*` device, scanning Wi-Fi, selecting or typing an SSID, entering a password, provisioning, and showing a clear success or failure result. See [docs/WEB_CLIENT_ZH.md](./docs/WEB_CLIENT_ZH.md) for details.
-
 ## Debug And Development
 
 Use the debug CLI when a device is hard to find, connection is slow, services do not appear, or responses look truncated:
@@ -181,15 +166,13 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --output /tmp/yundrone-ble-debug.log
 ```
 
-With `--trace-chunks` and `--trace-qos`, the log shows the BLE transport rather than only the business JSON. Current clients use a compact V2 binary frame so every conservative 20-byte BLE write/notify carries a 4-byte header and up to 16 bytes of request or response payload:
+With `--trace-chunks` and `--trace-qos`, the log shows:
 
-- `[TX:packet]` / `[RX:packet]`: each V2 transport packet, including `RequestChunk`, `RequestFinal`, `ResponseChunk`, `ResponseFinal`, `AckRange`, or `AckEvent`.
-- `[RX:transport]`: decoded transport metadata such as stream id, frame index, final flag, and payload length.
+- `[RX:raw]`: each raw BLE notify JSON frame.
+- `[RX:chunk]`: each `data.chunk` frame with `index/total`.
 - `[RX:assembled]`: the fully reassembled response JSON.
-- `[QOS:tx]`: request or ACK writes sent by the client.
+- `[QOS:ack]` / `[QOS:event-ack]`: transport acknowledgements sent by the client.
 - `[OK] rx`: the decoded final response summary.
-
-Large commands such as `wifi.scan` can print many packets because each response event is split into 16-byte payload frames and then reassembled. The older JSON `data.chunk` / `link.ack` path is still documented for compatibility and manual BLE debugger fallback, but the normal CLI path is V2 compact transport.
 
 Common local checks:
 
@@ -206,9 +189,8 @@ Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG
 - Server deployment and systemd operations: [docs/systemd.md](./docs/systemd.md)
 - BLE debugger guide with JSON commands: [docs/BLE_DEBUGGER_GUIDE_ZH.md](./docs/BLE_DEBUGGER_GUIDE_ZH.md) (Chinese)
 - Protocol command contracts: [docs/COMMANDS.md](./docs/COMMANDS.md)
-- Compatible BLE server implementation guide: [docs/[v26.2.0]COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/[v26.2.0]COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md) (Chinese)
+- Compatible BLE server implementation guide: [docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md) (Chinese)
 - BLE MTU chunking middleware: [docs/MTU_CHUNKING_ZH.md](./docs/MTU_CHUNKING_ZH.md) (Chinese)
-- WebBluetooth provisioning workbench: [docs/WEB_CLIENT_ZH.md](./docs/WEB_CLIENT_ZH.md) (Chinese)
 - WeChat Mini Program discovery guide: [docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md](./docs/WECHAT_MINIPROGRAM_DISCOVERY_ZH.md) (Chinese)
 - Rust client library API: [docs/LIBRARY_API.md](./docs/LIBRARY_API.md)
 - Command extension guide: [docs/COMMAND_AUTHORING.md](./docs/COMMAND_AUTHORING.md)
@@ -235,7 +217,6 @@ This repository is a Cargo workspace:
 - `crates/client`: BLE central library and CLI. Cargo package and binary: `yundrone-ble-client`.
 - `crates/gui`: native desktop GUI built with `egui`.
 - `crates/platform_runtime`: platform launch helpers, mainly for macOS app-bundle behavior.
-- `web-client`: pure frontend WebBluetooth provisioning workbench. It is not part of the Cargo workspace.
 
 Legacy Python service entrypoints have been removed. Current deployment uses the Rust server.
 

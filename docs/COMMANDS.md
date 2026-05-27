@@ -46,12 +46,12 @@ V2 is a breaking protocol. Legacy commands such as `ping`, `help`, `status`, `sy
 Fast commands usually return one `result` event. Slow foreground commands return:
 
 1. `accepted`
-2. one or more header-only `Progress` transport control frames, usually once per second
+2. one or more `progress` events, usually once per second
 3. one final `result`
 
-Current GUI/CLI clients prefer V2 compact BLE transport. A logical request or response JSON is split into binary frames with a 4-byte header and up to 16 bytes of payload per 20-byte BLE write/notify, then reassembled before business decoding.
+The response chunking middleware can split any oversized event into multiple BLE notifications. GUI/CLI clients reassemble this transparently.
 
-V2 transport acknowledgements use compact `AckRange` and `AckEvent` frames. Slow-command in-progress ticks use a header-only `Progress` control frame instead of a full JSON response event. The older JSON response chunking middleware and `link.ack` command remain as a compatibility/debug fallback; applications should not expose transport controls as user-facing commands.
+V2.1 adds lightweight transport acknowledgements. Clients ACK every reliable chunk and every completed response event with `link.ack`; applications should not expose `link.ack` as a user-facing command.
 
 ## Commands
 
@@ -68,7 +68,7 @@ Response:
 
 ### `link.ack`
 
-Purpose: legacy JSON transport-level acknowledgement for response chunks and completed response events.
+Purpose: transport-level acknowledgement for response chunks and completed response events.
 
 Arguments:
 
@@ -76,7 +76,7 @@ Arguments:
 - `response_seq`: response event sequence number being acknowledged
 - `chunk_index`: required for `ack_type=chunk`, omitted for `ack_type=event`
 
-Response: none. The server consumes this command in the transport layer and does not emit a business response. Current V2 compact transport normally uses binary `AckRange` / `AckEvent` frames instead of this JSON command.
+Response: none. The server consumes this command in the transport layer and does not emit a business response.
 
 ### `system.status`
 
@@ -112,12 +112,6 @@ Response:
 - `data.commands[]`: supported V2 command names
 - `data.features[]`: feature flags
 - `data.payload_limit`: protocol single-frame budget in bytes
-- `data.transport.frame_version`: compact BLE transport frame version; current value is `2`
-- `data.transport.frame_header_size`: transport header size in bytes; current value is `4`
-- `data.transport.max_frame_payload`: maximum payload bytes per 20-byte transport frame; current value is `16`
-- `data.transport.max_inbound_logical_payload`: maximum request/response JSON payload bytes per transport stream; current value is `4080`
-- `data.transport.response_window`: number of response frames the server may keep in flight before ACK advances the window; current value is `2`
-- `data.transport.ack_strategy`: ACK mode for compact transport; current value is `range`
 
 ### `wifi.scan`
 
@@ -127,7 +121,7 @@ Arguments:
 
 - `ifname`: optional Wi-Fi interface name, for example `wlan0`
 
-Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
+Event behavior: slow command with `accepted/progress/result`.
 
 Final response:
 
@@ -145,7 +139,7 @@ Arguments:
 - `ssid`: required target SSID
 - `pwd`: optional password. Omit for open networks.
 
-Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
+Event behavior: slow command with `accepted/progress/result`.
 
 Final success:
 
@@ -182,7 +176,7 @@ Arguments:
 - `uuids`: required string array of profile UUIDs
 - `force`: optional boolean, default `false`
 
-Event behavior: slow command with `accepted`, V2 `Progress` control frames, then final `result`.
+Event behavior: slow command with `accepted/progress/result`.
 
 Safety:
 

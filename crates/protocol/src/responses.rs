@@ -9,18 +9,6 @@ pub struct CapabilitiesResponseData {
     pub commands: Vec<String>,
     pub features: Vec<String>,
     pub payload_limit: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transport: Option<TransportCapabilities>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TransportCapabilities {
-    pub frame_version: u8,
-    pub frame_header_size: usize,
-    pub max_frame_payload: usize,
-    pub max_inbound_logical_payload: usize,
-    pub response_window: usize,
-    pub ack_strategy: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

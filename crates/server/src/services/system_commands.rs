@@ -19,21 +19,9 @@ pub(super) fn run_capabilities() -> SystemExecResult {
             "response_events".to_string(),
             "response_json_chunking".to_string(),
             "qos_ack_retry".to_string(),
-            "ble_transport_framing".to_string(),
-            "transport_ack".to_string(),
-            "transport_progress_control".to_string(),
-            "response_windowing".to_string(),
             "wifi_profile_management".to_string(),
         ],
         payload_limit: protocol::config::MAX_BLE_PAYLOAD_BYTES,
-        transport: Some(protocol::responses::TransportCapabilities {
-            frame_version: 2,
-            frame_header_size: protocol::transport::FRAME_HEADER_LEN,
-            max_frame_payload: protocol::transport::MAX_FRAME_PAYLOAD_LEN,
-            max_inbound_logical_payload: protocol::transport::MAX_LOGICAL_PAYLOAD_LEN,
-            response_window: crate::qos::TRANSPORT_WINDOW_SIZE,
-            ack_strategy: "range".to_string(),
-        }),
     };
 
     SystemExecResult::ok(

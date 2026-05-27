@@ -21,15 +21,7 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
 ```
 
-## 2) 构建或安装服务端二进制
-
-当前现场 release 部署使用：
-
-```text
-/opt/yundrone/ble-command-gateway/current/yundrone-ble-server
-```
-
-如果目标机从源码构建，也可以继续使用仓库模板里的源码路径：
+## 2) 构建服务端二进制
 
 ```bash
 . "$HOME/.cargo/env"
@@ -144,22 +136,22 @@ UUID: Nordic UART Service
 
 如果 `Pairable` 仍是 `yes`，手机系统或调试工具可能会弹系统配对请求。请确认 systemd 中的 `prepare-ble-adapter.sh` 已成功执行。不要为了消除 `br/edr` 字段而执行 `btmgmt bredr off`；在部分 ARM 板载 combo 控制器上，这会让 Bluefruit 等 iOS/macOS 工具卡在服务发现阶段。
 
-响应日志还会附带一段多行摘要，便于直接判断是否触发 transport frame：
+响应日志还会附带一段多行摘要，便于直接判断是否触发分片：
 
 ```text
 BLE response
   request: wifi.scan / 0692fc09-3533-4a63-8112-a2e62a0f2db9
   result: OK ok=true
-  transport: transport
-  bytes: response=1842 limit=20 max_chunk=20
-  chunks: count=116 sizes=[20, 20, ...]
+  transport: chunked response_json
+  bytes: response=1842 limit=360 max_chunk=356
+  chunks: count=6 sizes=[352, 356, 356, 354, 355, 219]
 ```
 
-日志不会打印完整响应 payload，也不会打印 Wi-Fi 密码；传输部分只展示大小、数量和传输模式。V2 主路径中，最终结果会被拆成 20B 以内的 transport frame；周期性“仍在进行”提示是 header-only `Progress` 控制帧，不会显示成大 JSON 分片。
+日志不会打印完整响应 payload，也不会打印 Wi-Fi 密码；分片部分只展示大小、数量和传输模式。
 
 部署验证时请记录日志里的 `identity_name`，例如 `identity_name=yundrone-ytcwln`，然后在 CLI / GUI 中按前缀 `yundrone` 扫描，再从候选列表里选择对应实例。
 
-设备名持久化在 `/var/lib/yundrone/ble-device-name`。这个文件是 BLE local name 的权威来源，不放在 `/opt/yundrone/ble-command-gateway` 或 `/opt/ble-command-gateway`，避免代码部署覆盖设备身份。文件缺失或内容非法时，server 会重建为 `<prefix>-<base36_6>`；如果无法写入该文件，server 应启动失败，避免产生临时名字污染移动端缓存。
+设备名持久化在 `/var/lib/yundrone/ble-device-name`。这个文件是 BLE local name 的权威来源，不放在 `/opt/ble-command-gateway`，避免代码部署覆盖设备身份。文件缺失或内容非法时，server 会重建为 `<prefix>-<base36_6>`；如果无法写入该文件，server 应启动失败，避免产生临时名字污染移动端缓存。
 
 建议直接用下面的命令过滤关键日志：
 

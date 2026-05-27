@@ -71,21 +71,11 @@ export interface StatusResponseData {
   interfaces: StatusInterfaceIpv4[];
 }
 
-export interface TransportCapabilities {
-  frame_version: number;
-  frame_header_size: number;
-  max_frame_payload: number;
-  max_inbound_logical_payload: number;
-  response_window: number;
-  ack_strategy: string;
-}
-
 export interface CapabilitiesResponseData {
   protocol_version: string;
   commands: string[];
   features: string[];
   payload_limit: number;
-  transport?: TransportCapabilities;
 }
 
 export interface HeartbeatResponseData {

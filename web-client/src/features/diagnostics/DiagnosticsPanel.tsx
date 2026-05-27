@@ -57,15 +57,14 @@ function StatusSummary({ status }: { status?: StatusResponseData }) {
 
 function CapabilitiesSummary({ capabilities }: { capabilities?: CapabilitiesResponseData }) {
   if (!capabilities) return <SummaryList title="协议能力" rows={[["Capabilities", "尚未读取协议能力"]]} />;
-  const transport = capabilities.transport;
   const commands = capabilities.commands ?? [];
   const features = capabilities.features ?? [];
   return <SummaryList title="协议能力" rows={[
     ["Protocol", capabilities.protocol_version || "-"],
     ["Commands", commands.join(", ") || "-"],
     ["Features", features.join(", ") || "-"],
-    ["Payload limit", String(capabilities.payload_limit)],
-    ["Transport", transport ? `frame=${transport.frame_version}, payload=${transport.max_frame_payload}, ack=${transport.ack_strategy}` : "-"],
+    ["JSON payload limit", `${capabilities.payload_limit} bytes`],
+    ["Transport", "JSON UART + response_json chunks + link.ack"],
   ]} />;
 }
 

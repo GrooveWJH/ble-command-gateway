@@ -7,7 +7,6 @@ use btleplug::platform::{Adapter, Manager, Peripheral};
 use futures::StreamExt;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -15,7 +14,6 @@ use client::discovery::{classify_properties, DiscoveryCriteria, UART_SERVICE_UUI
 
 const WRITE_UUID: &str = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
 const NOTIFY_UUID: &str = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
-static DEBUG_STREAM_ID: AtomicU8 = AtomicU8::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DebugStep {
@@ -401,10 +399,9 @@ async fn run_probe_command(
         )
         .line(),
     );
-    crate::debug_qos::write_transport_payload(
+    crate::debug_qos::write_with_qos(
         peripheral,
         write_char,
-        next_debug_stream_id(),
         &prepared.bytes,
         "request",
         options.trace_qos,
@@ -413,27 +410,13 @@ async fn run_probe_command(
     .await
     .with_context(|| format!("write {command_name} request"))?;
 
-    let mut decoder = client::response::TransportResponseDecoder::new();
+    let mut decoder = client::response::ResponseDecoder::new();
     let response = tokio::time::timeout(Duration::from_secs(options.timeout_secs), async {
         while let Some(notification) = notifications.next().await {
             if options.trace_chunks {
                 log_notification(&notification.value, log);
             }
             let event = decoder.decode_event(&notification.value)?;
-            let response_acknowledged_by_transport = matches!(
-                event.transport_ack.as_ref().map(|ack| ack.ack_type),
-                Some(client::response::TransportAckType::Event)
-            );
-            if let Some(receipt) = &event.transport_ack {
-                crate::debug_qos::send_debug_transport_ack(
-                    peripheral,
-                    write_char,
-                    receipt,
-                    options.trace_qos,
-                    log,
-                )
-                .await?;
-            }
             if let Some(receipt) = event.chunk_receipt {
                 crate::debug_qos::send_debug_chunk_ack(
                     peripheral,
@@ -446,16 +429,14 @@ async fn run_probe_command(
             }
             match event.response {
                 Some(response) if response.id == prepared.request.id => {
-                    if !response_acknowledged_by_transport {
-                        crate::debug_qos::send_debug_event_ack(
-                            peripheral,
-                            write_char,
-                            &response,
-                            options.trace_qos,
-                            log,
-                        )
-                        .await?;
-                    }
+                    crate::debug_qos::send_debug_event_ack(
+                        peripheral,
+                        write_char,
+                        &response,
+                        options.trace_qos,
+                        log,
+                    )
+                    .await?;
                     if options.trace_chunks {
                         log_reassembled_response(&response, log);
                     }
@@ -500,33 +481,7 @@ async fn run_probe_command(
     Ok(())
 }
 
-fn next_debug_stream_id() -> u8 {
-    let id = DEBUG_STREAM_ID.fetch_add(1, Ordering::Relaxed);
-    if id == 0 {
-        DEBUG_STREAM_ID.fetch_add(1, Ordering::Relaxed)
-    } else {
-        id
-    }
-}
-
 fn log_notification(raw: &[u8], log: &mut DebugLog) {
-    if protocol::transport::is_transport_frame(raw) {
-        match protocol::transport::decode_frame(raw) {
-            Ok(frame) => {
-                log.line(format!(
-                    "[RX:transport] kind={:?} stream={} index={} final={} payload_bytes={}",
-                    frame.kind,
-                    frame.stream_id,
-                    frame.index,
-                    frame.final_frame,
-                    frame.payload.len()
-                ));
-            }
-            Err(err) => log.line(format!("[RX:transport-error] {err}")),
-        }
-        return;
-    }
-
     let text = String::from_utf8_lossy(raw);
     log.line(format!("[RX:raw] bytes={} {}", raw.len(), text));
 

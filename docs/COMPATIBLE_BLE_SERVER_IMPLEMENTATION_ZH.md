@@ -6,18 +6,16 @@
 
 - 设备能被当前客户端扫描为候选设备。
 - 设备能暴露同一套 BLE service 与 characteristic。
-- 设备能接收 V2.1 JSON 请求，并在正式客户端路径上支持 BLE Transport V2 紧凑二进制帧。
-- 大请求/大响应能按 4 字节头 + 16 字节载荷的 V2 frame 拆包和重组。
-- 耗时命令的周期性 progress 能用 header-only `Progress` 控制帧表达，而不是完整 JSON progress。
-- 设备能处理 `AckRange` / `AckEvent`，支持 response window、重试、独立 response stream 与服务端去重。
-- legacy JSON `response_json` 分片和 `link.ack` 可作为旧客户端或通用 BLE 调试工具兼容路径。
+- 设备能接收 V2.1 JSON 请求并返回 V2.1 JSON 响应事件。
+- 大响应能按当前 `response_json` 分片格式拆包。
+- 设备能处理 `link.ack`，支持当前客户端的 chunk ACK、event ACK、请求重试与服务端去重。
 - 客户端现有心跳、系统信息、Wi-Fi 扫描、配网、Wi-Fi 记忆管理页面能正常工作。
 
 ## 1. 最小心智模型
 
-当前客户端把 BLE 设备当成一个很简单的请求-响应网关。客户端扫描到一个名字以 `yundrone-` 开头的设备后，会连接它，然后把业务 JSON 交给 V2 transport 拆成二进制帧写入特征，再从通知特征接收二进制帧并重组成 JSON 响应事件。
+当前客户端把 BLE 设备当成一个很简单的请求-响应网关。客户端扫描到一个名字以 `yundrone-` 开头的设备后，会连接它，然后向一个写入特征写 JSON 请求，再从一个通知特征接收 JSON 响应。
 
-V2 transport 在这个模型上加了一层轻量确认。客户端收到响应帧后，会写回 `AckRange` 推进窗口；一个响应事件完整重组并交给业务层后，再写回 `AckEvent`。这不是用户可见命令，而是为了弱链路下尽量避免响应帧丢失。旧版 JSON `link.ack` 仍可保留为兼容 fallback。
+V2.1 在这个模型上加了一层轻量确认。客户端收到服务端的响应后，会再写回一个 `link.ack` 请求，告诉服务端“这一片收到了”或“这一整个响应事件已经交付给业务层”。这不是用户可见命令，而是为了弱链路下尽量避免响应分片丢失。
 
 ```plantuml
 @startuml
@@ -29,9 +27,9 @@ participant Server as "兼容 BLE Server"
 
 User -> Client: 点击扫描并选择设备
 Client -> Server: 连接 BLE
-Client -> Server: 写入 RequestChunk / RequestFinal
-Server -> Client: Notify ResponseChunk / ResponseFinal
-Client -> Server: 写入 AckRange / AckEvent
+Client -> Server: 写入 JSON 请求
+Server -> Client: Notify JSON 响应事件
+Client -> Server: 写入 link.ack 确认响应已收到
 Client -> User: 展示状态、Wi-Fi 列表或配网结果
 
 @enduml
@@ -135,8 +133,8 @@ Steady --> Steady: 持续广播并允许连接
 | 类型 | UUID | 属性 | 用途 |
 | --- | --- | --- | --- |
 | Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | primary service | 命令服务 |
-| Write Characteristic | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | write，建议同时支持 write without response | 接收 V2 transport frame；兼容路径可接收 JSON 请求和 `link.ack` |
-| Notify Characteristic | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | notify | 返回 V2 transport response frame；兼容路径可返回 JSON 响应事件 |
+| Write Characteristic | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | write，建议同时支持 write without response | 接收客户端 JSON 请求和 `link.ack` |
+| Notify Characteristic | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | notify | 返回 JSON 响应事件 |
 
 当前客户端写入时会先尝试 `Write With Response`。如果平台或外设不支持，客户端才降级到 `Write Without Response`。所以兼容 server 最好让写入特征同时具备 `write` 和 `write without response` 两个属性；如果只能二选一，优先支持 `write`，否则 QoS 请求写入确认会少一层保障。
 
@@ -178,10 +176,9 @@ Stack --> Client: 返回 UART service / write / notify
 - 注册 GATT 成功之后再开始广播。
 - 当前协议不需要系统配对或 bonding。正常状态应为 connectable 但 non-pairable。
 - 不要为了“看起来更纯 BLE”盲目强制 LE-only 或 static random address。我们在部分 combo Wi-Fi/Bluetooth 控制器上实测过：强制 `btmgmt bredr off` 或 `btmgmt static-addr` 会导致 iOS/macOS 连接后 ATT MTU exchange 无响应，Bluefruit 卡在 `Discovering services`。
-- 收到 write 后先判断是否为 V2 transport frame；若不是，再按 UTF-8 JSON 兼容路径解析。
+- 收到 write 后按 UTF-8 JSON 解析。
 - 所有响应都通过 notify characteristic 发出。
-- 正式路径下所有响应事件都应通过 V2 transport 发出；每个逻辑响应事件使用独立 response stream。
-- 如果走 legacy JSON fallback 且响应大于 360B 兼容预算，需要按本文后面的 legacy 分片格式发出多条 notify。
+- 如果响应大于单帧预算，需要按本文后面的分片格式发出多条 notify。
 - 不要依赖 BLE 连接建立本身代表业务握手成功。客户端会通过 GATT service/characteristic 和 `link.heartbeat` 验证可用性。
 
 Linux / BlueZ 设备建议保持控制器默认 dual-mode，但关闭 pairable/bondable：
@@ -254,15 +251,13 @@ YundroneBT-V2.1.0
 | `data` | object | 否 | 命令返回数据 |
 | `v` | string | 是 | `YundroneBT-V2.1.0` |
 
-这里的“事件”不是 BLE event，而是业务响应事件。一个 `wifi.scan` 请求会先产生“已接受”事件，执行期间通过 V2 `Progress` 控制帧表示仍在运行，最后产生“扫描完成”事件。客户端只有看到 `final=true`，才认为这个请求真正结束。
+这里的“事件”不是 BLE event，而是业务响应事件。一个 `wifi.scan` 请求可能先产生“已接受”事件，再产生几个“请等待”事件，最后产生“扫描完成”事件。客户端只有看到 `final=true`，才认为这个请求真正结束。
 
-快速命令只返回一个 `phase=result, final=true` 事件。耗时命令在正式 V2 transport 路径下使用：
+快速命令只返回一个 `phase=result, final=true` 事件。耗时命令返回三类事件：
 
 1. `accepted`：表示已经接收请求并开始处理。
-2. `Progress` 控制帧：header-only，表示还在执行中，建议每秒发一次。
+2. `progress`：表示还在执行中，建议每秒发一次。
 3. `result`：最终结果，必须 `final=true`。
-
-legacy JSON fallback 可以继续发送 `phase=progress` 事件，供通用 BLE 调试工具或旧客户端观察。
 
 ```plantuml
 @startuml
@@ -278,7 +273,7 @@ alt 快速命令
 else 耗时命令
   Server -> Client: accepted, seq=1, final=false
   loop 每秒
-    Server -> Client: Progress control frame
+    Server -> Client: progress, seq递增, final=false
   end
   Server -> Client: result, seq递增, final=true
 end
@@ -321,18 +316,7 @@ end
 
 注意：GUI 每 5 秒发一次心跳，连续失败 3 次会认为连接断开。
 
-### 7.2 V2 transport ACK 与 legacy `link.ack`
-
-正式客户端路径使用二进制 ACK frame：
-
-| Frame | 方向 | 用途 |
-| --- | --- | --- |
-| `AckRange` | Client -> Server | 确认某个 stream 已连续收到到指定 frame index，用于推进 response window |
-| `AckEvent` | Client -> Server | 确认某个响应事件已经完整重组并交付给业务层 |
-
-ACK frame 不包含 payload。服务端收到 ACK 后只更新 transport/QoS 状态，不要返回业务响应。
-
-legacy JSON `link.ack` 只用于旧客户端或通用 BLE 调试工具 fallback：
+### 7.2 `link.ack`
 
 用途：传输层确认。客户端用它告诉服务端某个响应分片已经收到，或者某个完整响应事件已经重组并交给业务层。它不是用户功能，也不应该在 GUI 里展示成一个按钮。
 
@@ -375,7 +359,7 @@ event ACK 请求：
 - `chunk_index`: 只在 `ack_type=chunk` 时必需，从 `1` 开始。
 - `ack_type=event` 时不要发送 `chunk_index`。
 
-旧客户端会给所有完整交付到业务层的响应事件发送 event ACK。对于 legacy 分片响应，它会先给每个 chunk 发送 chunk ACK，再在全部重组完成后发送 event ACK。对于未分片的单帧响应，它会直接发送 event ACK。当前 V2 compact transport 对应的是 `AckRange` / `AckEvent`。
+当前客户端会给所有完整交付到业务层的响应事件发送 event ACK。对于分片响应，它会先给每个 chunk 发送 chunk ACK，再在全部重组完成后发送 event ACK。对于未分片的单帧响应，它会直接发送 event ACK。
 
 ### 7.3 `system.status`
 
@@ -446,25 +430,11 @@ event ACK 请求：
     "response_events",
     "response_json_chunking",
     "qos_ack_retry",
-    "ble_transport_framing",
-    "transport_ack",
-    "transport_progress_control",
-    "response_windowing",
     "wifi_profile_management"
   ],
-  "payload_limit": 360,
-  "transport": {
-    "frame_version": 2,
-    "frame_header_size": 4,
-    "max_frame_payload": 16,
-    "max_inbound_logical_payload": 4080,
-    "response_window": 2,
-    "ack_strategy": "range"
-  }
+  "payload_limit": 360
 }
 ```
-
-`payload_limit=360` 表示 legacy JSON chunking 兼容预算；`transport` 字段才是正式 CLI/GUI 主路径的能力声明。
 
 ### 7.5 `wifi.scan`
 
@@ -664,13 +634,6 @@ event ACK 请求：
 
 推荐事件顺序如下：
 
-```text
-V2 transport progress:
-Progress control frame, header-only, index=2
-
-legacy JSON fallback:
-```
-
 ```json
 {
   "id": "req-wifi-scan",
@@ -721,7 +684,7 @@ legacy JSON fallback:
 实现建议：
 
 - `accepted` 必须尽快返回，让用户知道点击已生效。
-- 正式 V2 transport 中，周期性 progress 不需要 JSON payload；当前客户端只需要知道任务仍在运行。
+- `progress` 不需要包含复杂百分比；当前客户端只需要知道任务仍在运行。
 - `result` 才更新业务卡片。
 - 同一时间建议只运行一个前台耗时命令。若已有耗时命令正在运行，第二个耗时命令可以返回 `BUSY`。
 - `link.heartbeat` 不应被前台耗时任务阻塞。
@@ -791,46 +754,9 @@ Client -> Server: link.ack, ack_type=event
 
 注意：`ACK_BAD_REQUEST`、`REQUEST_EXPIRED`、`DELIVERY_TIMEOUT` 是 QoS 相关结果码。当前参考 server 主要把它们用于日志、调试和未来扩展；兼容 server 不需要强行把每个 ACK 异常都 notify 给客户端。尤其是 `link.ack` 本身不应该产生普通业务响应。
 
-## 11. 大响应传输
+## 11. 大响应分片
 
-### 11.1 V2 compact transport 主路径
-
-正式客户端路径不再把大响应包装成多条 JSON chunk notify，而是使用 V2 compact binary transport：
-
-```text
-byte 0: magic/version，当前为 0x59
-byte 1: frame kind
-byte 2: stream id
-byte 3: frame index
-byte 4..19: payload，最多 16 bytes
-```
-
-关键 frame kind：
-
-| Kind | 方向 | 说明 |
-| --- | --- | --- |
-| `RequestChunk` | Client -> Server | 请求 JSON 的中间片 |
-| `RequestFinal` | Client -> Server | 请求 JSON 的最后一片 |
-| `ResponseChunk` | Server -> Client | 响应 JSON 的中间片 |
-| `ResponseFinal` | Server -> Client | 响应 JSON 的最后一片 |
-| `Progress` | Server -> Client | 长任务仍在进行；header-only，不携带 JSON payload |
-| `AckRange` | Client -> Server | 确认连续收到的 frame index |
-| `AckEvent` | Client -> Server | 确认完整响应事件已交付 |
-
-实现要求：
-
-- 先把完整 `CommandRequest` 或 `CommandResponse` 序列化为 UTF-8 JSON bytes。
-- 每帧 payload 最多 16 bytes。
-- payload frame index 从 `1` 开始；ACK event 可使用 index `0`。
-- 每个请求 stream 最多承载 `255 * 16 = 4080` bytes。
-- 服务端给同一业务请求的 `accepted`、`progress`、`result` 分配不同 response stream，避免长任务多个事件串包。
-- 周期性 `progress` 不应再构造完整 JSON response；正式路径发送单个 `Progress` 控制帧即可。
-- 服务端 response window 当前为 `2`，收到 `AckRange` 后再推进后续 frame。
-- 客户端收到 `ResponseFinal` 并重组成完整 JSON 后，再发送 `AckEvent`。
-
-### 11.2 Legacy JSON response chunking
-
-legacy JSON fallback 认为单个 BLE notify 里的已编码 JSON 响应帧最大安全预算是：
+当前客户端认为单个 BLE notify 里的已编码 JSON 响应帧最大安全预算是：
 
 ```text
 360 bytes
@@ -881,9 +807,9 @@ legacy JSON fallback 认为单个 BLE notify 里的已编码 JSON 响应帧最�
 }
 ```
 
-### 11.3 Legacy JSON 可靠传输 ACK
+### 11.1 V2.1 可靠传输 ACK
 
-legacy JSON 分片在原来的分片机制上增加了一层很轻的确认机制。它不是新的业务命令，也不是让用户点击的功能，而是客户端和服务端之间的传输层确认。当前 V2 compact transport 使用上一节的 `AckRange` / `AckEvent`，本节只用于旧客户端兼容。
+V2.1 在原来的分片机制上增加了一层很轻的确认机制。它不是新的业务命令，也不是让用户点击的功能，而是客户端和服务端之间的传输层确认。
 
 核心规则：
 
@@ -1229,14 +1155,15 @@ GATT：
 - 只接受 `YundroneBT-V2.1.0`。
 - 所有响应带回同一个 `id`。
 - 快速命令返回单个 `result`。
-- 耗时命令返回 `accepted` 和最终 `result`；正式 V2 transport 用 `Progress` 控制帧表达进行中，legacy fallback 可返回 `phase=progress` JSON。
+- 耗时命令返回 `accepted/progress/result`。
 - `final=true` 只出现在最终事件。
 - 服务端按请求 `id` 做 120 秒左右的去重缓存，客户端重发同一个 `id` 时不重复执行副作用。
-- 正式路径按 V2 transport frame 传输请求和响应，单帧 4 字节 header + 16 字节 payload。
-- 每个 `accepted/result` 逻辑响应事件使用独立 response stream；`Progress` 控制帧不进入 response stream。
-- 周期性 progress 使用 header-only `Progress` 控制帧；`accepted` 和 `result` 仍使用完整 JSON response。
-- 收到 `AckRange` 后推进 response window；收到 `AckEvent` 后清理对应响应事件缓存。
-- legacy fallback 才按 `response_json` 分片、`ack_required: true`、`link.ack` 和 360B JSON notify 预算处理。
+- 大响应按 `response_json` 分片。
+- `response_json` chunk 带 `ack_required: true`。
+- 收到 `link.ack` 后只更新传输状态，不返回业务响应。
+- 未收到 chunk ACK 时按约 750 ms 重发缺失分片，最多约 5 次。
+- 收到 event ACK 后清理对应响应事件缓存。
+- 单个 notify JSON 帧不超过 360 bytes。
 
 业务：
 
@@ -1259,9 +1186,9 @@ GATT：
 5. 订阅 notify characteristic。
 6. 写入 `link.heartbeat`，确认返回 `alive=true`。
 7. 写入 `system.capabilities`，确认命令列表完整。
-8. 写入 `wifi.scan`，确认先收到 `accepted`，执行中看到 `Progress` 控制帧，最后收到 `result`。
-9. 开启 CLI 的 `--trace-chunks --trace-qos`，确认客户端会显示 `ResponseChunk/ResponseFinal`、`Progress` 和 `AckRange/AckEvent`。
-10. 制造一个超过 20B transport frame 的 `wifi.scan` 结果，确认客户端能重组到 `[RX:assembled]`。
+8. 写入 `wifi.scan`，确认先收到 `accepted`，再收到 `progress`，最后收到 `result`。
+9. 开启 CLI 的 `--trace-qos`，确认客户端会发 `chunk ACK` 和 `event ACK`。
+10. 制造一个超过 360 bytes 的 `wifi.scan` 结果，确认客户端能重组分片。
 11. 人为重发同一个请求 `id`，确认服务端不会重复执行耗时任务。
 12. 写入 `wifi.profiles.list`，确认 GUI 能显示已保存 Wi-Fi。
 13. 删除一个非 active profile，确认 GUI 能刷新列表。
@@ -1291,8 +1218,8 @@ cargo run -p yundrone-ble-client -- debug-ble \
 - 不要恢复旧名字 `Yundrone_UAV-*` 或 `YD-*`。当前客户端默认不把它们当候选。
 - 不要只实现连接后的 GATT service，却忘了在广播或 scan response 里声明 UART Service UUID。这样 Bluefruit 的 `Must UART Service` 或微信 service 过滤可能看不到设备。
 - 不要在 GATT 服务注册完成前就开始广播。调试工具可能一看到广告就连接，随后卡在 `Discovering services`。
-- 不要把大 JSON 直接塞进一个 notify。正式路径必须走 V2 transport frame；legacy fallback 也不能超过 360B JSON notify 预算。
-- 不要忘记处理 V2 `AckRange` / `AckEvent`。如果还支持旧客户端，再保留 `link.ack` 兼容处理。
+- 不要把大 JSON 直接塞进一个 notify。`wifi.scan` 和 profile 列表很容易超过 360 bytes。
+- 不要忘记处理 `link.ack`。当前客户端会主动发送 ACK；如果服务端把它当未知业务命令，日志会很乱，QoS 也无法重发缺失分片。
 - 不要让同一个请求 `id` 重复执行副作用。客户端弱链路重试是正常行为，不是用户重复点击。
 - 不要让 `link.heartbeat` 被长任务阻塞。GUI 依赖它判断连接健康。
 - 不要按 SSID 删除 Wi-Fi 记忆。必须按 `uuid` 删除，避免误删同名网络。
@@ -1308,10 +1235,9 @@ Service: 6e400001-b5a3-f393-e0a9-e50e24dcca9e
 Write:   6e400002-b5a3-f393-e0a9-e50e24dcca9e
 Notify:  6e400003-b5a3-f393-e0a9-e50e24dcca9e
 协议:    YundroneBT-V2.1.0
-V2帧:    4B header + 16B payload，最大逻辑载荷 4080B
-兼容帧:  legacy JSON notify <= 360 bytes
-长任务:  accepted -> Progress control -> result
-QoS:     AckRange + AckEvent + response window + request-id 去重
+单帧:    <= 360 bytes
+长任务:  accepted -> progress -> result
+QoS:     link.ack + chunk ACK + event ACK + request-id 去重
 ```
 
 只要这几条满足，当前 GUI / CLI 客户端就能把你的实现当成同一类 YunDrone BLE Gateway 来使用。

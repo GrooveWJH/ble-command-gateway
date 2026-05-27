@@ -3,16 +3,8 @@ use btleplug::api::{CharPropFlags, Characteristic, Peripheral as _, ValueNotific
 use btleplug::platform::Peripheral;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 use tracing::info;
-
-static NEXT_TRANSPORT_STREAM_ID: AtomicU8 = AtomicU8::new(1);
-
-enum EventWaitOutcome {
-    Response(protocol::CommandResponse),
-    Progress,
-}
 
 pub struct BleSession {
     device_name: String,
@@ -21,7 +13,7 @@ pub struct BleSession {
     write_char: Characteristic,
     read_char: Characteristic,
     notifications: Pin<Box<dyn Stream<Item = ValueNotification> + Send>>,
-    response_decoder: crate::response::TransportResponseDecoder,
+    response_decoder: crate::response::ResponseDecoder,
 }
 
 impl BleSession {
@@ -74,7 +66,7 @@ impl BleSession {
             write_char,
             read_char,
             notifications,
-            response_decoder: crate::response::TransportResponseDecoder::new(),
+            response_decoder: crate::response::ResponseDecoder::new(),
         })
     }
 
@@ -106,8 +98,7 @@ impl BleSession {
             payload_bytes = request.bytes.len(),
             "ble.request.sent"
         );
-        self.send_transport_payload(protocol::transport::FrameKind::RequestChunk, &request.bytes)
-            .await
+        self.send_payload(&request.bytes).await
     }
 
     pub async fn send_request_traced(
@@ -145,15 +136,7 @@ impl BleSession {
                 write: "with-response",
             },
         );
-        match self
-            .send_transport_payload_traced(
-                protocol::transport::FrameKind::RequestChunk,
-                &request.bytes,
-                crate::trace::TraceWriteKind::Request,
-                trace.clone(),
-            )
-            .await
-        {
+        match self.send_payload(&request.bytes).await {
             Ok(()) => Ok(()),
             Err(err) => {
                 crate::trace::emit(
@@ -181,50 +164,7 @@ impl BleSession {
         timeout_secs: u64,
         trace: Option<crate::trace::TraceCallback>,
     ) -> Result<protocol::CommandResponse> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                return Err(anyhow!(
-                    "Timed out waiting for BLE response after {}s",
-                    timeout_secs
-                ));
-            }
-            match self
-                .next_event_with_progress_for(remaining, trace.clone())
-                .await?
-            {
-                EventWaitOutcome::Response(response) => return Ok(response),
-                EventWaitOutcome::Progress => continue,
-            }
-        }
-    }
-
-    async fn next_event_with_progress(
-        &mut self,
-        timeout_secs: u64,
-        trace: Option<crate::trace::TraceCallback>,
-    ) -> Result<EventWaitOutcome> {
-        self.next_event_with_progress_for(Duration::from_secs(timeout_secs), trace)
-            .await
-            .map_err(|err| {
-                if err
-                    .to_string()
-                    .starts_with("Timed out waiting for BLE response")
-                {
-                    anyhow!("Timed out waiting for BLE response after {}s", timeout_secs)
-                } else {
-                    err
-                }
-            })
-    }
-
-    async fn next_event_with_progress_for(
-        &mut self,
-        timeout: Duration,
-        trace: Option<crate::trace::TraceCallback>,
-    ) -> Result<EventWaitOutcome> {
-        tokio::time::timeout(timeout, async {
+        tokio::time::timeout(Duration::from_secs(timeout_secs), async {
             while let Some(notification) = self.notifications.next().await {
                 if notification.uuid != self.read_char.uuid {
                     continue;
@@ -235,19 +175,6 @@ impl BleSession {
                 }
                 match self.response_decoder.decode_event(&notification.value) {
                     Ok(event) => {
-                        if let Some(ack) = &event.transport_ack {
-                            let ack_bytes =
-                                self.send_transport_ack_traced(ack, trace.clone()).await?;
-                            crate::trace::emit(
-                                &trace,
-                                crate::trace::TraceEvent::QosTx {
-                                    kind: crate::trace::TraceWriteKind::TransportAck,
-                                    bytes: ack_bytes,
-                                    write: "with-response",
-                                },
-                            );
-                        }
-                        let transport_progress = event.transport_progress;
                         if let Some(receipt) = &event.chunk_receipt {
                             if let Some(ack_bytes) = trace_link_ack(
                                 &trace,
@@ -286,53 +213,44 @@ impl BleSession {
                                 },
                             );
                         }
-                        let response_acknowledged_by_transport = matches!(
-                            event.transport_ack.as_ref().map(|ack| ack.ack_type),
-                            Some(crate::response::TransportAckType::Event)
-                        );
                         let Some(response) = event.response else {
-                            if transport_progress {
-                                return Ok(EventWaitOutcome::Progress);
-                            }
                             continue;
                         };
-                        if !response_acknowledged_by_transport {
-                            if let Some(ack_bytes) = trace_link_ack(
-                                &trace,
-                                &response.id,
-                                protocol::requests::LinkAckArgs {
-                                    ack_type: protocol::requests::AckType::Event,
-                                    response_seq: response.seq,
-                                    chunk_index: None,
-                                },
-                                crate::trace::TraceWriteKind::EventAck,
-                            )? {
-                                crate::trace::emit(
-                                    &trace,
-                                    crate::trace::TraceEvent::QosTx {
-                                        kind: crate::trace::TraceWriteKind::EventAck,
-                                        bytes: ack_bytes,
-                                        write: "with-response",
-                                    },
-                                );
-                            };
-                            crate::qos::send_event_ack(
-                                &self.device,
-                                &self.write_char,
-                                &self.device_name,
-                                self.device_rssi,
-                                &response,
-                            )
-                            .await?;
+                        if let Some(ack_bytes) = trace_link_ack(
+                            &trace,
+                            &response.id,
+                            protocol::requests::LinkAckArgs {
+                                ack_type: protocol::requests::AckType::Event,
+                                response_seq: response.seq,
+                                chunk_index: None,
+                            },
+                            crate::trace::TraceWriteKind::EventAck,
+                        )? {
                             crate::trace::emit(
                                 &trace,
-                                crate::trace::TraceEvent::QosEventAck {
-                                    response_id: response.id.clone(),
-                                    response_seq: response.seq,
+                                crate::trace::TraceEvent::QosTx {
+                                    kind: crate::trace::TraceWriteKind::EventAck,
+                                    bytes: ack_bytes,
+                                    write: "with-response",
                                 },
                             );
-                        }
-                        if event.assembled_from_chunks || event.assembled_from_transport {
+                        };
+                        crate::qos::send_event_ack(
+                            &self.device,
+                            &self.write_char,
+                            &self.device_name,
+                            self.device_rssi,
+                            &response,
+                        )
+                        .await?;
+                        crate::trace::emit(
+                            &trace,
+                            crate::trace::TraceEvent::QosEventAck {
+                                response_id: response.id.clone(),
+                                response_seq: response.seq,
+                            },
+                        );
+                        if event.assembled_from_chunks {
                             if let Ok(bytes) = protocol::encode_response(&response) {
                                 crate::trace::emit(
                                     &trace,
@@ -348,7 +266,7 @@ impl BleSession {
                             code = %response.code,
                             "ble.response.received"
                         );
-                        return Ok(EventWaitOutcome::Response(response));
+                        return Ok(response);
                     }
                     Err(err) => return Err(anyhow!(err.to_string())),
                 }
@@ -359,67 +277,7 @@ impl BleSession {
             ))
         })
         .await
-        .map_err(|_| anyhow!("Timed out waiting for BLE response"))?
-    }
-
-    async fn send_transport_payload(
-        &self,
-        kind: protocol::transport::FrameKind,
-        payload: &[u8],
-    ) -> Result<()> {
-        let stream_id = next_transport_stream_id();
-        let frames = protocol::transport::encode_payload_frames(kind, stream_id, payload, 20)
-            .map_err(|err| anyhow!(err.to_string()))?;
-        for frame in frames {
-            self.send_payload(&frame).await?;
-        }
-        Ok(())
-    }
-
-    async fn send_transport_payload_traced(
-        &self,
-        kind: protocol::transport::FrameKind,
-        payload: &[u8],
-        write_kind: crate::trace::TraceWriteKind,
-        trace: Option<crate::trace::TraceCallback>,
-    ) -> Result<()> {
-        let stream_id = next_transport_stream_id();
-        let frames = protocol::transport::encode_payload_frames(kind, stream_id, payload, 20)
-            .map_err(|err| anyhow!(err.to_string()))?;
-        for frame in frames {
-            crate::trace::emit(
-                &trace,
-                crate::trace::TraceEvent::TxPacket {
-                    kind: write_kind,
-                    bytes: frame.clone(),
-                },
-            );
-            self.send_payload(&frame).await?;
-        }
-        Ok(())
-    }
-
-    async fn send_transport_ack_traced(
-        &self,
-        ack: &crate::response::TransportAckReceipt,
-        trace: Option<crate::trace::TraceCallback>,
-    ) -> Result<usize> {
-        let kind = match ack.ack_type {
-            crate::response::TransportAckType::Range => protocol::transport::FrameKind::AckRange,
-            crate::response::TransportAckType::Event => protocol::transport::FrameKind::AckEvent,
-        };
-        let frame = protocol::transport::encode_ack_frame(kind, ack.stream_id, ack.index, 20)
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let len = frame.len();
-        crate::trace::emit(
-            &trace,
-            crate::trace::TraceEvent::TxPacket {
-                kind: crate::trace::TraceWriteKind::TransportAck,
-                bytes: frame.clone(),
-            },
-        );
-        self.send_payload(&frame).await?;
-        Ok(len)
+        .map_err(|_| anyhow!("Timed out waiting for BLE response after {}s", timeout_secs))?
     }
 
     pub async fn run_request_until_final<F>(
@@ -489,18 +347,8 @@ impl BleSession {
         for attempt in 1..=crate::qos::REQUEST_ACCEPT_RETRIES {
             self.send_request(request).await?;
             let wait_secs = crate::qos::REQUEST_ACCEPT_TIMEOUT_SECS.min(timeout_secs);
-            match self.next_event_with_progress(wait_secs, None).await {
-                Ok(EventWaitOutcome::Progress) => {
-                    info!(
-                        device_name = %self.device_name,
-                        rssi = ?self.device_rssi,
-                        request_id = %request.request.id,
-                        attempt,
-                        "qos.request.transport_progress"
-                    );
-                    return Ok(None);
-                }
-                Ok(EventWaitOutcome::Response(response)) if response.id == request.request.id => {
+            match self.next_event(wait_secs).await {
+                Ok(response) if response.id == request.request.id => {
                     info!(
                         device_name = %self.device_name,
                         rssi = ?self.device_rssi,
@@ -511,7 +359,7 @@ impl BleSession {
                     );
                     return Ok(Some(response));
                 }
-                Ok(EventWaitOutcome::Response(response)) => {
+                Ok(response) => {
                     info!(
                         device_name = %self.device_name,
                         rssi = ?self.device_rssi,
@@ -548,21 +396,8 @@ impl BleSession {
             self.send_request_traced(request, trace_options, trace.clone())
                 .await?;
             let wait_secs = crate::qos::REQUEST_ACCEPT_TIMEOUT_SECS.min(timeout_secs);
-            match self
-                .next_event_with_progress(wait_secs, trace.clone())
-                .await
-            {
-                Ok(EventWaitOutcome::Progress) => {
-                    info!(
-                        device_name = %self.device_name,
-                        rssi = ?self.device_rssi,
-                        request_id = %request.request.id,
-                        attempt,
-                        "qos.request.transport_progress"
-                    );
-                    return Ok(None);
-                }
-                Ok(EventWaitOutcome::Response(response)) if response.id == request.request.id => {
+            match self.next_event_traced(wait_secs, trace.clone()).await {
+                Ok(response) if response.id == request.request.id => {
                     info!(
                         device_name = %self.device_name,
                         rssi = ?self.device_rssi,
@@ -573,7 +408,7 @@ impl BleSession {
                     );
                     return Ok(Some(response));
                 }
-                Ok(EventWaitOutcome::Response(response)) => {
+                Ok(response) => {
                     info!(
                         device_name = %self.device_name,
                         rssi = ?self.device_rssi,
@@ -619,15 +454,6 @@ impl BleSession {
             Err(err) if is_already_disconnected_error(&err.to_string()) => Ok(()),
             Err(err) => Err(err.into()),
         }
-    }
-}
-
-fn next_transport_stream_id() -> u8 {
-    let id = NEXT_TRANSPORT_STREAM_ID.fetch_add(1, Ordering::Relaxed);
-    if id == 0 {
-        NEXT_TRANSPORT_STREAM_ID.fetch_add(1, Ordering::Relaxed)
-    } else {
-        id
     }
 }
 
@@ -682,14 +508,6 @@ mod tests {
         assert!(!is_already_disconnected_error("permission denied"));
         assert!(!is_already_disconnected_error(
             "write characteristic missing"
-        ));
-    }
-
-    #[test]
-    fn event_wait_outcome_progress_is_not_terminal_response() {
-        assert!(!matches!(
-            super::EventWaitOutcome::Progress,
-            super::EventWaitOutcome::Response(_)
         ));
     }
 }

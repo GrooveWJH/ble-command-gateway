@@ -5,21 +5,10 @@ pub(crate) async fn send_response_event(
     resp: protocol::CommandResponse,
     command_name: &str,
 ) {
-    send_response_event_with_delivery(tx, resp, command_name, crate::qos::DeliveryMode::LegacyJson)
-        .await;
-}
-
-pub(crate) async fn send_response_event_with_delivery(
-    tx: crate::qos::ReliableEventSender,
-    resp: protocol::CommandResponse,
-    command_name: &str,
-    delivery: crate::qos::DeliveryMode,
-) {
     let summary = ResponseSummary::from_response(&resp, command_name);
-    summary.emit_structured_log(&resp, delivery);
+    summary.emit_structured_log(&resp);
     summary.emit_human_log(&resp);
-    tx.send_event_with_delivery(resp, command_name, delivery)
-        .await;
+    tx.send_event(resp, command_name).await;
 }
 
 struct ResponseSummary<'a> {
@@ -68,12 +57,7 @@ impl<'a> ResponseSummary<'a> {
         }
     }
 
-    fn emit_structured_log(
-        &self,
-        resp: &protocol::CommandResponse,
-        delivery: crate::qos::DeliveryMode,
-    ) {
-        let transport_frame_count = transport_frame_count(resp, delivery);
+    fn emit_structured_log(&self, resp: &protocol::CommandResponse) {
         info!(
             request_id = %resp.id,
             cmd = %self.command_name,
@@ -88,9 +72,6 @@ impl<'a> ResponseSummary<'a> {
             payload_limit = protocol::config::MAX_BLE_PAYLOAD_BYTES,
             response_bytes = self.response_bytes,
             max_chunk_bytes = self.max_chunk_bytes(),
-            transport_frame_count,
-            transport_frame_budget = delivery.transport_frame_budget(),
-            transport_window_size = delivery.transport_window_size(),
             "ble.response.sent"
         );
     }
@@ -113,23 +94,4 @@ impl<'a> ResponseSummary<'a> {
     fn max_chunk_bytes(&self) -> usize {
         self.chunk_sizes.iter().copied().max().unwrap_or(0)
     }
-}
-
-fn transport_frame_count(
-    resp: &protocol::CommandResponse,
-    delivery: crate::qos::DeliveryMode,
-) -> Option<usize> {
-    let frame_budget = delivery.transport_frame_budget()?;
-    protocol::encode_response(resp)
-        .ok()
-        .and_then(|payload| {
-            protocol::transport::encode_payload_frames(
-                protocol::transport::FrameKind::ResponseChunk,
-                1,
-                &payload,
-                frame_budget,
-            )
-            .ok()
-        })
-        .map(|frames| frames.len())
 }

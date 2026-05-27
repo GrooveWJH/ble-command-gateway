@@ -207,6 +207,17 @@ mod tests {
     use clap::{ColorChoice, CommandFactory};
 
     #[test]
+    fn macos_plist_declares_bluetooth_usage_description() {
+        let plist = include_str!("../macos/Info.plist");
+
+        assert!(plist.contains("CFBundleIdentifier"));
+        assert!(plist.contains("CFBundleExecutable"));
+        assert!(plist.contains("CFBundlePackageType"));
+        assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
+        assert!(plist.contains("Bluetooth"));
+    }
+
+    #[test]
     fn root_help_is_typer_like_and_example_driven() {
         let mut command = Args::command();
         let help = command.render_long_help().to_string();

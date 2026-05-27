@@ -2,8 +2,6 @@
 
 本文面向 Bluefruit Connect、nRF Connect、LightBlue 等通用 BLE 调试工具。你可以直接连接 YunDrone BLE Gateway，向 Write Characteristic 写入 JSON 指令，并在 Notify Characteristic 观察返回事件。
 
-注意：当前正式 CLI/GUI 主路径已经使用 BLE Transport V2 紧凑二进制帧。通用 BLE 工具适合手写 `link.heartbeat`、`system.capabilities` 这类小 JSON 命令，或者验证 GATT/广播/兼容 fallback；它们不适合手工构造完整 V2 二进制大包传输。大响应和 ACK 行为请优先用 `yundrone-ble-client debug-ble --trace-chunks --trace-qos` 或 `interactive --verbose` 观察。
-
 ## 1. 先确认连的是对的设备
 
 扫描页里可能同时出现系统展示名和 BLE 广播 `Local Name`。系统展示名可能是 `linux-board`，它不是业务身份。请进入设备详情，确认 `Local Name` 类似：
@@ -77,9 +75,8 @@ service 6e400001-b5a3-f393-e0a9-e50e24dcca9e primary=true <- UART service
 char 6e400002-b5a3-f393-e0a9-e50e24dcca9e props=...
 char 6e400003-b5a3-f393-e0a9-e50e24dcca9e props=...
 [OK] subscribe
-[TX:packet]          ... transport RequestFinal
-[RX:packet]          ... transport ResponseFinal
-[QOS:tx]             kind=transport-ack ...
+[QOS:ack]
+[QOS:event-ack]
 [OK] rx                 link.heartbeat ... text=alive
 [OK] rx                 system.capabilities ... text=capabilities listed
 ```
@@ -149,7 +146,7 @@ UUID: Nordic UART Service
 - `seq` 是同一请求内递增序号。
 - `final=true` 表示本次请求结束。
 
-耗时命令会先回 `accepted`，执行中表示“仍在进行”，最后回 `result`。正式 CLI/GUI 的 V2 transport 路径里，周期性进行中提示是 header-only `Progress` 控制帧；通用 BLE 调试工具走 JSON fallback 时，仍可能看到 `phase=progress` 的 JSON 事件。调试工具里要等 `final=true` 才算真正结束。
+耗时命令会先回 `accepted`，执行中回 `progress`，最后回 `result`。调试工具里要等 `final=true` 才算真正结束。
 
 ## 4. 最小连通性测试：`link.heartbeat`
 
@@ -214,28 +211,13 @@ UUID: Nordic UART Service
     "features": [
       "response_events",
       "response_json_chunking",
-      "qos_ack_retry",
-      "ble_transport_framing",
-      "transport_ack",
-      "transport_progress_control",
-      "response_windowing",
       "wifi_profile_management"
     ],
-    "payload_limit": 360,
-    "transport": {
-      "frame_version": 2,
-      "frame_header_size": 4,
-      "max_frame_payload": 16,
-      "max_inbound_logical_payload": 4080,
-      "response_window": 2,
-      "ack_strategy": "range"
-    }
+    "payload_limit": 360
   },
   "v": "YundroneBT-V2.1.0"
 }
 ```
-
-这里的 `transport` 字段表示正式 CLI/GUI 会优先使用 V2 compact binary transport。`payload_limit=360` 是 legacy JSON chunking 的兼容预算，不是当前主路径的 BLE frame payload。
 
 ## 6. 抓取系统状态：`system.status`
 
@@ -277,15 +259,11 @@ UUID: Nordic UART Service
 {"id":"debug-wifi-001","cmd":"wifi.scan","phase":"accepted","seq":1,"final":false,"ok":true,"code":"ACCEPTED","text":"accepted","v":"YundroneBT-V2.1.0"}
 ```
 
-```text
-V2 verbose:
-[RX:packet] transport Progress stream=0 index=2 final=false payload=0
-
-legacy JSON fallback:
+```json
 {"id":"debug-wifi-001","cmd":"wifi.scan","phase":"progress","seq":2,"final":false,"ok":true,"code":"IN_PROGRESS","text":"please wait","v":"YundroneBT-V2.1.0"}
 ```
 
-最后会收到 `final=true` 的结果。正式 CLI/GUI 会通过 V2 transport frame 自动重组；通用 BLE 调试工具如果走 legacy fallback，仍可能看到 `data.chunk`。完整结果重组后类似：
+最后会收到 `final=true` 的结果，可能因为较大而被分片。完整结果重组后类似：
 
 ```json
 {
@@ -422,31 +400,9 @@ legacy JSON fallback:
 
 调试器可以手写 `force:true`，但这可能删除当前联网配置并让设备掉线。GUI 默认不会暴露这个能力。
 
-## 11. 大响应传输怎么看
+## 11. 大响应分片怎么看
 
-正式 CLI/GUI 的 verbose 输出会看到多条 V2 transport packet。一个典型大响应可能长这样：
-
-```text
-[RX:packet] transport ResponseChunk stream=25 index=1 final=false payload=16
-[QOS:tx] kind=transport-ack ...
-[RX:packet] transport ResponseChunk stream=25 index=2 final=false payload=16
-...
-[RX:packet] transport Progress stream=0 index=2 final=false payload=0
-[RX:packet] transport ResponseFinal stream=25 index=64 final=true payload=7
-[QOS:tx] kind=transport-ack ...
-[RX:assembled] bytes=1015
-```
-
-解释方式：
-
-1. `stream` 是某个逻辑响应事件的 transport stream id。
-2. `index` 是这个 stream 内的帧序号。
-3. `payload=16` 表示该帧最多携带 16 字节业务 JSON 片段。
-4. `ResponseFinal` 表示这个 stream 的最后一片。
-5. `[RX:assembled]` 才是完整重组后的业务 JSON。
-6. `Progress` 是 4 字节控制帧，只表示长任务仍在进行，不需要 JSON 重组。
-
-如果用通用 BLE 调试工具走 legacy JSON fallback，某个最终响应超过兼容预算 `360 bytes` 时，你会看到多条带 `data.chunk` 的 Notify：
+如果某个最终响应超过协议单帧预算 `360 bytes`，你会看到多条带 `data.chunk` 的 Notify：
 
 ```json
 {
@@ -477,7 +433,7 @@ legacy JSON fallback:
 3. 拼接每片 `data.chunk.payload`。
 4. 拼出来的字符串就是完整 response JSON。
 
-GUI / CLI 会自动重组 V2 transport 和 legacy chunk。通用调试工具通常不会自动重组。
+GUI / CLI 会自动重组，调试工具通常不会。
 
 ## 12. 错误请求示例
 
@@ -527,7 +483,7 @@ ble.request.received request_id=debug-heartbeat-001 cmd=link.heartbeat
 ble.response.sent request_id=debug-heartbeat-001 cmd=link.heartbeat response_code=OK phase=Result chunk_count=1
 ```
 
-如果是 `wifi.scan` 这类大响应，日志应显示 `accepted`、V2 `Progress` 控制帧和最终 `result`。最终结果在正式路径下应走 compact transport frame；只有 legacy fallback 才会进入 `chunked response_json`。
+如果是 `wifi.scan` 这类大响应，日志应显示 `accepted/progress/result` 事件，以及最终结果是否进入 `chunked response_json`。
 
 ## 14. 快速检查清单
 

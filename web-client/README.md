@@ -59,4 +59,4 @@ npm run check:maxlines
 - 完整 response event 交付后发送 `link.ack` event ACK。
 - 请求 accepted 阶段按 CLI 行为用同一 request id 重试，降低弱链路下的误失败率。
 
-这里没有使用未合并 BLE Transport V2 分支里的 compact binary frame。
+这里不使用 20B compact binary frame；Web 端与正式主线 server 保持 360B JSON chunking 协议一致。

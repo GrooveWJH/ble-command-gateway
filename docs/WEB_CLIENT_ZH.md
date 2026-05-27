@@ -17,7 +17,7 @@
 - 大响应：`data.chunk.mode = "response_json"`
 - QoS：请求 accepted 阶段会用同一 request id 重试；收到可靠 chunk 后发送 `link.ack` chunk ACK，完整 response event 交付后发送 `link.ack` event ACK
 
-它不是当前 `codex/ble-transport-framing` 分支里的 V2 compact binary transport 客户端。
+它不使用 20B compact binary transport；那套方案已归档到独立实验分支，后续仅作为微信小程序 BLE 4.0 兼容方向继续研究。
 
 ## 用户配网流程
 
