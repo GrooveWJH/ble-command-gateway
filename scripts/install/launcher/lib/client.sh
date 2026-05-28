@@ -167,6 +167,9 @@ client_clear_cache() {
   fi
   rm -rf "$CLIENT_CACHE_ROOT"
   ok "$(tr_text "已删除客户端缓存" "Client cache removed")"
+  if use_tui; then
+    tui_pause
+  fi
 }
 
 client_menu() {

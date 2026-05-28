@@ -47,6 +47,8 @@ impl Lang {
             (Lang::Zh, "opt_exit") => "🚪 退出",
             (Lang::En, "prompt_menu") => "Select an operation:",
             (Lang::Zh, "prompt_menu") => "↓请使用方向键选择需要执行的指令:",
+            (Lang::En, "press_enter_return") => "Press Enter to return to the menu...",
+            (Lang::Zh, "press_enter_return") => "按 Enter 返回菜单...",
             (Lang::En, "prmpt_ssid") => "Enter Target SSID:",
             (Lang::Zh, "prmpt_ssid") => "请输入需连接到的 Wi-Fi 账号 (SSID):",
             (Lang::En, "prmpt_pwd") => "Enter Wi-Fi Password (hidden):",

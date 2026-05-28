@@ -1,0 +1,123 @@
+.yd-debug-dock {
+  position: relative;
+  z-index: 10;
+  min-height: 0;
+  min-width: 0;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+}
+
+.yd-debug-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.5rem;
+  min-width: 0;
+  padding-inline: 1rem;
+}
+
+.yd-debug-bar > div {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  min-width: 0;
+  color: var(--cds-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.yd-debug-bar strong {
+  color: var(--cds-text-primary);
+  font-weight: 600;
+}
+
+.yd-debug-drawer {
+  position: fixed;
+  right: 0;
+  bottom: 2.5rem;
+  left: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(62vh, 34rem);
+  min-height: 18rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  box-shadow: 0 -0.5rem 1.5rem rgb(0 0 0 / 16%);
+}
+
+.yd-debug-toolbar {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(18rem, 28rem) minmax(18rem, auto);
+  gap: 1rem;
+  align-items: end;
+  min-width: 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  padding: 1rem;
+}
+
+.yd-debug-toolbar__summary,
+.yd-debug-toolbar__filters,
+.yd-debug-toolbar__actions {
+  min-width: 0;
+}
+
+.yd-debug-toolbar__summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.yd-debug-toolbar__filters {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(12rem, 1fr);
+  gap: 1rem;
+}
+
+.yd-debug-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.yd-debug-toolbar h2,
+.yd-debug-toolbar p {
+  margin: 0;
+}
+
+.yd-trace-list {
+  min-height: 0;
+  overflow: auto;
+  background: var(--cds-layer-02);
+}
+
+.yd-trace-empty {
+  padding: 1rem;
+  color: var(--cds-text-secondary);
+}
+
+.yd-trace-entry {
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+}
+
+.yd-trace-entry summary {
+  display: grid;
+  grid-template-columns: 5rem 7rem minmax(0, 1fr);
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.yd-trace-entry summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.yd-trace-entry pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.yd-trace-entry--error {
+  border-left: 0.25rem solid var(--cds-support-error);
+}

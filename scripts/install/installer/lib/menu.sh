@@ -1,3 +1,14 @@
+run_menu_action() {
+  local status=0
+  TUI_ACTION_HELD="no"
+  "$@" || status=$?
+  if tui_ready && [ "${TUI_ACTION_HELD:-no}" != "yes" ]; then
+    tui_pause
+  fi
+  TUI_ACTION_HELD="no"
+  return "$status"
+}
+
 not_installed_menu() {
   local choice
   while true; do
@@ -12,7 +23,7 @@ not_installed_menu() {
         "退出" | tui_choose "下一步")" || exit 0
       case "$choice" in
         "安装或更新 server") install_or_update; exit 0 ;;
-        运行环境诊断) doctor ;;
+        运行环境诊断) run_menu_action doctor ;;
         退出) exit 0 ;;
       esac
       continue
@@ -49,11 +60,11 @@ healthy_menu() {
         "卸载" \
         "退出" | tui_choose "维护操作")" || exit 0
       case "$choice" in
-        查看最近日志) show_logs ;;
-        重启服务) restart_service ;;
+        查看最近日志) run_menu_action show_logs ;;
+        重启服务) run_menu_action restart_service ;;
         "检查更新 / 更新") install_or_update; exit 0 ;;
-        "重置 BLE 名称") reset_name ;;
-        运行环境诊断) doctor ;;
+        "重置 BLE 名称") run_menu_action reset_name ;;
+        运行环境诊断) run_menu_action doctor ;;
         卸载) uninstall; exit 0 ;;
         退出) exit 0 ;;
       esac
@@ -98,10 +109,10 @@ failed_menu() {
         "卸载" \
         "退出" | tui_choose "修复操作")" || exit 0
       case "$choice" in
-        查看最近日志) show_logs ;;
-        尝试重启服务) restart_service ;;
+        查看最近日志) run_menu_action show_logs ;;
+        尝试重启服务) run_menu_action restart_service ;;
         "修复安装 / 覆盖更新") install_or_update; exit 0 ;;
-        运行环境诊断) doctor ;;
+        运行环境诊断) run_menu_action doctor ;;
         卸载) uninstall; exit 0 ;;
         退出) exit 0 ;;
       esac
@@ -143,7 +154,7 @@ partial_menu() {
         "退出" | tui_choose "修复操作")" || exit 0
       case "$choice" in
         清理并重新安装) PURGE="no"; uninstall; install_or_update; exit 0 ;;
-        运行环境诊断) doctor ;;
+        运行环境诊断) run_menu_action doctor ;;
         卸载清理) uninstall; exit 0 ;;
         退出) exit 0 ;;
       esac

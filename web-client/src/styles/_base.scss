@@ -1,0 +1,47 @@
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--cds-background);
+  color: var(--cds-text-primary);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.mono,
+.yd-trace-entry,
+.cds--snippet-container {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.yd-header-status {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  padding-right: 1rem;
+}
+
+.yd-status-text {
+  overflow: hidden;
+  max-width: 18rem;
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yd-app-content {
+  min-height: calc(100vh - 3rem);
+  padding: 0;
+  background: var(--cds-background);
+}

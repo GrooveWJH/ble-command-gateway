@@ -313,7 +313,16 @@ restart_service() {
 show_logs() {
   need_sudo
   if tui_ready; then
-    tui_info_card "最近 ${LOG_LINES} 行服务日志"
+    local log_file
+    log_file="$(mktemp)"
+    run_root journalctl -u "$SERVICE_NAME" -n "$LOG_LINES" -o cat --no-pager >"$log_file" 2>&1 || true
+    {
+      printf '最近 %s 行服务日志\n\n' "$LOG_LINES"
+      cat "$log_file"
+    } | tui_pager
+    rm -f "$log_file"
+    TUI_ACTION_HELD="yes"
+    return 0
   fi
   run_root journalctl -u "$SERVICE_NAME" -n "$LOG_LINES" -o cat --no-pager
 }

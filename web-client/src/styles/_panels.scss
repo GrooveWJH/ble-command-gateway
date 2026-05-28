@@ -1,0 +1,233 @@
+.yd-workbench {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--cds-layer-01);
+}
+
+.yd-workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 23rem);
+  min-height: 0;
+  min-width: 0;
+  gap: 1px;
+  overflow: hidden;
+  background: var(--cds-border-subtle-01);
+}
+
+.yd-main-panel,
+.yd-side-panel,
+.yd-utility-panel {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 1.25rem 1.5rem;
+}
+
+.yd-main-panel,
+.yd-utility-panel {
+  overscroll-behavior: contain;
+}
+
+.yd-side-panel {
+  border-left: 0.25rem solid var(--cds-layer-accent-01);
+  background: var(--cds-layer-01);
+}
+
+.yd-provision-steps {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  padding: 1rem 1.5rem;
+}
+
+.yd-provision-steps h3,
+.yd-provision-steps p,
+.yd-panel-heading h2,
+.yd-side-panel h2,
+.yd-main-panel h2,
+.yd-utility-panel h2 {
+  margin: 0;
+}
+
+.yd-provision-steps p,
+.yd-panel-heading p {
+  margin-top: 0.25rem;
+}
+
+.yd-provision-steps .cds--progress {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.yd-provision-steps .cds--progress-label {
+  font-size: 0.8125rem;
+}
+
+.yd-panel-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.yd-panel-heading .cds--btn {
+  flex: 0 0 auto;
+}
+
+.yd-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.yd-profile-grid,
+.yd-profile-card,
+.yd-result-stack,
+.yd-summary-tile,
+.yd-diagnostics-section,
+.yd-interface-list,
+.yd-tag-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.yd-profile-card,
+.yd-summary-tile {
+  min-width: 0;
+}
+
+.yd-summary-tile {
+  background: var(--cds-layer-02);
+}
+
+.yd-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  min-width: 0;
+  background: var(--cds-border-subtle-01);
+}
+
+.yd-metric-card {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  background: var(--cds-layer-02);
+}
+
+.yd-metric-card--primary {
+  border-left: 0.25rem solid var(--cds-support-success);
+}
+
+.yd-metric-card span,
+.yd-diagnostics-section h3,
+.yd-tag-list > span {
+  color: var(--cds-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.yd-metric-card strong {
+  overflow-wrap: anywhere;
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.yd-interface-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 8rem) auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  min-width: 0;
+  background: var(--cds-layer-02);
+}
+
+.yd-interface-row .mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.yd-tag-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.yd-raw-response summary {
+  cursor: pointer;
+  color: var(--cds-link-primary);
+}
+
+.yd-advanced-protocol {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-02);
+  padding: 0.875rem 1rem;
+}
+
+.yd-advanced-protocol summary {
+  cursor: pointer;
+  color: var(--cds-link-primary);
+  font-weight: 600;
+}
+
+.yd-signal-quality {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 6rem;
+}
+
+.yd-signal-quality__dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+}
+
+.yd-signal-quality--strong {
+  color: var(--cds-support-success);
+}
+
+.yd-signal-quality--medium {
+  color: var(--cds-support-warning);
+}
+
+.yd-signal-quality--weak {
+  color: var(--cds-support-error);
+}
+
+.yd-signal-quality--strong .yd-signal-quality__dot {
+  background: var(--cds-support-success);
+}
+
+.yd-signal-quality--medium .yd-signal-quality__dot {
+  background: var(--cds-support-warning);
+}
+
+.yd-signal-quality--weak .yd-signal-quality__dot {
+  background: var(--cds-support-error);
+}
+
+.yd-main-panel .cds--data-table-container,
+.yd-main-panel .cds--data-table-content,
+.yd-utility-panel .cds--snippet,
+.yd-utility-panel .cds--snippet-container {
+  min-width: 0;
+}
+
+.yd-main-panel .cds--data-table-content,
+.yd-utility-panel .cds--snippet-container {
+  overflow-x: auto;
+}

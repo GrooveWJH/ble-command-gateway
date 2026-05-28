@@ -97,7 +97,7 @@ export function commandLabel(cmd: GatewayCommand): string {
     case "wifi.profiles.list":
       return "读取已保存 Wi-Fi";
     case "wifi.profiles.delete":
-      return "删除 Wi-Fi 记忆";
+      return "删除 Wi-Fi profile";
     case "link.ack":
       return "链路 ACK";
   }

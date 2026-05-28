@@ -1,29 +1,16 @@
-import { writeWithResponse, type BleUartConnection } from "../ble/webBluetooth";
+import type { BleUartConnection } from "../ble/webBluetooth";
 import { buildCommandRequest, commandLabel, encodeCommandRequest } from "../protocol/commands";
 import { ResponseDecoder } from "../protocol/responseDecoder";
 import { traceBytes } from "../protocol/redaction";
-import type {
-  CommandRequest,
-  CommandResponse,
-  DebugMode,
-  GatewayCommand,
-  JsonObject,
-  TraceEntry,
-} from "../types";
+import type { CommandRequest, CommandResponse, GatewayCommand, JsonObject, TraceEntry } from "../types";
 import { commandSummary, formatBytes, responseSummary, traceEntry } from "./trace";
 import { clearPendingTimers, type PendingCommand } from "./pending";
 import { sendChunkAck, sendEventAck } from "./ack";
 import { bytesDetail, errorMessage } from "./traceDetails";
+import { BleWriteQueue } from "./writeQueue";
+import type { GatewayClientOptions } from "./GatewayClientOptions";
 const REQUEST_ACCEPT_RETRIES = 3;
 const REQUEST_ACCEPT_TIMEOUT_MS = 3_000;
-
-export interface GatewayClientOptions {
-  debugMode: DebugMode;
-  timeoutMs?: number;
-  onTrace?: (entry: TraceEntry) => void;
-  onEvent?: (response: CommandResponse) => void;
-  onDisconnect?: () => void;
-}
 
 export class GatewayClient {
   private readonly decoder = new ResponseDecoder();
@@ -32,12 +19,14 @@ export class GatewayClient {
   private readonly onEvent?: (response: CommandResponse) => void;
   private readonly onDisconnect?: () => void;
   private readonly timeoutMs: number;
-  private debugMode: DebugMode;
+  private debugMode: GatewayClientOptions["debugMode"];
   private pending?: PendingCommand;
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly writeQueue: BleWriteQueue;
 
   constructor(connection: BleUartConnection, options: GatewayClientOptions) {
     this.connection = connection;
+    this.writeQueue = new BleWriteQueue(connection);
     this.debugMode = options.debugMode;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.onTrace = options.onTrace;
@@ -50,7 +39,7 @@ export class GatewayClient {
     this.connection.device.addEventListener("gattserverdisconnected", this.handleDisconnect);
   }
 
-  setDebugMode(debugMode: DebugMode): void {
+  setDebugMode(debugMode: GatewayClientOptions["debugMode"]): void {
     this.debugMode = debugMode;
   }
 
@@ -99,18 +88,18 @@ export class GatewayClient {
         events: [],
       };
       this.trace("CMD:sent", commandSummary(cmd, request.id));
-      this.writePendingRequest(request.id);
+      void this.writePendingRequest(request.id);
     });
   }
 
-  private writePendingRequest(requestId: string): void {
+  private async writePendingRequest(requestId: string): Promise<void> {
     const pending = this.pending;
     if (!pending || pending.request.id !== requestId || pending.accepted) {
       return;
     }
     pending.attempts += 1;
     const attempt = pending.attempts;
-    void writeWithResponse(this.connection.writeCharacteristic, pending.requestBytes)
+    void this.writeQueue.enqueue(pending.requestBytes)
       .then(() => {
         const latest = this.pending;
         if (!latest || latest.request.id !== requestId || latest.accepted) {
@@ -157,7 +146,7 @@ export class GatewayClient {
     }
 
     if (decoded.chunkReceipt) {
-      void sendChunkAck(this.connection, decoded.chunkReceipt, this.trace).catch((error) => {
+      void sendChunkAck(this.writeQueue.writeCharacteristic(), decoded.chunkReceipt, this.trace).catch((error) => {
         this.trace("QOS:ack-error", errorMessage(error), undefined, "warn");
       });
       this.trace(
@@ -178,15 +167,16 @@ export class GatewayClient {
         JSON.stringify(response, null, 2),
       );
     }
-    void sendEventAck(this.connection, response, this.trace).catch((error) => {
+    const eventAck = sendEventAck(this.writeQueue.writeCharacteristic(), response, this.trace).catch((error) => {
       this.trace("QOS:event-ack-error", errorMessage(error), undefined, "warn");
+      throw error;
     });
     this.trace("RX:frame", responseSummary(response), JSON.stringify(response, null, 2));
     this.onEvent?.(response);
-    this.resolveIfFinal(response);
+    void this.resolveIfFinal(response, eventAck);
   };
 
-  private resolveIfFinal(response: CommandResponse): void {
+  private async resolveIfFinal(response: CommandResponse, eventAck: Promise<void>): Promise<void> {
     if (!this.pending || response.id !== this.pending.request.id) {
       return;
     }
@@ -204,7 +194,12 @@ export class GatewayClient {
     clearPendingTimers(this.pending);
     const pending = this.pending;
     this.pending = undefined;
-    pending.resolve(response);
+    try {
+      await eventAck;
+      pending.resolve(response);
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private readonly handleDisconnect = () => {

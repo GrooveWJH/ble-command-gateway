@@ -4,23 +4,24 @@ import { USER_COMMANDS, commandLabel } from "../../protocol/commands";
 import type { GatewayCommand } from "../../types";
 
 export function RawPanel({
-  busy,
+  busyCommand,
   command,
   args,
   onCommandChange,
   onArgsChange,
   onSend,
 }: {
-  busy: boolean;
+  busyCommand?: GatewayCommand;
   command: GatewayCommand;
   args: string;
   onCommandChange: (command: GatewayCommand) => void;
   onArgsChange: (args: string) => void;
   onSend: () => void;
 }) {
+  const busy = Boolean(busyCommand);
   return (
-    <section className="utility-panel">
-      <h2>Raw 命令</h2>
+    <section className="yd-utility-panel">
+      <h2>高级命令</h2>
       <p>直接构造 JSON request，仍会自动处理 response_json chunk 和 link.ack。</p>
       <Select
         id="raw-command"
@@ -39,7 +40,7 @@ export function RawPanel({
         onChange={(event) => onArgsChange(event.target.value)}
         rows={8}
       />
-      <Button disabled={busy} onClick={onSend}>发送 Raw 命令</Button>
+      <Button disabled={busy} onClick={onSend}>发送高级命令</Button>
     </section>
   );
 }

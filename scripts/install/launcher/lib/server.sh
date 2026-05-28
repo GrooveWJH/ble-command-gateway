@@ -40,6 +40,15 @@ controlled_delegate() {
   rm -f "$tmp"
 }
 
+controlled_delegate_action() {
+  local status=0
+  controlled_delegate "$@" || status=$?
+  if use_tui; then
+    tui_pause
+  fi
+  return "$status"
+}
+
 server_delegate() {
   controlled_delegate "$@"
 }
@@ -67,7 +76,7 @@ controlled_menu() {
       "$(tr_text "返回" "Back")" | tui_choose "$(tr_text "被控端操作" "Controlled-device actions")")" || return 0
     case "$choice" in
       "$(tr_text "打开被控端安装向导" "Open controlled-device installer")") controlled_delegate ;;
-      "$(tr_text "运行被控端诊断" "Run controlled-device diagnostics")") controlled_delegate doctor ;;
+      "$(tr_text "运行被控端诊断" "Run controlled-device diagnostics")") controlled_delegate_action doctor ;;
       "$(tr_text "返回" "Back")") return 0 ;;
     esac
   done

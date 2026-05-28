@@ -290,7 +290,20 @@ async fn run_menu_loop(
                 crate::profiles::run_wifi_profiles(session, &lang, trace.as_ref()).await?
             }
         }
+        pause_for_return(&lang)?;
     }
+}
+
+fn pause_for_return(lang: &Lang) -> Result<()> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(());
+    }
+
+    print!("\n{}", lang.t("press_enter_return"));
+    io::stdout().flush()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    Ok(())
 }
 
 async fn run_status(

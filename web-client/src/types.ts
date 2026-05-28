@@ -140,7 +140,19 @@ export type ProvisionJourneyStep =
   | "provision"
   | "result";
 
-export type WorkspacePanel = "provision" | "diagnostics" | "profiles" | "raw";
+export type WorkspacePanel = "basic" | "provision" | "profiles" | "advanced";
+
+export type BasicInfoRefreshState =
+  | { state: "idle" }
+  | { state: "loading" }
+  | { state: "fresh" }
+  | { state: "partial"; failures: BasicInfoRefreshFailure[] }
+  | { state: "failed"; failures: BasicInfoRefreshFailure[] };
+
+export interface BasicInfoRefreshFailure {
+  command: "system.status" | "system.capabilities";
+  message: string;
+}
 
 export interface ProvisionResultView {
   ok: boolean;
@@ -148,6 +160,7 @@ export interface ProvisionResultView {
   text: string;
   ssid?: string;
   ip?: string;
+  statusRefresh?: "refreshing" | "fresh" | "failed";
 }
 
 export interface ConnectionSummary {
@@ -167,4 +180,16 @@ export interface UserFacingError {
   title: string;
   subtitle: string;
   nextStep: string;
+}
+
+export type AppNoticeKind = "info" | "success" | "warning" | "error";
+
+export interface AppNotice {
+  id: string;
+  kind: AppNoticeKind;
+  title: string;
+  subtitle?: string;
+  ttlMs?: number;
+  persistent?: boolean;
+  closing?: boolean;
 }

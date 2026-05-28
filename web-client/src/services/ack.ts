@@ -1,4 +1,4 @@
-import { writeWithResponse, type BleUartConnection } from "../ble/webBluetooth";
+import { writeWithResponse } from "../ble/webBluetooth";
 import { buildLinkAckRequest, encodeCommandRequest } from "../protocol/commands";
 import type { ChunkReceipt } from "../protocol/responseDecoder";
 import type { CommandResponse, TraceEntry } from "../types";
@@ -12,7 +12,7 @@ export type TraceFn = (
 ) => void;
 
 export async function sendChunkAck(
-  connection: BleUartConnection,
+  writeCharacteristic: BluetoothRemoteGATTCharacteristic,
   receipt: ChunkReceipt,
   trace: TraceFn,
 ): Promise<void> {
@@ -24,7 +24,7 @@ export async function sendChunkAck(
   );
   const bytes = encodeCommandRequest(request);
   trace("TX:raw", `kind=chunk-ack bytes=${bytes.length}`, ackDetail(request));
-  await writeWithResponse(connection.writeCharacteristic, bytes);
+  await writeWithResponse(writeCharacteristic, bytes);
   trace(
     "QOS:ack",
     `id=${receipt.responseId} seq=${receipt.responseSeq} chunk=${receipt.chunkIndex}/${receipt.chunkTotal}`,
@@ -32,13 +32,13 @@ export async function sendChunkAck(
 }
 
 export async function sendEventAck(
-  connection: BleUartConnection,
+  writeCharacteristic: BluetoothRemoteGATTCharacteristic,
   response: CommandResponse,
   trace: TraceFn,
 ): Promise<void> {
   const request = buildLinkAckRequest(response.id, "event", response.seq);
   const bytes = encodeCommandRequest(request);
   trace("TX:raw", `kind=event-ack bytes=${bytes.length}`, ackDetail(request));
-  await writeWithResponse(connection.writeCharacteristic, bytes);
+  await writeWithResponse(writeCharacteristic, bytes);
   trace("QOS:event-ack", `id=${response.id} seq=${response.seq}`);
 }

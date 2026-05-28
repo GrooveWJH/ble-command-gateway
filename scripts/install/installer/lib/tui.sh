@@ -10,6 +10,14 @@ tui_clear() {
   printf '\033[2J\033[H'
 }
 
+tui_pause() {
+  gum input --placeholder "按回车返回" >/dev/null || true
+}
+
+tui_pager() {
+  gum pager "$@"
+}
+
 tui_title() {
   gum style \
     --foreground 15 \

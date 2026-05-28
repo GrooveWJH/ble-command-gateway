@@ -1,33 +1,115 @@
 @media (max-width: 1056px) {
-  .operator-grid,
-  .workbench,
-  .support-strip,
-  .summary-tile dl div {
+  .yd-command-center,
+  .yd-workbench-grid,
+  .yd-diagnostics-grid,
+  .yd-debug-toolbar {
     grid-template-columns: 1fr;
   }
 
-  .journey-rail {
-    min-height: auto;
+  .yd-provision-steps {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
   }
 
-  .app-header__bar .status-text {
+  .yd-debug-toolbar__filters {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 672px) {
+  .yd-header-status {
     display: none;
   }
 
-  .debug-toolbar,
-  .panel-heading,
-  .table-heading {
-    grid-template-columns: 1fr;
+  .yd-app-content {
+    grid-template-rows: auto minmax(0, 1fr) 2.5rem;
   }
 
-  .button-row,
-  .support-strip > .cds--btn {
-    justify-self: stretch;
+  .yd-command-center__copy,
+  .yd-command-center__status,
+  .yd-command-center__actions,
+  .yd-main-panel,
+  .yd-side-panel,
+  .yd-utility-panel,
+  .yd-provision-steps {
+    padding: 0.875rem 1rem;
+  }
+
+  .yd-command-center__copy {
+    display: grid;
+  }
+
+  .yd-command-center__copy h1 {
+    font-size: 1.125rem;
+  }
+
+  .yd-command-center__copy p {
+    display: none;
+  }
+
+  .yd-command-center__status {
+    display: none;
+  }
+
+  .yd-workbench-grid {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .yd-side-panel {
+    max-height: 22rem;
+    border-top: 1px solid var(--cds-border-subtle-01);
+    border-left: 0;
+  }
+
+  .yd-provision-steps .cds--progress {
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+
+  .yd-tabs-frame .cds--tab--list {
     justify-content: flex-start;
-    width: 100%;
+    overflow-x: auto;
+    margin-inline: 0;
+    padding-inline: 0.75rem;
   }
 
-  .table-heading .cds--search {
-    min-width: 0;
+  .yd-tabs-frame .cds--tabs__nav-link {
+    min-width: 7.5rem;
+  }
+
+  .yd-panel-heading {
+    display: grid;
+  }
+
+  .yd-panel-heading .cds--btn,
+  .yd-button-row .cds--btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .yd-button-row {
+    justify-content: stretch;
+  }
+
+  .yd-debug-bar {
+    padding-inline: 0.75rem;
+  }
+
+  .yd-debug-bar > div span {
+    display: none;
+  }
+
+  .yd-debug-drawer {
+    max-height: calc(100vh - 5.5rem);
+  }
+
+  .yd-notification-center {
+    top: 3.5rem;
+    width: calc(100vw - 1rem);
+  }
+
+  .yd-trace-entry summary,
+  .yd-interface-row {
+    grid-template-columns: 1fr;
   }
 }
