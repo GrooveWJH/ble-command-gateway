@@ -1,8 +1,14 @@
 use std::fs;
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_DEVICE_NAME_PATH: &str = "/var/lib/yundrone/ble-device-name";
+pub const DEFAULT_DEVICE_ALIAS: &str = "node";
+
+const LEGACY_SUFFIX_LEN: usize = 6;
+const DEVICE_ALIAS_LEN: usize = 4;
+const RANDOM_SUFFIX_LEN: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceNameSource {
@@ -26,8 +32,8 @@ pub struct ResolvedDeviceName {
 }
 
 pub fn generate_device_name(base_prefix: &str) -> String {
-    let machine_id = fs::read_to_string("/etc/machine-id").ok();
-    build_device_name_from_parts(base_prefix, machine_id.as_deref())
+    build_device_name_from_alias(base_prefix, DEFAULT_DEVICE_ALIAS, &random_base36_suffix())
+        .expect("default device alias is valid")
 }
 
 pub fn resolve_persisted_device_name(
@@ -41,7 +47,7 @@ pub fn resolve_persisted_device_name(
 fn resolve_persisted_device_name_with_machine_id(
     base_prefix: &str,
     path: &Path,
-    machine_id: Option<&str>,
+    _machine_id: Option<&str>,
 ) -> std::io::Result<ResolvedDeviceName> {
     match fs::read_to_string(path) {
         Ok(content) => {
@@ -51,10 +57,10 @@ fn resolve_persisted_device_name_with_machine_id(
                     source: DeviceNameSource::File,
                 });
             }
-            persist_generated_name(base_prefix, path, machine_id, "invalid")
+            persist_generated_name(base_prefix, path, "invalid")
         }
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            persist_generated_name(base_prefix, path, machine_id, "missing")
+            persist_generated_name(base_prefix, path, "missing")
         }
         Err(err) => Err(err),
     }
@@ -70,29 +76,29 @@ fn parse_persisted_name(base_prefix: &str, content: &str) -> Option<String> {
     if line.is_empty() || line != line.trim() || line.contains(['\r', '\n']) {
         return None;
     }
-    is_stable_device_name(base_prefix, line).then(|| line.to_string())
+    is_supported_device_name(base_prefix, line).then(|| line.to_string())
 }
 
 pub fn is_stable_device_name(base_prefix: &str, value: &str) -> bool {
+    is_supported_device_name(base_prefix, value)
+}
+
+pub fn is_supported_device_name(base_prefix: &str, value: &str) -> bool {
     let Some(suffix) = value
         .strip_prefix(base_prefix)
         .and_then(|rest| rest.strip_prefix('-'))
     else {
         return false;
     };
-    suffix.len() == 6
-        && suffix
-            .chars()
-            .all(|ch| ch.is_ascii_digit() || ch.is_ascii_lowercase())
+    is_legacy_suffix(suffix) || is_alias_random_suffix(suffix)
 }
 
 fn persist_generated_name(
     base_prefix: &str,
     path: &Path,
-    machine_id: Option<&str>,
     reason: &str,
 ) -> std::io::Result<ResolvedDeviceName> {
-    let name = build_device_name_from_parts(base_prefix, machine_id);
+    let name = generate_device_name(base_prefix);
     write_device_name_atomic(path, &name)?;
     Ok(ResolvedDeviceName {
         name,
@@ -132,6 +138,26 @@ fn set_device_name_permissions(_dir: &Path, _file: &Path) -> std::io::Result<()>
     Ok(())
 }
 
+pub fn build_device_name_from_alias(
+    base_prefix: &str,
+    alias: &str,
+    random: &str,
+) -> Result<String, String> {
+    let normalized_alias = normalize_device_alias(alias)
+        .ok_or_else(|| "device alias must be exactly 4 lowercase base36 characters".to_string())?;
+    if random.len() != RANDOM_SUFFIX_LEN || !is_base36_lower(random) {
+        return Err(
+            "device random suffix must be exactly 4 lowercase base36 characters".to_string(),
+        );
+    }
+    Ok(format!("{base_prefix}-{normalized_alias}-{random}"))
+}
+
+pub fn normalize_device_alias(input: &str) -> Option<String> {
+    let normalized = input.trim().to_ascii_lowercase();
+    (normalized.len() == DEVICE_ALIAS_LEN && is_base36_lower(&normalized)).then_some(normalized)
+}
+
 pub fn build_device_name_from_parts(base_prefix: &str, machine_id: Option<&str>) -> String {
     let suffix =
         stable_base36_suffix_from_text(machine_id.unwrap_or_default()).unwrap_or_else(|| {
@@ -160,6 +186,53 @@ pub fn stable_base36_suffix_from_text(machine_id: &str) -> Option<String> {
     Some(to_fixed_base36(hash % 36_u64.pow(6), 6))
 }
 
+fn is_legacy_suffix(suffix: &str) -> bool {
+    suffix.len() == LEGACY_SUFFIX_LEN && is_base36_lower(suffix)
+}
+
+fn is_alias_random_suffix(suffix: &str) -> bool {
+    if suffix.len() == DEVICE_ALIAS_LEN + RANDOM_SUFFIX_LEN && is_base36_lower(suffix) {
+        return true;
+    }
+
+    let Some((alias, random)) = suffix.split_once('-') else {
+        return false;
+    };
+    suffix.matches('-').count() == 1
+        && normalize_device_alias(alias).as_deref() == Some(alias)
+        && random.len() == RANDOM_SUFFIX_LEN
+        && is_base36_lower(random)
+}
+
+fn is_base36_lower(value: &str) -> bool {
+    value
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || ch.is_ascii_lowercase())
+}
+
+fn random_base36_suffix() -> String {
+    let value = random_u64_from_os().unwrap_or_else(fallback_entropy);
+    to_fixed_base36(
+        value % 36_u64.pow(RANDOM_SUFFIX_LEN as u32),
+        RANDOM_SUFFIX_LEN,
+    )
+}
+
+fn random_u64_from_os() -> Option<u64> {
+    let mut file = fs::File::open("/dev/urandom").ok()?;
+    let mut bytes = [0_u8; 8];
+    file.read_exact(&mut bytes).ok()?;
+    Some(u64::from_ne_bytes(bytes))
+}
+
+fn fallback_entropy() -> u64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    (now as u64) ^ ((now >> 64) as u64) ^ u64::from(std::process::id())
+}
+
 fn to_fixed_base36(mut value: u64, width: usize) -> String {
     const ALPHABET: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut output = vec![b'0'; width];
@@ -173,7 +246,8 @@ fn to_fixed_base36(mut value: u64, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_device_name_from_parts, resolve_persisted_device_name_with_machine_id,
+        build_device_name_from_alias, build_device_name_from_parts, is_supported_device_name,
+        normalize_device_alias, resolve_persisted_device_name_with_machine_id,
         stable_base36_suffix_from_text, DeviceNameSource,
     };
     use std::fs;
@@ -235,6 +309,41 @@ mod tests {
     }
 
     #[test]
+    fn builds_alias_random_device_name() {
+        let name = build_device_name_from_alias("yundrone", "Lab1", "k9x8").unwrap();
+
+        assert_eq!(name, "yundrone-lab1-k9x8");
+    }
+
+    #[test]
+    fn normalizes_device_alias() {
+        assert_eq!(normalize_device_alias(" LAB1 "), Some("lab1".to_string()));
+        assert_eq!(normalize_device_alias("lab"), None);
+        assert_eq!(normalize_device_alias("lab_"), None);
+    }
+
+    #[test]
+    fn supported_device_name_accepts_legacy_and_alias_formats() {
+        for value in ["yundrone-ytcwln", "yundrone-lab1-k9x8", "yundrone-lab1k9x8"] {
+            assert!(is_supported_device_name("yundrone", value), "{value}");
+        }
+    }
+
+    #[test]
+    fn supported_device_name_rejects_invalid_content() {
+        for value in [
+            "Yundrone-lab1-k9x8",
+            "yundrone-",
+            "yundrone-lab_1",
+            "yundrone-lab1--k9x8",
+            "yundrone-lab1-k9x",
+            "custom-lab1-k9x8",
+        ] {
+            assert!(!is_supported_device_name("yundrone", value), "{value}");
+        }
+    }
+
+    #[test]
     fn persisted_name_uses_valid_existing_file() {
         let dir = TestDir::new("valid");
         fs::write(dir.file(), "yundrone-bw0uwj\n").unwrap();
@@ -243,6 +352,18 @@ mod tests {
             resolve_persisted_device_name_with_machine_id("yundrone", &dir.file(), None).unwrap();
 
         assert_eq!(resolved.name, "yundrone-bw0uwj");
+        assert_eq!(resolved.source, DeviceNameSource::File);
+    }
+
+    #[test]
+    fn persisted_name_uses_valid_alias_file() {
+        let dir = TestDir::new("valid-alias");
+        fs::write(dir.file(), "yundrone-lab1-k9x8\n").unwrap();
+
+        let resolved =
+            resolve_persisted_device_name_with_machine_id("yundrone", &dir.file(), None).unwrap();
+
+        assert_eq!(resolved.name, "yundrone-lab1-k9x8");
         assert_eq!(resolved.source, DeviceNameSource::File);
     }
 
@@ -257,14 +378,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolved.name, "yundrone-ytcwln");
+        assert!(resolved.name.starts_with("yundrone-node-"));
+        assert_eq!(resolved.name.len(), "yundrone-node-k9x8".len());
         assert_eq!(
             resolved.source,
             DeviceNameSource::Generated {
                 reason: "missing".to_string()
             }
         );
-        assert_eq!(fs::read_to_string(dir.file()).unwrap(), "yundrone-ytcwln\n");
+        assert_eq!(
+            fs::read_to_string(dir.file()).unwrap(),
+            format!("{}\n", resolved.name)
+        );
     }
 
     #[test]
@@ -289,12 +414,16 @@ mod tests {
             )
             .unwrap();
 
-            assert_eq!(resolved.name, "yundrone-ytcwln");
+            assert!(resolved.name.starts_with("yundrone-node-"));
+            assert_eq!(resolved.name.len(), "yundrone-node-k9x8".len());
             assert!(matches!(
                 resolved.source,
                 DeviceNameSource::Generated { .. }
             ));
-            assert_eq!(fs::read_to_string(dir.file()).unwrap(), "yundrone-ytcwln\n");
+            assert_eq!(
+                fs::read_to_string(dir.file()).unwrap(),
+                format!("{}\n", resolved.name)
+            );
         }
     }
 

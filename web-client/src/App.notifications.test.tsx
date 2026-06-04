@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { bluetoothConnection, capabilitiesResponse, provisionResponse, statusResponse } from "./test/fixtures";
+import { renderWithI18n } from "./test/renderWithI18n";
 import type { BrowserSupportState, CommandResponse } from "./types";
 
 const TEST_USER_AGENT = "Mozilla/5.0 Chrome/120.0 Test";
@@ -53,7 +54,7 @@ describe("App notifications", () => {
     mocks.runCommand
       .mockResolvedValueOnce(statusResponse())
       .mockResolvedValueOnce({ ...capabilitiesResponse(), ok: false } satisfies CommandResponse);
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
 
@@ -68,10 +69,10 @@ describe("App notifications", () => {
       .mockResolvedValueOnce(capabilitiesResponse())
       .mockResolvedValueOnce(provisionResponse())
       .mockResolvedValueOnce(statusResponse());
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
-    await waitFor(() => expect(screen.getAllByText("yundrone-test01").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("yundrone-lab1-k9x8").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("tab", { name: "Wi-Fi 配网" }));
     fireEvent.change(screen.getByLabelText("SSID"), { target: { value: "LabWiFi" } });
     fireEvent.click(screen.getByRole("button", { name: "确认并下发配网" }));
@@ -83,10 +84,10 @@ describe("App notifications", () => {
     mocks.runCommand
       .mockResolvedValueOnce(statusResponse())
       .mockResolvedValueOnce(capabilitiesResponse());
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
-    await waitFor(() => expect(screen.getAllByText("yundrone-test01").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("yundrone-lab1-k9x8").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "断开设备" }));
 
     expect(await screen.findByRole("status", { name: "通知：设备已断开" })).toBeInTheDocument();

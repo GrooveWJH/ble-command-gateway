@@ -1,21 +1,23 @@
 import { ProgressIndicator, ProgressStep } from "@carbon/react";
 
+import { useI18n } from "../i18n/useI18n";
 import { JOURNEY_STEPS, journeyIndex } from "../ui/journey";
 import type { ProvisionJourneyStep } from "../types";
 
 export function ProvisionSteps({ current }: { current: ProvisionJourneyStep }) {
+  const { t } = useI18n();
   return (
-    <section className="yd-provision-steps" aria-label="配网步骤">
+    <section className="yd-provision-steps" aria-label={t("steps.aria")}>
       <div>
-        <h3>配网步骤</h3>
-        <p>把连接、扫描、选择网络和结果确认压缩在当前工作区内。</p>
+        <h3>{t("steps.title")}</h3>
+        <p>{t("steps.subtitle")}</p>
       </div>
       <ProgressIndicator currentIndex={journeyIndex(current)} spaceEqually>
         {JOURNEY_STEPS.map((step) => (
           <ProgressStep
             key={step.id}
-            label={step.label}
-            description={stepDescription(step.id)}
+            label={t(step.labelKey)}
+            description={stepDescription(step.id, t)}
           />
         ))}
       </ProgressIndicator>
@@ -23,21 +25,21 @@ export function ProvisionSteps({ current }: { current: ProvisionJourneyStep }) {
   );
 }
 
-function stepDescription(step: ProvisionJourneyStep): string {
+function stepDescription(step: ProvisionJourneyStep, t: ReturnType<typeof useI18n>["t"]): string {
   switch (step) {
     case "environment":
-      return "浏览器与 HTTPS";
+      return t("steps.environment");
     case "connect":
-      return "选择 yundrone-*";
+      return t("steps.connect");
     case "scan":
-      return "读取热点";
+      return t("steps.scan");
     case "select":
-      return "选择或输入";
+      return t("steps.select");
     case "credentials":
-      return "密码不落盘";
+      return t("steps.credentials");
     case "provision":
-      return "等待回执";
+      return t("steps.provision");
     case "result":
-      return "确认 IP";
+      return t("steps.result");
   }
 }

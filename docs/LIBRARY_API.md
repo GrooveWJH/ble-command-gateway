@@ -83,6 +83,6 @@ async fn scan_wifi(session: &mut BleSession) -> anyhow::Result<WifiScanResponseD
 }
 ```
 
-服务端默认只广播一个 BLE local name（如 `yundrone-ytcwln`）。推荐始终按稳定前缀扫描，再由 CLI / GUI 让用户选择最终设备，而不是默认连第一个命中项。
+服务端默认只广播一个 BLE local name（如 `yundrone-lab1-k9x8`）。推荐始终按稳定前缀扫描，再由 CLI / GUI 让用户选择最终设备，而不是默认连第一个命中项。
 
 如果你只需要发送底层字节，仍可使用 `session.send_payload(...)`；但正式命令链路推荐统一走 `prepare_request(...) + send_request(...)`，这样 request ID、日志字段和协议兼容性会保持一致。

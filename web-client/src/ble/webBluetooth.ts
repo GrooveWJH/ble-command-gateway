@@ -28,19 +28,18 @@ export function getBrowserSupport(): BrowserSupportState {
     return {
       ...base,
       supported: false,
-      reason:
-        "当前浏览器无法使用 Web Bluetooth：需要 HTTPS 或 localhost 安全上下文。请使用 Google Chrome 或 Android Chrome。",
+      reasonKey: "support.reasonSecureContext",
     };
   }
   if (!hasBluetoothApi) {
     return {
       ...base,
       supported: false,
-      reason: isEdge && isLinux
-        ? "当前 Linux Edge 未暴露 Web Bluetooth。请改用 Google Chrome，并启用 chrome://flags/#enable-experimental-web-platform-features 后重启浏览器。"
+      reasonKey: isEdge && isLinux
+        ? "support.reasonLinuxEdge"
         : isWindows
-          ? "当前 Windows 浏览器未暴露 Web Bluetooth。请使用最新版 Chrome/Edge，并确认系统蓝牙已开启；仍不可用时启用 chrome://flags/#enable-experimental-web-platform-features 后重启。"
-        : "当前浏览器未暴露 Web Bluetooth，请使用 Google Chrome 或 Android Chrome。",
+          ? "support.reasonWindowsBluetooth"
+          : "support.reasonNoBluetooth",
     };
   }
   return { ...base, supported: true };
@@ -48,9 +47,14 @@ export function getBrowserSupport(): BrowserSupportState {
 
 export function isStableYundroneName(name: string, prefix = "yundrone"): boolean {
   const escaped = escapeRegExp(prefix);
-  const direct = new RegExp(`^${escaped}-[0-9a-z]{6}$`);
-  const bracketed = new RegExp(`\\[(${escaped}-[0-9a-z]{6})\\]`);
-  return direct.test(name) || bracketed.test(name);
+  const direct = new RegExp(`^${escaped}-(.+)$`);
+  const bracketed = new RegExp(`\\[(${escaped}-.+?)\\]`);
+  const directMatch = name.match(direct);
+  if (directMatch) return isValidYundroneSuffix(directMatch[1]);
+  const bracketedMatch = name.match(bracketed);
+  if (!bracketedMatch) return false;
+  const suffix = bracketedMatch[1].slice(prefix.length + 1);
+  return isValidYundroneSuffix(suffix);
 }
 
 export async function requestYundroneDevice(prefix = "yundrone"): Promise<BleUartConnection> {
@@ -65,7 +69,7 @@ export async function requestYundroneDevice(prefix = "yundrone"): Promise<BleUar
   });
   const displayName = device.name ?? "";
   if (displayName && !isStableYundroneName(displayName, prefix)) {
-    throw new Error(`Selected device is not a stable YunDrone identity: ${displayName}`);
+    throw new Error(`Selected device is not a YunDrone device name: ${displayName}`);
   }
   if (!device.gatt) {
     throw new Error("Selected device does not expose GATT");
@@ -103,4 +107,11 @@ export async function writeWithResponse(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isValidYundroneSuffix(suffix: string): boolean {
+  if (!suffix || suffix.split("-").length > 2) return false;
+  return suffix
+    .split("-")
+    .every((part) => part.length > 0 && /^[0-9a-z]+$/.test(part));
 }

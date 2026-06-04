@@ -1,6 +1,7 @@
 import { Button, CodeSnippet, Tag, Tile } from "@carbon/react";
 import { useState } from "react";
 
+import { useI18n } from "../../i18n/useI18n";
 import { capabilitiesView, heartbeatAlive, statusView } from "../../ui/diagnostics";
 import type { CommandResponse, GatewayCommand } from "../../types";
 
@@ -21,57 +22,58 @@ export function BasicInfoPanel({
   onCapabilities: () => void;
   onHeartbeat: () => void;
 }) {
+  const { t } = useI18n();
   const [showRaw, setShowRaw] = useState(false);
   const [showProtocol, setShowProtocol] = useState(false);
-  const status = statusView(statusResponse);
-  const capabilities = capabilitiesView(capabilitiesResponse);
+  const status = statusView(statusResponse, t);
+  const capabilities = capabilitiesView(capabilitiesResponse, t);
   const raw = statusResponse ?? capabilitiesResponse ?? heartbeatResponse;
   return (
     <section className="yd-utility-panel yd-basic-info-panel">
       <div className="yd-panel-heading">
         <div>
-          <h2>基本信息</h2>
-          <p>连接后自动读取被控端系统状态与协议能力；心跳保留为手动链路检测。</p>
+          <h2>{t("basic.title")}</h2>
+          <p>{t("basic.subtitle")}</p>
         </div>
         <div className="yd-button-row">
-          <Button size="sm" disabled={Boolean(busyCommand)} onClick={onStatus}>刷新系统状态</Button>
-          <Button size="sm" kind="secondary" disabled={Boolean(busyCommand)} onClick={onCapabilities}>读取协议能力</Button>
-          <Button size="sm" kind="ghost" disabled={Boolean(busyCommand)} onClick={onHeartbeat}>检测心跳</Button>
+          <Button size="sm" disabled={Boolean(busyCommand)} onClick={onStatus}>{t("basic.refreshStatus")}</Button>
+          <Button size="sm" kind="secondary" disabled={Boolean(busyCommand)} onClick={onCapabilities}>{t("basic.readCapabilities")}</Button>
+          <Button size="sm" kind="ghost" disabled={Boolean(busyCommand)} onClick={onHeartbeat}>{t("basic.checkHeartbeat")}</Button>
         </div>
       </div>
       <div className="yd-diagnostics-grid">
         <Tile className="yd-metric-card yd-metric-card--primary">
-          <span>首选 IP</span>
-          <strong>{status?.ip ?? "尚未刷新"}</strong>
-          <p>{status?.network ?? "连接后会自动读取当前网络。"}</p>
+          <span>{t("basic.preferredIp")}</span>
+          <strong>{status?.ip ?? t("basic.notRefreshed")}</strong>
+          <p>{status?.network ?? t("basic.autoNetwork")}</p>
         </Tile>
         <Tile className="yd-metric-card">
-          <span>设备</span>
-          <strong>{status?.deviceName ?? "未读取"}</strong>
-          <p>{status ? `${status.hostname} · ${status.user}` : "系统状态会显示主机名与运行用户。"}</p>
+          <span>{t("basic.device")}</span>
+          <strong>{status?.deviceName ?? t("basic.notRead")}</strong>
+          <p>{status ? `${status.hostname} · ${status.user}` : t("basic.deviceHelp")}</p>
         </Tile>
         <Tile className="yd-metric-card">
-          <span>系统</span>
-          <strong>{status?.system ?? "未读取"}</strong>
-          <p>用于判断 NetworkManager、蓝牙服务与被控端运行环境。</p>
+          <span>{t("basic.system")}</span>
+          <strong>{status?.system ?? t("basic.notRead")}</strong>
+          <p>{t("basic.systemHelp")}</p>
         </Tile>
         <Tile className="yd-metric-card">
-          <span>协议版本</span>
-          <strong>{capabilities?.protocolVersion ?? capabilitiesResponse?.v ?? "未读取"}</strong>
-          <p>{capabilities ? `Payload limit：${capabilities.payloadLimit}` : "连接后会自动读取协议能力。"}</p>
+          <span>{t("basic.protocolVersion")}</span>
+          <strong>{capabilities?.protocolVersion ?? capabilitiesResponse?.v ?? t("basic.notRead")}</strong>
+          <p>{capabilities ? t("basic.payloadLimit", { limit: capabilities.payloadLimit }) : t("basic.protocolHelp")}</p>
         </Tile>
         <Tile className="yd-metric-card">
-          <span>链路心跳</span>
-          <strong>{heartbeatAlive(heartbeatResponse)}</strong>
-          <p>{heartbeatResponse?.text || "手动检测 BLE UART request/response 是否正常。"}</p>
+          <span>{t("basic.heartbeat")}</span>
+          <strong>{heartbeatAlive(heartbeatResponse, t)}</strong>
+          <p>{heartbeatResponse?.text || t("basic.heartbeatHelp")}</p>
         </Tile>
       </div>
       {status && (
         <section className="yd-diagnostics-section">
-          <h3>网络接口</h3>
+          <h3>{t("basic.interfaces")}</h3>
           <div className="yd-interface-list">
             {status.interfaces.length === 0 ? (
-              <Tile>未返回 IPv4 接口。</Tile>
+              <Tile>{t("basic.noIpv4")}</Tile>
             ) : status.interfaces.map((item) => (
               <Tile className="yd-interface-row" key={`${item.ifname}-${item.ipv4}`}>
                 <strong>{item.ifname}</strong>
@@ -87,20 +89,20 @@ export function BasicInfoPanel({
       {capabilities && (
         <details className="yd-advanced-protocol">
           <summary onClick={() => setShowProtocol((current) => !current)}>
-            高级协议详情
+            {t("basic.advancedProtocol")}
           </summary>
           {showProtocol && (
             <section className="yd-diagnostics-section">
-              <TagList title="命令" values={capabilities.commands} />
-              <TagList title="特性" values={capabilities.features} />
+              <TagList title={t("basic.commands")} values={capabilities.commands} />
+              <TagList title={t("basic.features")} values={capabilities.features} />
             </section>
           )}
         </details>
       )}
       <details className="yd-raw-response" onToggle={(event) => setShowRaw(event.currentTarget.open)}>
-        <summary>查看原始响应</summary>
+        <summary>{t("basic.viewRaw")}</summary>
         {showRaw && (
-          <CodeSnippet type="multi" feedback="已复制">
+          <CodeSnippet type="multi" feedback={t("install.copied")}>
             {JSON.stringify(raw ?? {}, null, 2)}
           </CodeSnippet>
         )}
@@ -110,11 +112,12 @@ export function BasicInfoPanel({
 }
 
 function TagList({ title, values }: { title: string; values: string[] }) {
+  const { t } = useI18n();
   return (
     <div className="yd-tag-list">
       <span>{title}</span>
       <div>
-        {values.length === 0 ? <Tag type="gray">未返回</Tag> : values.map((value) => (
+        {values.length === 0 ? <Tag type="gray">{t("basic.noneReturned")}</Tag> : values.map((value) => (
           <Tag type="cool-gray" key={value}>{value}</Tag>
         ))}
       </div>

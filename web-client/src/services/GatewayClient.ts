@@ -1,5 +1,5 @@
 import type { BleUartConnection } from "../ble/webBluetooth";
-import { buildCommandRequest, commandLabel, encodeCommandRequest } from "../protocol/commands";
+import { buildCommandRequest, commandProtocolLabel, encodeCommandRequest } from "../protocol/commands";
 import { ResponseDecoder } from "../protocol/responseDecoder";
 import { traceBytes } from "../protocol/redaction";
 import type { CommandRequest, CommandResponse, GatewayCommand, JsonObject, TraceEntry } from "../types";
@@ -75,7 +75,7 @@ export class GatewayClient {
           clearPendingTimers(this.pending);
           this.pending = undefined;
         }
-        reject(new Error(`Timed out waiting for ${commandLabel(cmd)} after ${this.timeoutMs}ms`));
+        reject(new Error(`Timed out waiting for ${commandProtocolLabel(cmd)} after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
       this.pending = {
         request,

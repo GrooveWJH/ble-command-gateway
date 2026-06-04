@@ -31,7 +31,7 @@ https://tool.yundrone.cn/ble/
 
 1. 用桌面 Chrome / Edge 或 Android Chrome 打开页面。
 2. 确认目标设备已上电，并让设备靠近当前电脑或手机。
-3. 点击“连接设备”，在浏览器蓝牙选择器里选择 `yundrone-` 开头的设备。
+3. 点击“连接设备”，在浏览器蓝牙选择器里选择安装器提示过的 `yundrone-` 开头设备，例如 `yundrone-lab1-k9x8`。
 4. 连接成功后页面会自动进入“基本信息”，读取 `system.status` 与 `system.capabilities`。
 5. 切到“Wi-Fi 配网”，点击“扫描 Wi-Fi”，等待 10 到 30 秒。
 6. 在扫描结果里选择目标 SSID，或直接手动输入隐藏网络 SSID。
@@ -59,8 +59,8 @@ Debug 抽屉对应 CLI verbose 的人类可读版本：
 
 ```bash
 cd web-client
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 然后用支持 WebBluetooth 的浏览器打开 Vite 输出的本地地址，通常是：
@@ -75,9 +75,9 @@ http://localhost:5173
 
 ```bash
 cd web-client
-npm run test
-npm run build
-npm run check:maxlines
+pnpm test
+pnpm build
+pnpm check:maxlines
 ```
 
 构建产物会生成到 `web-client/dist/`。该目录是本地构建产物，不应提交。
@@ -102,7 +102,7 @@ WebBluetooth 连接发生在访问者自己的浏览器和他身边的 BLE 设�
 
 ## 公网试用
 
-如果只是临时试用，可以把 `npm run build` 生成的 `dist/` 当静态网站部署到 HTTPS 平台，例如 Cloudflare Pages、Vercel、GitHub Pages 或自有 Nginx。
+如果只是临时试用，可以把 `pnpm build` 生成的 `dist/` 当静态网站部署到 HTTPS 平台，例如 Cloudflare Pages、Vercel、GitHub Pages 或自有 Nginx。
 
 当前自有 Nginx 部署路径固定为 `https://tool.yundrone.cn/ble/`。Vite 构建的 `base` 必须保持为 `/ble/`，否则静态资源在子路径下会加载失败。
 

@@ -1,3 +1,10 @@
+2026.3.0 - 2026-06-04
+
+- 发布统一 BLE Wi-Fi 工具入口与 Gum TUI 安装体验更新，刷新 launcher、server installer 与公网安装 manifest。
+- 更新 WebBluetooth 配网工作台，加入中英文切换、默认英文、语言偏好持久化、蓝牙 favicon 与更稳的 Header 布局。
+- 完善 Web 工作台交互反馈、通知、基本信息、Wi-Fi 配网/管理和调试抽屉体验，并部署到 `https://tool.yundrone.cn/ble/`。
+- 同步客户端、服务端与安装器分发版本到 `2026.3.0`。
+
 2026.2.3 - 2026-05-27
 
 - 将正式主线传输协议回退到 360B JSON UART / `response_json` chunking / `link.ack`，撤出误合入的 20B compact binary transport 实验方案。
@@ -5,6 +12,9 @@
 - 新增并保留 Carbon Design System 风格的静态 WebBluetooth 配网工作台，支持浏览器连接、Wi-Fi 扫描/配网、profiles/raw/diagnostics 和 Safe Verbose trace。
 - 更新 README、命令契约、MTU 分片、BLE 调试器、兼容 server 和 Web client 文档，明确 360B JSON chunking 是正式主路径。
 - 将 20B compact transport 成果归档到 `experiment/ble-transport-v2-20b` 与 `v2026.2.3-20b-experiment`，供微信小程序 BLE 4.0 方向后续研究。
+- 新安装和重置 BLE 名称时支持 4 位用户别名 + 4 位随机码，例如 `yundrone-lab1-k9x8`；升级时继续保留旧 6 位名称。
+- Rust Client、GUI 与 Web Client 放宽设备名匹配，不再限制后缀位数，并继续识别方括号里的 YunDrone local name。
+- Server 安装器新增 `--name-alias`，TUI 会提示用户记住最终 BLE 名称，方便网页、CLI 和小程序配网时选择正确设备。
 
 2026.2.2 - 2026-05-27
 

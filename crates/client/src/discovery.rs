@@ -66,10 +66,20 @@ fn is_stable_identity(value: &str, prefix: &str) -> bool {
     else {
         return false;
     };
-    suffix.len() == 6
-        && suffix
-            .chars()
-            .all(|ch| ch.is_ascii_digit() || ch.is_ascii_lowercase())
+    is_relaxed_identity_suffix(suffix)
+}
+
+fn is_relaxed_identity_suffix(suffix: &str) -> bool {
+    if suffix.is_empty() || suffix.matches('-').count() > 1 {
+        return false;
+    }
+    suffix
+        .split('-')
+        .all(|part| !part.is_empty() && part.chars().all(is_lower_base36))
+}
+
+fn is_lower_base36(ch: char) -> bool {
+    ch.is_ascii_digit() || ch.is_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -85,26 +95,32 @@ mod tests {
     fn matches_configured_prefix_when_uart_service_is_present() {
         let mut properties = base_properties();
         let criteria = DiscoveryCriteria::for_prefix("yundrone");
-        properties.local_name = Some("yundrone-ytcwln".to_string());
+        properties.local_name = Some("yundrone-lab1-k9x8".to_string());
         properties.services = vec![criteria.service_uuid];
 
         let matched = classify_properties(&properties, &criteria).unwrap();
 
         assert!(matched.matches_identity);
-        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-ytcwln"));
+        assert_eq!(
+            matched.candidate_name.as_deref(),
+            Some("yundrone-lab1-k9x8")
+        );
     }
 
     #[test]
     fn matches_bracketed_full_name_when_uart_service_is_present() {
         let mut properties = base_properties();
         let criteria = DiscoveryCriteria::for_prefix("yundrone");
-        properties.local_name = Some("edge-gateway [yundrone-ytcwln]".to_string());
+        properties.local_name = Some("edge-gateway [yundrone-lab1-k9x8]".to_string());
         properties.services = vec![criteria.service_uuid];
 
         let matched = classify_properties(&properties, &criteria).unwrap();
 
         assert!(matched.matches_identity);
-        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-ytcwln"));
+        assert_eq!(
+            matched.candidate_name.as_deref(),
+            Some("yundrone-lab1-k9x8")
+        );
     }
 
     #[test]
@@ -117,6 +133,18 @@ mod tests {
 
         assert!(matched.matches_identity);
         assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-ytcwln"));
+    }
+
+    #[test]
+    fn accepts_unseparated_alias_random_suffix() {
+        let mut properties = base_properties();
+        let criteria = DiscoveryCriteria::for_prefix("yundrone");
+        properties.local_name = Some("yundrone-lab1k9x8".to_string());
+
+        let matched = classify_properties(&properties, &criteria).unwrap();
+
+        assert!(matched.matches_identity);
+        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-lab1k9x8"));
     }
 
     #[test]
@@ -145,15 +173,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_uppercase_or_short_suffixes() {
-        let mut properties = base_properties();
+    fn rejects_invalid_suffixes() {
         let criteria = DiscoveryCriteria::for_prefix("yundrone");
-        properties.local_name = Some("yundrone-YTCWLN".to_string());
 
-        let matched = classify_properties(&properties, &criteria).unwrap();
+        for name in [
+            "Yundrone-lab1-k9x8",
+            "yundrone-",
+            "yundrone-lab_1",
+            "yundrone-lab1--k9x8",
+            "yundrone-07-44-5433",
+            "yundrone-YTCWLN",
+        ] {
+            let mut properties = base_properties();
+            properties.local_name = Some(name.to_string());
 
-        assert!(!matched.matches_identity);
-        assert!(matched.candidate_name.is_none());
+            let matched = classify_properties(&properties, &criteria).unwrap();
+
+            assert!(!matched.matches_identity, "{name}");
+            assert!(matched.candidate_name.is_none(), "{name}");
+        }
     }
 
     #[test]

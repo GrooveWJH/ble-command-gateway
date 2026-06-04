@@ -2,6 +2,16 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { WifiTable } from "./WifiTable";
+import { messages } from "../../i18n/messages";
+
+const t = (key: keyof typeof messages.zh, values?: Record<string, string | number>) => {
+  let message = messages.zh[key];
+  if (!values) return message;
+  for (const [name, value] of Object.entries(values)) {
+    message = message.replace(`{${name}}`, String(value));
+  }
+  return message;
+};
 
 describe("WifiTable", () => {
   it("shows color-coded signal quality for RSSI and percent values", () => {
@@ -15,6 +25,7 @@ describe("WifiTable", () => {
           { ssid: "weak-rssi", signal: -83, channel: "1" },
           { ssid: "strong-percent", signal: 82, channel: "36" },
         ]}
+        t={t}
         onFilterChange={vi.fn()}
         onSelect={vi.fn()}
       />,
@@ -33,6 +44,7 @@ describe("WifiTable", () => {
         connected
         filter=""
         networks={[{ ssid: "LabWiFi", signal: -52, channel: "6" }]}
+        t={t}
         onFilterChange={vi.fn()}
         onSelect={onSelect}
       />,
@@ -55,6 +67,7 @@ describe("WifiTable", () => {
           { ssid: "GuestWiFi", signal: 44, channel: "6" },
           { ssid: "FactoryWiFi", signal: 75, channel: "6" },
         ]}
+        t={t}
         onFilterChange={vi.fn()}
         onSelect={onSelect}
       />,

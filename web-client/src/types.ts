@@ -108,7 +108,14 @@ export interface BrowserSupportState {
   hasBluetoothApi: boolean;
   userAgent: string;
   reason?: string;
+  reasonKey?: BrowserSupportReasonKey;
 }
+
+export type BrowserSupportReasonKey =
+  | "support.reasonSecureContext"
+  | "support.reasonLinuxEdge"
+  | "support.reasonWindowsBluetooth"
+  | "support.reasonNoBluetooth";
 
 export type DebugMode = "off" | "safe" | "unsafe";
 

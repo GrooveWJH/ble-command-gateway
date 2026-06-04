@@ -28,12 +28,12 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 
 1. 在目标 Linux 设备上选择“部署 / 管理本机 BLE 被控端”。
 2. 在电脑上选择“启动 BLE 客户端 CLI”，或打开 GUI。
-3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-ytcwln`。
+3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-lab1-k9x8`。
 4. 选择对应设备并连接。
 5. 连接后执行 Wi-Fi 扫描、Wi-Fi 配网、系统状态或已保存 Wi-Fi 管理。
 6. 如果设备难找、连接慢、服务列表不出现或响应像被截断，先跑 debug CLI。
 
-每台设备只使用一个公开 BLE 名字。这个名字保存在 `/var/lib/yundrone/ble-device-name`，所以正常重启被控端不会换名字，也不容易污染手机和调试工具的蓝牙缓存。
+每台设备只使用一个公开 BLE 名字。新安装默认生成类似 `yundrone-lab1-k9x8` 的名字：前 4 位是安装时输入的别名，后 4 位是随机码。这个名字保存在 `/var/lib/yundrone/ble-device-name`，所以正常重启或更新被控端不会换名字，也不容易污染手机和调试工具的蓝牙缓存。已经部署过的旧 6 位名字仍然会被客户端识别。
 
 ## 被控端部署
 
@@ -50,6 +50,8 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 ```bash
 bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
 ```
+
+新安装或重置 BLE 名称时，安装器会要求输入 4 位设备别名，并显示最终名称，例如 `yundrone-lab1-k9x8`。请记住这个名字，之后在 Web Client、CLI 或小程序的设备列表里选择它。自动化场景可使用 `--name-alias lab1`。
 
 在 Ubuntu / Debian 系目标设备上安装运行和构建依赖：
 
@@ -187,6 +189,7 @@ Release 版本由 [VERSION](./VERSION) 和 [CHANGELOG](./CHANGELOG) 管理。推
 ## 文档导航
 
 - 被控端部署和 systemd 运维：[docs/systemd.md](./docs/systemd.md)
+- TUI 安装服务公网部署：[docs/INSTALL_SERVICE_DEPLOY_ZH.md](./docs/INSTALL_SERVICE_DEPLOY_ZH.md)
 - BLE 调试器 JSON 指令指南：[docs/BLE_DEBUGGER_GUIDE_ZH.md](./docs/BLE_DEBUGGER_GUIDE_ZH.md)
 - 协议命令与响应结构：[docs/COMMANDS.md](./docs/COMMANDS.md)
 - 兼容 BLE 被控端 实现说明：[docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md)

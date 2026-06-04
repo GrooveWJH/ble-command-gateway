@@ -1,46 +1,47 @@
 import type { GatewayCommand, GatewayState } from "../types";
+import type { TFunction } from "../i18n/I18nProvider";
 
-export function connectionLabel(connection: GatewayState["connection"]): string {
+export function connectionLabel(connection: GatewayState["connection"], t: TFunction): string {
   switch (connection) {
     case "connected":
-      return "已连接";
+      return t("connection.connected");
     case "connecting":
-      return "连接中";
+      return t("connection.connecting");
     case "unsupported":
-      return "不可用";
+      return t("connection.unsupported");
     case "error":
-      return "连接错误";
+      return t("connection.error");
     case "idle":
-      return "未连接";
+      return t("connection.idle");
   }
 }
 
-export function busyLabel(command?: GatewayCommand): string {
+export function busyLabel(command: GatewayCommand | undefined, t: TFunction): string {
   if (!command) {
-    return "空闲";
+    return t("busy.idle");
   }
-  return "执行中";
+  return t("busy.running");
 }
 
-export function commandLoadingLabel(command?: GatewayCommand): string {
+export function commandLoadingLabel(command: GatewayCommand | undefined, t: TFunction): string {
   switch (command) {
     case "wifi.scan":
-      return "正在扫描 Wi-Fi…";
+      return t("loading.wifi.scan");
     case "wifi.provision":
-      return "正在下发配网…";
+      return t("loading.wifi.provision");
     case "system.status":
-      return "正在刷新系统状态…";
+      return t("loading.system.status");
     case "system.capabilities":
-      return "正在读取协议能力…";
+      return t("loading.system.capabilities");
     case "link.heartbeat":
-      return "正在检测链路心跳…";
+      return t("loading.link.heartbeat");
     case "wifi.profiles.list":
-      return "正在读取 Wi-Fi 管理信息…";
+      return t("loading.wifi.profiles.list");
     case "wifi.profiles.delete":
-      return "正在删除 Wi-Fi profile…";
+      return t("loading.wifi.profiles.delete");
     case "link.ack":
-      return "正在确认链路…";
+      return t("loading.default");
     default:
-      return "空闲";
+      return t("busy.idle");
   }
 }

@@ -52,33 +52,35 @@ yundrone
 设备名必须使用一个单一 BLE local name，不要再设计“短名 / 长名”两套名字。推荐格式是：
 
 ```text
-<prefix>-<base36_6>
+<prefix>-<alias4>-<random4>
 ```
 
 默认实例：
 
 ```text
-yundrone-ytcwln
+yundrone-lab1-k9x8
 ```
 
 字段说明：
 
 - `<prefix>` 是业务前缀，默认 `yundrone`。只使用小写 ASCII 字母、数字和 `-`。
-- `<base36_6>` 是 6 个小写 base36 字符，即 `0-9a-z`。它应来自芯片唯一 ID、MAC 地址、序列号或设备 ID 的稳定哈希。
+- `<alias4>` 是安装时用户输入的 4 位小写字母数字别名，例如 `lab1`。
+- `<random4>` 是 4 位小写 base36 随机码，即 `0-9a-z`。
 - 名字必须跨重启保持稳定，避免 iOS、微信小程序或调试工具把同一物理设备识别成多个缓存对象。
 - Linux 参考 server 使用 `/var/lib/yundrone/ble-device-name` 作为权威命名文件（吴建豪注：这部分意味着需要在一个固定的位置存储命名文件，程序每次启动时应当检查此文件，如果此文件不存在或者格式不正确，则重新生成或者覆盖）；文件合法则复用，缺失或非法则重建并写回。
+- 已部署设备上的旧格式 `<prefix>-<base36_6>` 仍然合法，例如 `yundrone-ytcwln`，普通升级不得强制改名。
 
 客户端当前候选判断规则是：
 
-- `localName` 必须匹配 `<prefix>-<base36_6>`，例如 `yundrone-ytcwln`，才进入候选列表。
-- 如果某些平台把名字显示成 `host [yundrone-ytcwln]`，客户端也能识别方括号里的稳定身份。
+- `localName` 必须以 `<prefix>-` 开头，后缀由小写字母数字片段组成，最多使用一个 `-` 分隔，例如 `yundrone-lab1-k9x8`、`yundrone-lab1k9x8` 或旧名 `yundrone-ytcwln`。
+- 如果某些平台把名字显示成 `host [yundrone-lab1-k9x8]`，客户端也能识别方括号里的稳定身份。
 - 只有 service UUID 但没有目标前缀的设备不会进入候选列表。
 
 ## 3. 广播字段要求
 
 广播里至少要表达两类信息：
 
-- 设备身份：一个 `Complete Local Name`，值为 `yundrone-<base36_6>`。
+- 设备身份：一个 `Complete Local Name`，值为 `yundrone-<alias4>-<random4>`。
 - 服务类型：Nordic UART Service UUID，值为 `6e400001-b5a3-f393-e0a9-e50e24dcca9e`。
 
 推荐的广播布局：
@@ -1136,7 +1138,7 @@ end
 
 发现和广播：
 
-- Local Name 是唯一业务名字，格式为 `yundrone-<base36_6>`。
+- Local Name 是唯一业务名字，新安装推荐格式为 `yundrone-<alias4>-<random4>`，旧 `yundrone-<base36_6>` 只能作为已部署设备兼容格式保留。
 - 广播或 scan response 中声明 UART Service UUID。
 - 广播 connectable、discoverable。
 - 快速阶段约 20 ms，持续 600 秒。
@@ -1230,7 +1232,7 @@ cargo run -p yundrone-ble-client -- debug-ble \
 一个兼容 server 的核心承诺可以浓缩为：
 
 ```text
-广播名: yundrone-<base36_6>
+广播名: yundrone-<alias4>-<random4>
 Service: 6e400001-b5a3-f393-e0a9-e50e24dcca9e
 Write:   6e400002-b5a3-f393-e0a9-e50e24dcca9e
 Notify:  6e400003-b5a3-f393-e0a9-e50e24dcca9e

@@ -7,8 +7,8 @@
 ## 运行
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 本地开发可以使用 `localhost`。生产部署必须使用 HTTPS，否则浏览器不会开放 Web Bluetooth。
@@ -16,7 +16,7 @@ npm run dev
 ## 静态发布
 
 ```bash
-npm run build
+pnpm build
 ```
 
 将生成的 `dist/` 目录放到任意 HTTPS 静态站点即可，例如 Nginx、Cloudflare Pages、Vercel 或 GitHub Pages。不要把 `dist/` 提交到仓库。
@@ -30,7 +30,7 @@ npm run build
 ## 配网流程
 
 1. 打开 HTTPS 页面或本地 `localhost`。
-2. 点击“连接设备”，在浏览器蓝牙选择器里选 `yundrone-*` 设备。
+2. 点击“连接设备”，在浏览器蓝牙选择器里选安装器提示过的 `yundrone-*` 设备，例如 `yundrone-lab1-k9x8`。
 3. 点击“扫描 Wi-Fi”，等待扫描完成。
 4. 选择扫描结果，或手动输入隐藏网络 SSID。
 5. 输入密码并确认下发；开放网络可留空。
@@ -41,9 +41,9 @@ npm run build
 ## 验证
 
 ```bash
-npm run test
-npm run build
-npm run check:maxlines
+pnpm test
+pnpm build
+pnpm check:maxlines
 ```
 
 `check:maxlines` 默认要求 `ts/tsx/scss/md` 文件不超过 250 行。

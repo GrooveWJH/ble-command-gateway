@@ -1,5 +1,6 @@
 import { Button, Select, SelectItem, TextInput } from "@carbon/react";
 
+import { useI18n } from "../../i18n/useI18n";
 import type { DebugMode, TraceEntry } from "../../types";
 
 export function DebugDock({
@@ -25,53 +26,54 @@ export function DebugDock({
   onExpandedChange: (expanded: boolean) => void;
   onClear: () => void;
 }) {
+  const { t } = useI18n();
   const traceText = trace.map(formatTraceEntry).join("\n\n");
   return (
-    <section className="yd-debug-dock" aria-label="调试 trace">
+    <section className="yd-debug-dock" aria-label={t("debug.aria")}>
       {expanded && (
         <div className="yd-debug-drawer">
           <div className="yd-debug-toolbar">
             <div className="yd-debug-toolbar__summary">
-              <h2>Debug trace</h2>
-              <p>{trace.length} 条可见记录。Safe Verbose 会脱敏密码字段。</p>
+              <h2>{t("debug.title")}</h2>
+              <p>{t("debug.summary", { count: trace.length })}</p>
             </div>
             <div className="yd-debug-toolbar__filters">
               <Select
                 id="debug-mode"
-                labelText="调试模式"
+                labelText={t("debug.mode")}
                 value={debugMode}
                 onChange={(event) => onDebugModeChange(event.target.value as DebugMode)}
               >
-                <SelectItem value="off" text="Off" />
-                <SelectItem value="safe" text="Safe Verbose" />
-                <SelectItem value="unsafe" text="Unsafe Raw" />
+                <SelectItem value="off" text={debugModeLabel("off", t)} />
+                <SelectItem value="safe" text={debugModeLabel("safe", t)} />
+                <SelectItem value="unsafe" text={debugModeLabel("unsafe", t)} />
               </Select>
               <TextInput
                 id="trace-filter"
-                labelText="过滤 trace"
-                placeholder="过滤 trace"
+                labelText={t("debug.filter")}
+                placeholder={t("debug.filter")}
                 value={traceFilter}
                 onChange={(event) => onTraceFilterChange(event.target.value)}
               />
             </div>
             <div className="yd-debug-toolbar__actions">
               <Button kind="secondary" onClick={() => onTracePausedChange(!tracePaused)}>
-                {tracePaused ? "继续" : "暂停"}
+                {tracePaused ? t("debug.resume") : t("debug.pause")}
               </Button>
               <Button kind="ghost" onClick={() => copyTrace(traceText)}>
-                复制 trace
+                {t("debug.copy")}
               </Button>
               <Button kind="ghost" onClick={() => exportTrace(traceText)}>
-                导出 .trace
+                {t("debug.export")}
               </Button>
               <Button kind="ghost" onClick={onClear}>
-                清空
+                {t("debug.clear")}
               </Button>
             </div>
           </div>
           <div className="yd-trace-list" role="log">
             {trace.length === 0 ? (
-              <div className="yd-trace-empty">暂无 trace 记录。</div>
+              <div className="yd-trace-empty">{t("debug.empty")}</div>
             ) : trace.map((entry) => (
               <details className={`yd-trace-entry yd-trace-entry--${entry.level}`} key={entry.id} open={entry.level === "error"}>
                 <summary>
@@ -87,9 +89,9 @@ export function DebugDock({
       )}
       <div className="yd-debug-bar">
         <div>
-          <strong>Trace 记录：{trace.length}</strong>
-          <span>模式：{debugModeLabel(debugMode)}</span>
-          <span>{tracePaused ? "已暂停" : "实时记录"}</span>
+          <strong>{t("debug.records", { count: trace.length })}</strong>
+          <span>{t("debug.modeLabel", { mode: debugModeLabel(debugMode, t) })}</span>
+          <span>{tracePaused ? t("debug.paused") : t("debug.live")}</span>
         </div>
         <Button
           size="sm"
@@ -97,21 +99,21 @@ export function DebugDock({
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
         >
-          {expanded ? "收起调试抽屉" : "展开调试抽屉"}
+          {expanded ? t("debug.collapse") : t("debug.expand")}
         </Button>
       </div>
     </section>
   );
 }
 
-function debugModeLabel(mode: DebugMode): string {
+function debugModeLabel(mode: DebugMode, t: ReturnType<typeof useI18n>["t"]): string {
   switch (mode) {
     case "off":
-      return "Off";
+      return t("debug.modeOff");
     case "safe":
-      return "Safe Verbose";
+      return t("debug.modeSafe");
     case "unsafe":
-      return "Unsafe Raw";
+      return t("debug.modeUnsafe");
   }
 }
 

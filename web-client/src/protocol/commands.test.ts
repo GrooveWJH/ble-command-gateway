@@ -9,6 +9,9 @@ import {
   encodeCommandRequest,
   parseCommandResponse,
 } from "./commands";
+import { messages } from "../i18n/messages";
+
+const t = (key: keyof typeof messages.zh) => messages.zh[key];
 
 describe("main branch JSON command protocol", () => {
   it("tracks every user-facing Rust protocol command", () => {
@@ -41,7 +44,7 @@ describe("main branch JSON command protocol", () => {
       args: expectedArgs,
       v: PROTOCOL_VERSION,
     });
-    expect(commandLabel(cmd).length).toBeGreaterThan(0);
+    expect(commandLabel(cmd, t).length).toBeGreaterThan(0);
   });
 
   it("builds link.ack requests for chunk and event delivery", () => {

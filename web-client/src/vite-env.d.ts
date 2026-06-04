@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __YUNDRONE_APP_VERSION__: string;
+
 interface BluetoothRemoteGATTServer {
   connected: boolean;
   device: BluetoothDevice;

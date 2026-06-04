@@ -1,4 +1,5 @@
 import type { CommandResponse, JsonObject, JsonValue } from "../types";
+import type { TFunction } from "../i18n/I18nProvider";
 
 export interface StatusInterfaceView {
   ifname: string;
@@ -23,42 +24,46 @@ export interface CapabilitiesView {
   features: string[];
 }
 
-export function statusView(response?: CommandResponse): StatusView | undefined {
+export function statusView(response: CommandResponse | undefined, t: TFunction): StatusView | undefined {
   const data = response?.data;
   if (!data) return undefined;
   const interfaces = Array.isArray(data.interfaces)
     ? data.interfaces.map(readInterface).filter((item): item is StatusInterfaceView => Boolean(item))
     : [];
   return {
-    deviceName: readString(data.device_name) || "未知设备名",
-    hostname: readString(data.hostname) || "未知主机",
-    system: readString(data.system) || "未知系统",
-    user: readString(data.user) || "未知用户",
-    network: readString(data.network) || "未连接 Wi-Fi",
-    ip: readString(data.ip) || interfaces[0]?.ipv4 || "未获取",
+    deviceName: readString(data.device_name) || t("diagnostics.unknownDevice"),
+    hostname: readString(data.hostname) || t("diagnostics.unknownHost"),
+    system: readString(data.system) || t("diagnostics.unknownSystem"),
+    user: readString(data.user) || t("diagnostics.unknownUser"),
+    network: readString(data.network) || t("diagnostics.noWifi"),
+    ip: readString(data.ip) || interfaces[0]?.ipv4 || t("diagnostics.noIp"),
     interfaces,
   };
 }
 
-export function capabilitiesView(response?: CommandResponse): CapabilitiesView | undefined {
+export function capabilitiesView(response: CommandResponse | undefined, t: TFunction): CapabilitiesView | undefined {
   const data = response?.data;
   if (!data) return undefined;
   return {
-    protocolVersion: readString(data.protocol_version) || response?.v || "未知",
-    payloadLimit: typeof data.payload_limit === "number" ? `${data.payload_limit} bytes` : "未知",
+    protocolVersion: readString(data.protocol_version) || response?.v || t("diagnostics.unknown"),
+    payloadLimit: typeof data.payload_limit === "number" ? `${data.payload_limit} bytes` : t("diagnostics.unknown"),
     commands: readStringList(data.commands),
     features: readStringList(data.features),
   };
 }
 
-export function heartbeatAlive(response?: CommandResponse): string {
-  if (!response?.data) return "尚未检测";
-  return response.data.alive === true ? "alive" : "未确认";
+export function heartbeatAlive(response: CommandResponse | undefined, t: TFunction): string {
+  if (!response?.data) return t("diagnostics.heartbeatUnchecked");
+  return response.data.alive === true ? t("diagnostics.heartbeatAlive") : t("diagnostics.heartbeatUnconfirmed");
 }
 
 export function preferredIp(response?: CommandResponse): string | undefined {
-  const view = statusView(response);
-  return view?.ip && view.ip !== "未获取" ? view.ip : undefined;
+  const ip = typeof response?.data?.ip === "string" ? response.data.ip : undefined;
+  if (ip) return ip;
+  const interfaces = response?.data?.interfaces;
+  if (!Array.isArray(interfaces)) return undefined;
+  const first = interfaces.map(readInterface).find(Boolean);
+  return first?.ipv4;
 }
 
 function readInterface(value: JsonValue): StatusInterfaceView | undefined {

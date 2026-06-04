@@ -22,6 +22,7 @@ BACKEND="$DEFAULT_BACKEND"
 ASSUME_YES="no"
 PURGE="no"
 RESET_NAME="no"
+NAME_ALIAS="${YUNDRONE_DEVICE_ALIAS:-}"
 VERBOSE="${YUNDRONE_VERBOSE:-no}"
 
 # shellcheck source=/dev/null
@@ -59,13 +60,14 @@ YunDrone BLE Server 安装器
   status       显示安装状态、服务状态和 BLE 名称
   doctor       只做环境诊断，不安装
   logs         显示最近服务日志
-  reset-name   删除持久化 BLE 名称并重启服务
+  reset-name   重置持久化 BLE 名称并重启服务
 
 选项:
   --prefix <name>       BLE 名前缀，默认: yundrone
   --version <version>   指定安装版本，默认: latest
   --adapter <hciX>      蓝牙适配器提示，默认自动检测
   --backend <name>      广播后端，默认: bluez-dbus
+  --name-alias <4chars> 新 BLE 名称的人类可读别名，例如 lab1
   --yes                 跳过确认，用于自动化
   --purge               卸载时同时删除 /var/lib/yundrone
   --reset-name          安装/重装时重新生成 BLE 名称
@@ -76,6 +78,7 @@ YunDrone BLE Server 安装器
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
   bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- server
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- install --yes
+  bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- reset-name --name-alias lab1
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- doctor
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- uninstall
 EOF
@@ -115,6 +118,11 @@ parse_args() {
       --backend)
         BACKEND="${2:-}"
         [ -n "$BACKEND" ] || fail "--backend 需要一个值"
+        shift 2
+        ;;
+      --name-alias)
+        NAME_ALIAS="${2:-}"
+        [ -n "$NAME_ALIAS" ] || fail "--name-alias 需要一个值"
         shift 2
         ;;
       --yes|-y)

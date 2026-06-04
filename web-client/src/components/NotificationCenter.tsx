@@ -1,5 +1,6 @@
 import { ToastNotification } from "@carbon/react";
 
+import { useI18n } from "../i18n/useI18n";
 import type { AppNotice } from "../types";
 
 export function NotificationCenter({
@@ -9,12 +10,13 @@ export function NotificationCenter({
   notices: AppNotice[];
   onDismiss: (id: string) => void;
 }) {
+  const { t } = useI18n();
   if (notices.length === 0) return null;
   return (
-    <div aria-label="通知中心" className="yd-notification-center">
+    <div aria-label={t("notices.center")} className="yd-notification-center">
       {notices.map((notice) => (
         <div
-          aria-label={`通知：${notice.title}`}
+          aria-label={t("notices.item", { title: notice.title })}
           className={`yd-notice ${notice.closing ? "yd-notice--closing" : ""}`}
           key={notice.id}
           role="status"

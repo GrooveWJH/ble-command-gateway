@@ -56,7 +56,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-建议同时为系统显示名和 BlueZ 设置不会暴露硬件型号的默认名。server 启动后会把 Adapter `Alias` 动态同步为完整公开身份，例如 `yundrone-ytcwln`；下面配置用于 bluetoothd 刚启动、server 尚未接管前的兜底，并且不修改 Linux static hostname：
+建议同时为系统显示名和 BlueZ 设置不会暴露硬件型号的默认名。server 启动后会把 Adapter `Alias` 动态同步为完整公开身份，例如 `yundrone-lab1-k9x8`；下面配置用于 bluetoothd 刚启动、server 尚未接管前的兜底，并且不修改 Linux static hostname：
 
 ```bash
 sudo hostnamectl set-hostname --pretty yundrone
@@ -149,9 +149,9 @@ BLE response
 
 日志不会打印完整响应 payload，也不会打印 Wi-Fi 密码；分片部分只展示大小、数量和传输模式。
 
-部署验证时请记录日志里的 `identity_name`，例如 `identity_name=yundrone-ytcwln`，然后在 CLI / GUI 中按前缀 `yundrone` 扫描，再从候选列表里选择对应实例。
+部署验证时请记录日志里的 `identity_name`，例如 `identity_name=yundrone-lab1-k9x8`，然后在 CLI / GUI / Web Client 中按前缀 `yundrone` 扫描，再从候选列表里选择对应实例。
 
-设备名持久化在 `/var/lib/yundrone/ble-device-name`。这个文件是 BLE local name 的权威来源，不放在 `/opt/ble-command-gateway`，避免代码部署覆盖设备身份。文件缺失或内容非法时，server 会重建为 `<prefix>-<base36_6>`；如果无法写入该文件，server 应启动失败，避免产生临时名字污染移动端缓存。
+设备名持久化在 `/var/lib/yundrone/ble-device-name`。这个文件是 BLE local name 的权威来源，不放在 `/opt/ble-command-gateway`，避免代码部署覆盖设备身份。新安装或重置名称时，安装器会提示输入 4 位别名并写入 `<prefix>-<alias4>-<random4>`，例如 `yundrone-lab1-k9x8`。文件缺失或内容非法时，server 会用默认别名 `node` 重建为新格式；已经存在的旧 6 位名字会保留。如果无法写入该文件，server 应启动失败，避免产生临时名字污染移动端缓存。
 
 建议直接用下面的命令过滤关键日志：
 
@@ -212,7 +212,7 @@ sudo systemctl restart yundrone-ble-command-gateway.service
 ```
 
 4. 再次用 `btmon` 验证 interval 是否真正变化
-5. 同时确认 advertising local name 是唯一身份，如 `yundrone-ytcwln`
+5. 同时确认 advertising local name 是唯一身份，如 `yundrone-lab1-k9x8`
 6. 面向微信小程序等移动端 client 时，把单一 `yundrone-*` local name 作为发现身份，把连接后的 GATT 服务发现作为最终验证链路
 
 如果你的板卡本来就能正确应用 `MinInterval` / `MaxInterval`，则不需要为此调整系统配置。

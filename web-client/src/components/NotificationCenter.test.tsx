@@ -1,8 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NotificationCenter } from "./NotificationCenter";
+import { renderWithI18n } from "../test/renderWithI18n";
 import type { AppNotice } from "../types";
 
 describe("NotificationCenter", () => {
@@ -11,11 +12,12 @@ describe("NotificationCenter", () => {
   });
 
   it("renders centered transient notifications and allows manual dismiss", () => {
-    render(
+    renderWithI18n(
       <NotificationCenter
         notices={[notice("notice-1", "success", "基本信息已更新")]}
         onDismiss={vi.fn()}
       />,
+      { language: "zh" },
     );
 
     expect(screen.getByLabelText("通知中心")).toHaveClass("yd-notification-center");
@@ -24,7 +26,7 @@ describe("NotificationCenter", () => {
 
   it("auto-dismisses notices with a closing state before removal", async () => {
     vi.useFakeTimers();
-    render(<NotificationHarness />);
+    renderWithI18n(<NotificationHarness />, { language: "zh" });
 
     const active = screen.getByRole("status", { name: "通知：基本信息已更新" });
     await act(() => vi.advanceTimersByTimeAsync(4_000));
@@ -36,7 +38,7 @@ describe("NotificationCenter", () => {
 
   it("does not auto-dismiss persistent notices", async () => {
     vi.useFakeTimers();
-    render(<NotificationHarness persistent />);
+    renderWithI18n(<NotificationHarness persistent />, { language: "zh" });
 
     await act(() => vi.advanceTimersByTimeAsync(20_000));
 

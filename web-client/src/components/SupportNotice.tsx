@@ -1,5 +1,7 @@
 import { Button, InlineNotification, Tag, TextInput } from "@carbon/react";
 
+import { useI18n } from "../i18n/useI18n";
+import { browserSupportReason } from "../ui/browserSupport";
 import { connectionLabel } from "../ui/format";
 import type { BrowserSupportState, GatewayState } from "../types";
 
@@ -20,28 +22,30 @@ export function SupportNotice({
   onDisconnect: () => void;
   onTargetPrefixChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const connected = state.connection === "connected";
+  const supportReason = browserSupportReason(support, t);
   return (
     <section className="yd-command-center">
       <div className="yd-command-center__copy">
         <Tag type={support.supported ? "blue" : "red"}>
-          {support.supported ? "WebBluetooth ready" : "WebBluetooth unavailable"}
+          {support.supported ? t("support.ready") : t("support.unavailable")}
         </Tag>
         <div>
-          <h1>BLE Wi-Fi 配网工作台</h1>
-          <p>连接已部署被控端的 yundrone-* 设备，扫描 Wi-Fi 并下发配网；无需安装 CLI。</p>
+          <h1>{t("support.title")}</h1>
+          <p>{t("support.subtitle")}</p>
         </div>
       </div>
-      <div className="yd-command-center__status" aria-label="当前连接状态">
-        <span>连接状态</span>
-        <strong>{connectionLabel(state.connection)}</strong>
-        <span className="mono">{state.deviceName ?? "尚未选择设备"}</span>
+      <div className="yd-command-center__status" aria-label={t("support.statusAria")}>
+        <span>{t("support.connectionStatus")}</span>
+        <strong>{connectionLabel(state.connection, t)}</strong>
+        <span className="mono">{state.deviceName ?? t("header.noDevice")}</span>
       </div>
       <div className="yd-command-center__actions">
         <TextInput
           id="target-prefix"
-          labelText="目标设备前缀"
-          helperText="默认扫描 yundrone-* 设备"
+          labelText={t("support.targetPrefixLabel")}
+          helperText={t("support.targetPrefixHelp")}
           value={targetPrefix}
           onChange={(event) => onTargetPrefixChange(event.target.value)}
           disabled={connected || busy}
@@ -51,15 +55,15 @@ export function SupportNotice({
           onClick={connected ? onDisconnect : onConnect}
           disabled={busy}
         >
-          {connected ? "断开设备" : "连接设备"}
+          {connected ? t("support.disconnect") : t("support.connect")}
         </Button>
       </div>
       {!support.supported && (
         <InlineNotification
           kind="error"
           lowContrast
-          title="当前浏览器无法使用 Web Bluetooth"
-          subtitle={`${support.reason ?? "当前环境未开放 Web Bluetooth。"} 请使用 Google Chrome 或 Android Chrome。`}
+          title={t("support.unsupportedTitle")}
+          subtitle={t("support.unsupportedSubtitle", { reason: supportReason })}
         />
       )}
     </section>

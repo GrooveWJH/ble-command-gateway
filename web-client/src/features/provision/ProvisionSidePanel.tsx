@@ -6,6 +6,7 @@ import {
   Tile,
 } from "@carbon/react";
 
+import { useI18n } from "../../i18n/useI18n";
 import type { GatewayCommand, ProvisionResultView, UserFacingError } from "../../types";
 
 export function ProvisionSidePanel(props: {
@@ -21,34 +22,35 @@ export function ProvisionSidePanel(props: {
   onProvision: () => void;
   onResetResult: () => void;
 }) {
+  const { t } = useI18n();
   const busy = Boolean(props.busyCommand);
   const canProvision = props.connected && props.ssid.trim().length > 0 && !busy;
   return (
     <aside className="yd-side-panel">
-      <h2>下发配网</h2>
+      <h2>{t("provision.sideTitle")}</h2>
       <TextInput
         id="ssid"
         labelText="SSID"
         value={props.ssid}
         onChange={(event) => props.onSsidChange(event.target.value)}
-        placeholder="选择扫描结果，或手动输入隐藏网络 SSID"
+        placeholder={t("provision.ssidPlaceholder")}
         disabled={!props.connected || busy}
       />
       <PasswordInput
         id="wifi-password"
-        labelText="Wi-Fi 密码"
+        labelText={t("provision.passwordLabel")}
         value={props.password}
         onChange={(event) => props.onPasswordChange(event.target.value)}
-        placeholder="开放网络可留空"
+        placeholder={t("provision.passwordPlaceholder")}
         disabled={!props.connected || busy}
-        hidePasswordLabel="隐藏密码"
-        showPasswordLabel="显示密码"
+        hidePasswordLabel={t("provision.hidePassword")}
+        showPasswordLabel={t("provision.showPassword")}
       />
       <Tile className="yd-summary-tile">
-        <strong>确认摘要</strong>
-        <span>设备：{props.deviceName ?? "尚未连接"}</span>
-        <span>目标 SSID：{props.ssid.trim() || "尚未选择"}</span>
-        <span>密码：{props.password ? "已填写，不会保存到浏览器" : "未填写，适用于开放网络"}</span>
+        <strong>{t("provision.summary")}</strong>
+        <span>{t("provision.summaryDevice", { device: props.deviceName ?? t("provision.notConnected") })}</span>
+        <span>{t("provision.summarySsid", { ssid: props.ssid.trim() || t("provision.noSsid") })}</span>
+        <span>{props.password ? t("provision.summaryPasswordSet") : t("provision.summaryPasswordEmpty")}</span>
       </Tile>
       {props.error && (
         <InlineNotification
@@ -60,11 +62,11 @@ export function ProvisionSidePanel(props: {
       )}
       {props.result && (
         <Button kind="tertiary" size="sm" onClick={props.onResetResult}>
-          继续配置其他网络
+          {t("provision.continue")}
         </Button>
       )}
       <Button onClick={props.onProvision} disabled={!canProvision}>
-        确认并下发配网
+        {t("provision.submit")}
       </Button>
     </aside>
   );

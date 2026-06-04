@@ -4,15 +4,16 @@ import type {
   ProvisionResultView,
   WifiNetwork,
 } from "../types";
+import type { MessageKey } from "../i18n/messages";
 
-export const JOURNEY_STEPS: Array<{ id: ProvisionJourneyStep; label: string }> = [
-  { id: "environment", label: "环境检查" },
-  { id: "connect", label: "连接设备" },
-  { id: "scan", label: "扫描 Wi-Fi" },
-  { id: "select", label: "选择网络" },
-  { id: "credentials", label: "输入密码" },
-  { id: "provision", label: "下发配网" },
-  { id: "result", label: "结果确认" },
+export const JOURNEY_STEPS: Array<{ id: ProvisionJourneyStep; labelKey: MessageKey }> = [
+  { id: "environment", labelKey: "steps.environmentLabel" },
+  { id: "connect", labelKey: "steps.connectLabel" },
+  { id: "scan", labelKey: "steps.scanLabel" },
+  { id: "select", labelKey: "steps.selectLabel" },
+  { id: "credentials", labelKey: "steps.credentialsLabel" },
+  { id: "provision", labelKey: "steps.provisionLabel" },
+  { id: "result", labelKey: "steps.resultLabel" },
 ];
 
 export function currentJourneyStep(input: {

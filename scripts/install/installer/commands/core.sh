@@ -117,12 +117,138 @@ prepare_release_permissions() {
   fi
 }
 
+normalize_name_alias() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+validate_name_alias() {
+  local alias
+  alias="$(normalize_name_alias "$1")"
+  if printf '%s' "$alias" | grep -Eq '^[a-z0-9]{4}$'; then
+    printf '%s' "$alias"
+    return 0
+  fi
+  return 1
+}
+
+identity_name_is_supported() {
+  local name suffix
+  name="$1"
+  case "$name" in
+    "${PREFIX}-"*)
+      suffix="${name#"${PREFIX}-"}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  printf '%s' "$suffix" | grep -Eq '^([a-z0-9]{6}|[a-z0-9]{8}|[a-z0-9]{4}-[a-z0-9]{4})$'
+}
+
+persisted_identity_is_supported() {
+  local current
+  [ -s "$IDENTITY_FILE" ] || return 1
+  current="$(identity_name)"
+  identity_name_is_supported "$current"
+}
+
+random_base36_4() {
+  local random
+  if [ -r /dev/urandom ]; then
+    random="$(set +o pipefail; LC_ALL=C tr -dc '0-9a-z' </dev/urandom | head -c 4)"
+    if [ "${#random}" -eq 4 ]; then
+      printf '%s' "$random"
+      return 0
+    fi
+  fi
+  fallback_base36_4
+}
+
+fallback_base36_4() {
+  local alphabet output value index
+  alphabet="0123456789abcdefghijklmnopqrstuvwxyz"
+  output=""
+  value=$(( (RANDOM << 16) ^ RANDOM ^ $$ ))
+  while [ "${#output}" -lt 4 ]; do
+    index=$(( value % 36 ))
+    output="${output}${alphabet:$index:1}"
+    value=$(( value / 36 ))
+    if [ "$value" -eq 0 ]; then
+      value=$(( (RANDOM << 16) ^ RANDOM ^ $(date +%s 2>/dev/null || printf 0) ))
+    fi
+  done
+  printf '%s' "$output"
+}
+
+prompt_name_alias() {
+  local alias
+  if [ -n "$NAME_ALIAS" ]; then
+    validate_name_alias "$NAME_ALIAS" || fail "--name-alias 必须是 4 位小写字母或数字，例如 lab1"
+    return 0
+  fi
+
+  if ! tui_ready || [ "$ASSUME_YES" = "yes" ]; then
+    printf '%s' "node"
+    return 0
+  fi
+
+  while true; do
+    alias="$(gum input \
+      --prompt "BLE 别名 > " \
+      --placeholder "4 位字母数字，例如 lab1" \
+      --value "node")" || fail "已取消输入 BLE 别名"
+    if validate_name_alias "$alias" >/dev/null; then
+      validate_name_alias "$alias"
+      return 0
+    fi
+    tui_warn_card "别名必须是 4 位小写字母或数字。大写会自动转小写，例如 LAB1 会变成 lab1。"
+  done
+}
+
+plan_identity_name() {
+  local alias random
+  if [ "$RESET_NAME" != "yes" ] && persisted_identity_is_supported; then
+    identity_name
+    return 0
+  fi
+
+  alias="$(prompt_name_alias)"
+  random="$(random_base36_4)"
+  [ "${#random}" -eq 4 ] || fail "生成 BLE 名称随机码失败"
+  printf '%s-%s-%s' "$PREFIX" "$alias" "$random"
+}
+
+write_identity_name() {
+  local name="$1"
+  run_root mkdir -p "$STATE_DIR"
+  printf '%s\n' "$name" | run_root tee "$IDENTITY_FILE" >/dev/null
+  run_root chmod 755 "$STATE_DIR"
+  run_root chmod 644 "$IDENTITY_FILE"
+}
+
+render_identity_reminder() {
+  local name="$1"
+  if tui_ready; then
+    tui_info_card "请记住这个 BLE 名称
+
+${name}
+
+之后在网页、CLI 或小程序的设备列表中，请选择这个名字。"
+    return 0
+  fi
+
+  printf '\n%s\n' "$(strong "请记住这个 BLE 名称：")"
+  printf '  %s\n' "$(accent "$name")"
+  printf '%s\n' "之后在网页、CLI 或小程序的设备列表中，请选择这个名字。"
+}
+
 install_or_update() {
   validate_prefix
 
-  local arch adapter tmp tarball selected_version release_dir staging_dir
+  local arch adapter tmp tarball selected_version release_dir staging_dir planned_identity
   arch="$(detect_arch)"
   adapter="$(adapter_display)"
+  planned_identity="$(plan_identity_name)"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
@@ -137,10 +263,15 @@ install_or_update() {
   field_line "安装目录" "$(path_text "$INSTALL_ROOT")"
   field_line "systemd service" "$(accent "$SERVICE_NAME")"
   if [ "$RESET_NAME" = "yes" ]; then
-    field_line "BLE 名称" "$(warn_text "重新生成")"
+    field_line "BLE 名称" "$(warn_text "重新生成")$(muted " -> ")$(accent "$planned_identity")"
+  elif persisted_identity_is_supported; then
+    field_line "BLE 名称" "$(good_text "保留")$(muted " -> ")$(accent "$planned_identity")"
+  elif [ -s "$IDENTITY_FILE" ]; then
+    field_line "BLE 名称" "$(warn_text "现有名称非法，将重建")$(muted " -> ")$(accent "$planned_identity")"
   else
-    field_line "BLE 名称" "$(good_text "保留已有名称")$(muted "；没有则首次启动时生成")"
+    field_line "BLE 名称" "$(good_text "新建")$(muted " -> ")$(accent "$planned_identity")"
   fi
+  render_identity_reminder "$planned_identity"
   confirm_yes "是否继续安装？" || fail "已取消安装"
 
   ensure_sudo_step
@@ -169,8 +300,8 @@ install_or_update() {
   tui_run_step "停止旧服务" stop_service_for_install
   tui_run_step "切换 release 目录" activate_release "$staging_dir" "$release_dir"
 
-  if [ "$RESET_NAME" = "yes" ]; then
-    tui_run_step "删除旧 BLE 名称" run_root rm -f "$IDENTITY_FILE"
+  if [ "$RESET_NAME" = "yes" ] || ! persisted_identity_is_supported; then
+    tui_run_step "写入 BLE 名称" write_identity_name "$planned_identity"
   fi
 
   tui_run_step "写入 systemd service" write_service "$PREFIX" "$BACKEND"
@@ -198,7 +329,7 @@ BLE 名称：$(identity_name)
 服务：${SERVICE_NAME}
 状态：运行中
 
-现在可以用 YunDrone client 或小程序扫描 ${PREFIX}-* 设备。"
+请记住这个名字。之后在网页、CLI 或小程序的设备列表中选择它。"
     gum style --foreground 39 "实时日志：sudo journalctl -u ${SERVICE_NAME} -f -o cat"
     return 0
   fi
@@ -208,7 +339,7 @@ BLE 名称：$(identity_name)
   field_line "BLE 名称" "$(accent "$(identity_name)")"
   field_line "服务" "$(accent "$SERVICE_NAME")"
   field_line "状态" "$(good_text "运行中")"
-  printf '\n%s\n' "你现在可以用 YunDrone client 或小程序扫描 $(accent "${PREFIX}-*") 设备。"
+  render_identity_reminder "$(identity_name)"
   printf '%s\n' "查看实时日志："
   printf '  %s\n' "$(command_text "sudo journalctl -u ${SERVICE_NAME} -f -o cat")"
 }
@@ -278,22 +409,32 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
 }
 
 reset_name() {
+  validate_prefix
+  RESET_NAME="yes"
+  local planned_identity
+  planned_identity="$(plan_identity_name)"
   if tui_ready; then
     tui_confirm_danger "重置 BLE 名称
 
-将删除：${IDENTITY_FILE}
-随后重启服务并生成新的 BLE 名称。" || fail "已取消重置"
+将写入：${IDENTITY_FILE}
+新的 BLE 名称：${planned_identity}
+
+请记住这个名字，之后在网页、CLI 或小程序中选择它。" || fail "已取消重置"
   else
-    confirm_yes "是否删除 ${IDENTITY_FILE} 并重启服务？" || fail "已取消重置"
+    field_line "新的 BLE 名称" "$(accent "$planned_identity")"
+    confirm_yes "是否写入 ${IDENTITY_FILE} 并重启服务？" || fail "已取消重置"
   fi
   ensure_sudo_step
-  run_root rm -f "$IDENTITY_FILE"
+  write_identity_name "$planned_identity"
   run_root systemctl restart "$SERVICE_NAME"
   sleep 2
   if tui_ready; then
-    tui_success_card "新的 BLE 名称：$(identity_name)"
+    tui_success_card "新的 BLE 名称：$(identity_name)
+
+请在网页、CLI 或小程序里选择这个名字。"
   else
     ok "新的 BLE 名称：$(identity_name)"
+    render_identity_reminder "$(identity_name)"
   fi
 }
 

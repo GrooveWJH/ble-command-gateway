@@ -1,0 +1,47 @@
+.yd-header-actions,
+.yd-header-status {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.yd-header-actions {
+  gap: 0.25rem;
+  padding-right: 1rem;
+}
+
+.yd-header-status {
+  gap: 0.5rem;
+}
+
+.yd-status-text {
+  overflow: hidden;
+  max-width: clamp(6rem, 18vw, 18rem);
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yd-language-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 3rem;
+  overflow: hidden;
+  background: var(--cds-interactive);
+  color: var(--cds-text-on-color);
+}
+
+.yd-language-action__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-align: center;
+}

@@ -13,13 +13,7 @@ import {
 } from "@carbon/react";
 
 import type { WifiNetwork } from "../../types";
-
-const headers = [
-  { key: "ssid", header: "SSID" },
-  { key: "signal", header: "信号" },
-  { key: "channel", header: "信道" },
-  { key: "accessPoints", header: "接入点" },
-];
+import type { TFunction } from "../../i18n/I18nProvider";
 
 interface MergedWifiNetwork {
   ssid: string;
@@ -32,39 +26,47 @@ export function WifiTable({
   connected,
   networks,
   filter,
+  t,
   onFilterChange,
   onSelect,
 }: {
   connected: boolean;
   networks: WifiNetwork[];
   filter: string;
+  t: TFunction;
   onFilterChange: (value: string) => void;
   onSelect: (ssid: string) => void;
 }) {
+  const headers = [
+    { key: "ssid", header: "SSID" },
+    { key: "signal", header: t("wifi.signal") },
+    { key: "channel", header: t("wifi.channel") },
+    { key: "accessPoints", header: t("wifi.accessPoints") },
+  ];
   const mergedNetworks = mergeWifiNetworks(networks);
   const rows = mergedNetworks.map((network) => ({
     id: network.ssid,
     ssid: network.ssid,
     signal: network.signal,
     channel: network.channels.join(" / "),
-    accessPoints: `${network.accessPoints} 个接入点`,
+    accessPoints: t("wifi.accessPointCount", { count: network.accessPoints }),
   }));
   return (
     <DataTable rows={rows} headers={headers} size="sm" isSortable>
       {({ rows, headers, getHeaderProps, getRowProps, getTableProps }) => (
-        <TableContainer title="扫描结果" description={emptyText(connected, mergedNetworks.length)}>
+        <TableContainer title={t("wifi.resultsTitle")} description={emptyText(connected, mergedNetworks.length, t)}>
           <TableToolbar>
             <TableToolbarContent>
               <Search
-                labelText="搜索 SSID"
-                placeholder="搜索 SSID"
+                labelText={t("wifi.search")}
+                placeholder={t("wifi.search")}
                 value={filter}
                 onChange={(event) => onFilterChange(event.target.value)}
                 disabled={!connected || networks.length === 0}
               />
             </TableToolbarContent>
           </TableToolbar>
-          <Table {...getTableProps()} aria-label="Wi-Fi 扫描结果">
+          <Table {...getTableProps()} aria-label={t("wifi.aria")}>
             <TableHead>
               <TableRow>
                 {headers.map((header) => (
@@ -80,7 +82,7 @@ export function WifiTable({
                 {row.cells.map((cell) => (
                     <TableCell key={cell.id}>
                       {cell.info.header === "signal"
-                        ? <SignalQuality value={Number(cell.value)} />
+                        ? <SignalQuality value={Number(cell.value)} t={t} />
                         : cell.value}
                     </TableCell>
                   ))}
@@ -129,11 +131,11 @@ function sortChannels(channels: string[]): string[] {
   });
 }
 
-function SignalQuality({ value }: { value: number }) {
-  const quality = signalQuality(value);
+function SignalQuality({ value, t }: { value: number; t: TFunction }) {
+  const quality = signalQuality(value, t);
   return (
     <span
-      aria-label={`信号${quality.label}：${value}`}
+      aria-label={t("wifi.signalAria", { quality: quality.label, value })}
       className={`yd-signal-quality yd-signal-quality--${quality.kind}`}
     >
       <span className="yd-signal-quality__dot" aria-hidden="true" />
@@ -143,22 +145,22 @@ function SignalQuality({ value }: { value: number }) {
   );
 }
 
-export function signalQuality(value: number): { kind: "strong" | "medium" | "weak"; label: "强" | "中" | "弱" } {
+export function signalQuality(value: number, t: TFunction): { kind: "strong" | "medium" | "weak"; label: string } {
   if (value >= 0) {
-    if (value >= 70) return { kind: "strong", label: "强" };
-    if (value >= 40) return { kind: "medium", label: "中" };
-    return { kind: "weak", label: "弱" };
+    if (value >= 70) return { kind: "strong", label: t("wifi.signalStrong") };
+    if (value >= 40) return { kind: "medium", label: t("wifi.signalMedium") };
+    return { kind: "weak", label: t("wifi.signalWeak") };
   }
-  if (value >= -60) return { kind: "strong", label: "强" };
-  if (value >= -75) return { kind: "medium", label: "中" };
-  return { kind: "weak", label: "弱" };
+  if (value >= -60) return { kind: "strong", label: t("wifi.signalStrong") };
+  if (value >= -75) return { kind: "medium", label: t("wifi.signalMedium") };
+  return { kind: "weak", label: t("wifi.signalWeak") };
 }
 
-function emptyText(connected: boolean, count: number): string {
+function emptyText(connected: boolean, count: number, t: TFunction): string {
   if (!connected) {
-    return "先连接设备。尚未扫描 Wi-Fi。也可以直接在上方 SSID 输入框填写隐藏网络。";
+    return t("wifi.emptyDisconnected");
   }
   return count === 0
-    ? "尚未扫描 Wi-Fi。也可以直接在上方 SSID 输入框填写隐藏网络。"
-    : `发现 ${count} 个候选网络，点击行即可选择。`;
+    ? t("wifi.emptyConnected")
+    : t("wifi.count", { count });
 }

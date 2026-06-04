@@ -3,7 +3,9 @@
 );
 @use "@carbon/react";
 @use "./styles/base";
+@use "./styles/header";
 @use "./styles/shell";
+@use "./styles/install";
 @use "./styles/panels";
 @use "./styles/debug";
 @use "./styles/notifications";

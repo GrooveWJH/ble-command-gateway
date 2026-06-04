@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bluetoothConnection, capabilitiesResponse, provisionResponse, statusResponse } from "./test/fixtures";
+import { renderWithI18n } from "./test/renderWithI18n";
 import App from "./App";
 import type { BrowserSupportState } from "./types";
 
@@ -63,15 +64,15 @@ describe("App shell", () => {
   });
 
   it("shows a clear unsupported browser notice when Web Bluetooth is unavailable", () => {
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     expect(screen.getByText("当前浏览器无法使用 Web Bluetooth")).toBeInTheDocument();
-    expect(screen.getByText(/Google Chrome 或 Android Chrome/)).toBeInTheDocument();
+    expect(screen.getByText(/Google Chrome、Microsoft Edge 或 Android Chrome/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "连接设备" })).not.toBeDisabled();
   });
 
   it("keeps the connect trigger actionable when Web Bluetooth is unavailable", () => {
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
 
@@ -79,14 +80,14 @@ describe("App shell", () => {
   });
 
   it("keeps debug controls visible in the unsupported state", () => {
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     expect(screen.getByText(/Trace 记录/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开调试抽屉" })).toBeInTheDocument();
   });
 
   it("puts basic information first and keeps provisioning steps inside the Wi-Fi page", () => {
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     expect(screen.getByRole("banner")).toHaveTextContent("YunDrone 配网工作台");
     expect(screen.getByText(/连接已部署被控端/)).toBeInTheDocument();
@@ -95,7 +96,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Wi-Fi 配网" }));
     expect(stepLabels()).toEqual(["环境检查", "连接设备", "扫描 Wi-Fi", "选择网络", "输入密码"]);
     expect(screen.getByText("先连接设备")).toBeInTheDocument();
-    expect(screen.getByText(/在浏览器蓝牙选择器中选择名称以 yundrone-/)).toBeInTheDocument();
+    expect(screen.getByText(/在浏览器蓝牙选择器中选择安装器提示过的 yundrone-/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "确认并下发配网" })).toBeDisabled();
     expect(screen.getByText(/设备保持上电并靠近电脑或手机/)).toBeInTheDocument();
     expect(screen.getByText(/尚未扫描 Wi-Fi。也可以直接在上方 SSID 输入框填写隐藏网络/)).toBeInTheDocument();
@@ -105,7 +106,7 @@ describe("App shell", () => {
   });
 
   it("uses a fixed viewport workspace without a global journey rail", () => {
-    const { container } = render(<App />);
+    const { container } = renderWithI18n(<App />, { language: "zh" });
 
     expect(container.querySelector(".yd-operator-grid")).not.toBeInTheDocument();
     expect(container.querySelector(".yd-journey-rail")).not.toBeInTheDocument();
@@ -115,7 +116,7 @@ describe("App shell", () => {
   });
 
   it("filters debug trace rows", () => {
-    render(
+    renderWithI18n(
       <App
         initialTrace={[
           {
@@ -134,6 +135,7 @@ describe("App shell", () => {
           },
         ]}
       />,
+      { language: "zh" },
     );
 
     fireEvent.click(screen.getByRole("button", { name: "展开调试抽屉" }));
@@ -146,7 +148,7 @@ describe("App shell", () => {
   });
 
   it("shows only one debug drawer collapse control when expanded", () => {
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "展开调试抽屉" }));
 
@@ -158,10 +160,10 @@ describe("App shell", () => {
     mocks.runCommand
       .mockResolvedValueOnce(statusResponse())
       .mockResolvedValueOnce(capabilitiesResponse());
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
-    await waitFor(() => expect(screen.getAllByText("yundrone-test01").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("yundrone-lab1-k9x8").length).toBeGreaterThan(0));
 
     await waitFor(() => {
       expect(mocks.runCommand).toHaveBeenNthCalledWith(1, "system.status", {});
@@ -181,7 +183,7 @@ describe("App shell", () => {
   it("shows a centered overlay while the browser is connecting to BLE", async () => {
     enableBluetoothSupport();
     mocks.requestDevice.mockReturnValue(new Promise(() => undefined));
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
 
@@ -195,10 +197,10 @@ describe("App shell", () => {
       .mockResolvedValueOnce(statusResponse())
       .mockResolvedValueOnce(capabilitiesResponse())
       .mockReturnValueOnce(new Promise(() => undefined));
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
-    await waitFor(() => expect(screen.getAllByText("yundrone-test01").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("yundrone-lab1-k9x8").length).toBeGreaterThan(0));
     await waitFor(() => expect(mocks.runCommand).toHaveBeenNthCalledWith(2, "system.capabilities", {}));
     fireEvent.click(screen.getByRole("tab", { name: "Wi-Fi 配网" }));
     fireEvent.click(screen.getByRole("button", { name: "扫描 Wi-Fi" }));
@@ -218,10 +220,10 @@ describe("App shell", () => {
       .mockResolvedValueOnce(capabilitiesResponse())
       .mockResolvedValueOnce(provisionResponse())
       .mockResolvedValueOnce(statusResponse());
-    render(<App />);
+    renderWithI18n(<App />, { language: "zh" });
 
     fireEvent.click(screen.getByRole("button", { name: "连接设备" }));
-    await waitFor(() => expect(screen.getAllByText("yundrone-test01").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("yundrone-lab1-k9x8").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("tab", { name: "Wi-Fi 配网" }));
     fireEvent.change(screen.getByLabelText("SSID"), { target: { value: "LabWiFi" } });
     fireEvent.click(screen.getByRole("button", { name: "确认并下发配网" }));

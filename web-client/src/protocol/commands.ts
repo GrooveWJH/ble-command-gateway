@@ -1,4 +1,5 @@
 import type { CommandRequest, CommandResponse, GatewayCommand, JsonObject } from "../types";
+import type { TFunction } from "../i18n/I18nProvider";
 
 export const PROTOCOL_VERSION = "YundroneBT-V2.1.0";
 export const USER_COMMANDS = [
@@ -82,25 +83,29 @@ export function buildLinkAckRequest(
   return buildCommandRequest("link.ack", args, responseId);
 }
 
-export function commandLabel(cmd: GatewayCommand): string {
+export function commandLabel(cmd: GatewayCommand, t: TFunction): string {
   switch (cmd) {
     case "link.heartbeat":
-      return "链路心跳";
+      return t("commands.link.heartbeat");
     case "system.status":
-      return "系统及网络状态";
+      return t("commands.system.status");
     case "system.capabilities":
-      return "协议能力";
+      return t("commands.system.capabilities");
     case "wifi.scan":
-      return "扫描周边 Wi-Fi";
+      return t("commands.wifi.scan");
     case "wifi.provision":
-      return "下发 Wi-Fi 配网";
+      return t("commands.wifi.provision");
     case "wifi.profiles.list":
-      return "读取已保存 Wi-Fi";
+      return t("commands.wifi.profiles.list");
     case "wifi.profiles.delete":
-      return "删除 Wi-Fi profile";
+      return t("commands.wifi.profiles.delete");
     case "link.ack":
-      return "链路 ACK";
+      return t("commands.link.ack");
   }
+}
+
+export function commandProtocolLabel(cmd: GatewayCommand): string {
+  return cmd;
 }
 
 function normalizeArgs(cmd: GatewayCommand, args: JsonObject): JsonObject {

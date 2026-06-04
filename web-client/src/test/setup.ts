@@ -36,3 +36,7 @@ Object.defineProperty(globalThis, "localStorage", {
     clear: () => storage.clear(),
   },
 });
+
+export function setStoredLanguage(language: "en" | "zh") {
+  storage.set("yundrone-web-lang", language);
+}

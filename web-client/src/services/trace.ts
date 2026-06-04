@@ -1,4 +1,4 @@
-import { commandLabel } from "../protocol/commands";
+import { commandProtocolLabel } from "../protocol/commands";
 import type { CommandResponse, GatewayCommand, TraceEntry } from "../types";
 
 let traceSequence = 0;
@@ -27,10 +27,10 @@ export function formatBytes(bytes: Uint8Array): string {
 }
 
 export function responseSummary(response: CommandResponse): string {
-  const cmd = response.cmd ? commandLabel(response.cmd) : "响应";
+  const cmd = response.cmd ? commandProtocolLabel(response.cmd) : "response";
   return `${cmd} ${response.code} phase=${response.phase} final=${response.final} seq=${response.seq}`;
 }
 
 export function commandSummary(cmd: GatewayCommand, requestId: string): string {
-  return `${commandLabel(cmd)} id=${requestId}`;
+  return `${commandProtocolLabel(cmd)} id=${requestId}`;
 }

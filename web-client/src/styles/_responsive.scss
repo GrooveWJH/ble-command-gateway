@@ -21,6 +21,21 @@
     display: none;
   }
 
+  .yd-header-actions {
+    display: flex;
+    padding-right: 0;
+  }
+
+  .yd-install-badge {
+    max-width: 9rem;
+  }
+
+  .yd-install-badge span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .yd-app-content {
     grid-template-rows: auto minmax(0, 1fr) 2.5rem;
   }

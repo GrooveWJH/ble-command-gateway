@@ -1,4 +1,5 @@
 import { preferredIp } from "./diagnostics";
+import type { TFunction } from "../i18n/I18nProvider";
 import type {
   AppNotice,
   AppNoticeKind,
@@ -12,34 +13,35 @@ export function noticeTtl(kind: AppNoticeKind): number {
   return kind === "warning" || kind === "error" ? 7_000 : 4_000;
 }
 
-export function basicInfoNotice(refreshState: BasicInfoRefreshState): Omit<AppNotice, "id"> | undefined {
+export function basicInfoNotice(refreshState: BasicInfoRefreshState, t: TFunction): Omit<AppNotice, "id"> | undefined {
   if (refreshState.state === "fresh") {
-    return { kind: "success", title: "基本信息已更新", subtitle: "系统状态与协议能力已读取完成。" };
+    return { kind: "success", title: t("notices.basicFreshTitle"), subtitle: t("notices.basicFreshSubtitle") };
   }
   if (refreshState.state !== "partial" && refreshState.state !== "failed") {
     return undefined;
   }
-  const failed = refreshState.failures.map((item) => item.command).join("、") || "未知";
+  const failed = refreshState.failures.map((item) => item.command).join(", ") || t("diagnostics.unknown");
   return {
     kind: refreshState.state === "partial" ? "warning" : "error",
-    title: refreshState.state === "partial" ? "基本信息部分读取成功" : "基本信息读取失败",
-    subtitle: `失败命令：${failed}。已成功的数据会继续保留在页面上。`,
+    title: refreshState.state === "partial" ? t("notices.basicPartialTitle") : t("notices.basicFailedTitle"),
+    subtitle: t("notices.basicFailureSubtitle", { commands: failed }),
   };
 }
 
 export function provisionNotice(
   response: CommandResponse,
+  t: TFunction,
   refreshed?: CommandResponse,
 ): Omit<AppNotice, "id"> {
   if (!response.ok) {
-    return { kind: "error", title: `配网失败：${response.code}`, subtitle: response.text };
+    return { kind: "error", title: t("notices.provisionFailedTitle", { code: response.code }), subtitle: response.text };
   }
   if (refreshed?.ok) {
-    return { kind: "success", title: "配网成功", subtitle: `已自动刷新系统状态。当前 IP：${preferredIp(refreshed) ?? "未获取"}` };
+    return { kind: "success", title: t("notices.provisionSuccessTitle"), subtitle: t("notices.provisionSuccessSubtitle", { ip: preferredIp(refreshed) ?? t("diagnostics.noIp") }) };
   }
   return {
     kind: "warning",
-    title: "配网成功，但状态刷新失败",
-    subtitle: "请保持被控端上电，并在基本信息页手动刷新确认最新 IP。",
+    title: t("notices.provisionRefreshFailedTitle"),
+    subtitle: t("notices.provisionRefreshFailedSubtitle"),
   };
 }

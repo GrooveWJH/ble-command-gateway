@@ -182,7 +182,7 @@ function createConnection() {
     }),
   } as unknown as BluetoothRemoteGATTCharacteristic;
   const device = new EventTarget() as BluetoothDevice;
-  Object.assign(device, { name: "yundrone-abc123" });
+  Object.assign(device, { name: "yundrone-lab1-k9x8" });
 
   const connection = {
     device,

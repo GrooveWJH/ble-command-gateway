@@ -3,23 +3,24 @@ import type {
   BasicInfoRefreshState,
   CommandResponse,
 } from "../../types";
-import { capabilitiesView } from "../../ui/diagnostics";
+import type { TFunction } from "../../i18n/I18nProvider";
 
 export function basicInfoStateFromResponses(
   status?: CommandResponse,
   capabilities?: CommandResponse,
+  t?: TFunction,
 ): BasicInfoRefreshState {
   const failures: BasicInfoRefreshFailure[] = [];
   if (!status?.ok) {
     failures.push({
       command: "system.status",
-      message: status?.text || status?.code || "读取系统状态失败",
+      message: status?.text || status?.code || t?.("basic.statusFailed") || "System status read failed",
     });
   }
   if (!isUsableCapabilitiesResponse(capabilities)) {
     failures.push({
       command: "system.capabilities",
-      message: capabilities?.text || capabilities?.code || "读取协议能力失败",
+      message: capabilities?.text || capabilities?.code || t?.("basic.capabilitiesFailed") || "Protocol capabilities read failed",
     });
   }
   if (failures.length === 0) {
@@ -33,10 +34,10 @@ export function basicInfoStateFromResponses(
 export function isUsableCapabilitiesResponse(response?: CommandResponse): boolean {
   if (!response) return false;
   if (response.ok) return true;
-  const capabilities = capabilitiesView(response);
-  if (!capabilities) return false;
-  return capabilities.protocolVersion !== "未知"
-    || capabilities.payloadLimit !== "未知"
-    || capabilities.commands.length > 0
-    || capabilities.features.length > 0;
+  const data = response.data;
+  if (!data) return false;
+  return typeof data.protocol_version === "string"
+    || typeof data.payload_limit === "number"
+    || Array.isArray(data.commands)
+    || Array.isArray(data.features);
 }

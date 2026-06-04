@@ -28,12 +28,12 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 
 1. On the Linux target device, choose “Deploy / manage local BLE Server”.
 2. On your workstation, choose “Launch BLE Client CLI”, or open the GUI.
-3. Scan for a BLE local name starting with `yundrone-`, for example `yundrone-ytcwln`.
+3. Scan for a BLE local name starting with `yundrone-`, for example `yundrone-lab1-k9x8`.
 4. Connect to the matching device.
 5. Run Wi-Fi scan, Wi-Fi provision, system status, or saved Wi-Fi profile actions.
 6. If something looks wrong, use the debug CLI before changing the server.
 
-The project uses one public BLE name per device. The name is persisted in `/var/lib/yundrone/ble-device-name`, so restarting the server should not create a new identity and confuse mobile BLE caches.
+The project uses one public BLE name per device. New installs generate a readable name like `yundrone-lab1-k9x8`: the first four characters are the installer alias and the last four are random. The name is persisted in `/var/lib/yundrone/ble-device-name`, so restarting or updating the server should not create a new identity and confuse mobile BLE caches. Existing legacy six-character names are still recognized.
 
 ## Server Deployment
 
@@ -50,6 +50,8 @@ If you only want the server installer, the compatibility entry remains available
 ```bash
 bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
 ```
+
+On new installs or when resetting the BLE name, the installer asks for a four-character device alias and shows the final name, for example `yundrone-lab1-k9x8`. Remember that name and choose it later in the Web Client, CLI, or mini program. Automation can pass `--name-alias lab1`.
 
 Install runtime and build dependencies on Ubuntu or Debian:
 
@@ -187,6 +189,7 @@ Release versioning is driven by [VERSION](./VERSION) and [CHANGELOG](./CHANGELOG
 ## Documentation Map
 
 - Server deployment and systemd operations: [docs/systemd.md](./docs/systemd.md)
+- TUI install service deployment: [docs/INSTALL_SERVICE_DEPLOY_ZH.md](./docs/INSTALL_SERVICE_DEPLOY_ZH.md) (Chinese)
 - BLE debugger guide with JSON commands: [docs/BLE_DEBUGGER_GUIDE_ZH.md](./docs/BLE_DEBUGGER_GUIDE_ZH.md) (Chinese)
 - Protocol command contracts: [docs/COMMANDS.md](./docs/COMMANDS.md)
 - Compatible BLE server implementation guide: [docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md](./docs/COMPATIBLE_BLE_SERVER_IMPLEMENTATION_ZH.md) (Chinese)

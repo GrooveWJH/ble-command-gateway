@@ -1,8 +1,8 @@
 export const WORKSPACE_TABS = [
-  { key: "basic", label: "基本信息" },
-  { key: "provision", label: "Wi-Fi 配网" },
-  { key: "profiles", label: "Wi-Fi 管理" },
-  { key: "advanced", label: "高级命令" },
+  { key: "basic", labelKey: "tabs.basic" },
+  { key: "provision", labelKey: "tabs.provision" },
+  { key: "profiles", labelKey: "tabs.profiles" },
+  { key: "advanced", labelKey: "tabs.advanced" },
 ] as const;
 
 export type WorkspaceTab = typeof WORKSPACE_TABS[number]["key"];

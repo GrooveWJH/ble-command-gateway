@@ -1,22 +1,25 @@
 import { InlineLoading } from "@carbon/react";
 
+import { useI18n } from "../i18n/useI18n";
+
 export function BleCommandOverlay({ active, label }: { active: boolean; label: string }) {
+  const { t } = useI18n();
   if (!active) return null;
   return (
     <div className="yd-ble-overlay" data-testid="ble-command-overlay">
       <div
         aria-busy="true"
-        aria-label="BLE 操作进行中"
+        aria-label={t("overlay.aria")}
         aria-live="polite"
         className="yd-ble-overlay__card"
         role="status"
       >
         <InlineLoading
           description={label}
-          iconDescription="正在处理"
+          iconDescription={t("overlay.processing")}
           status="active"
         />
-        <p>请保持设备靠近并避免切换页面，操作完成后界面会自动更新。</p>
+        <p>{t("overlay.keepNear")}</p>
       </div>
     </div>
   );

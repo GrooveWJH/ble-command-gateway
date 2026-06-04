@@ -3,7 +3,7 @@ import type { CommandResponse } from "../types";
 export function bluetoothConnection() {
   return {
     device: {
-      name: "yundrone-test01",
+      name: "yundrone-lab1-k9x8",
       addEventListener() {},
       removeEventListener() {},
     },
@@ -25,7 +25,7 @@ export function statusResponse(): CommandResponse {
     code: "OK",
     text: "status listed",
     data: {
-      device_name: "yundrone-test01",
+      device_name: "yundrone-lab1-k9x8",
       hostname: "edge-gateway",
       system: "Ubuntu 20.04",
       user: "yundrone",

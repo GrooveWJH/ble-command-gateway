@@ -1,0 +1,1 @@
+export const APP_VERSION = __YUNDRONE_APP_VERSION__;
