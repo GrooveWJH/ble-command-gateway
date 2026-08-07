@@ -5,6 +5,7 @@ import json
 import re
 import urllib.request
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 
@@ -66,16 +67,29 @@ def verify_asset(asset: dict[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify a live YunDrone manifest")
-    parser.add_argument("--manifest-url", required=True)
+    manifest_source = parser.add_mutually_exclusive_group(required=True)
+    manifest_source.add_argument("--manifest-url")
+    manifest_source.add_argument("--manifest-path", type=Path)
     parser.add_argument("--expected-version", required=True)
     parser.add_argument("--version-field", default="version")
+    parser.add_argument(
+        "--skip-asset-downloads",
+        action="store_true",
+        help="validate manifest structure without downloading its assets",
+    )
     args = parser.parse_args()
 
-    manifest = download_json(args.manifest_url)
+    if args.manifest_path:
+        manifest = json.loads(args.manifest_path.read_text(encoding="utf-8"))
+        source = str(args.manifest_path)
+    else:
+        manifest = download_json(args.manifest_url)
+        source = args.manifest_url
     assets = validate_manifest(manifest, args.expected_version, args.version_field)
-    for asset in assets:
-        verify_asset(asset)
-    print(f"verified {args.manifest_url} at {args.expected_version}")
+    if not args.skip_asset_downloads:
+        for asset in assets:
+            verify_asset(asset)
+    print(f"verified {source} at {args.expected_version}")
     return 0
 
 

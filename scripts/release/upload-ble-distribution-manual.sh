@@ -82,18 +82,49 @@ stage_client_release() {
 stage_server_release() {
   local server_source="${SERVER_RELEASE_DIR:-$ROOT_DIR/dist/ble-server/releases/$VERSION}"
   local server_dist="$DIST_DIR/yundrone/ble-server"
+  local release_dist="$server_dist/releases"
   local platform
   for platform in linux-amd64 linux-arm64; do
     require_file "$server_source/yundrone-ble-server-$platform.tar.gz"
   done
-  mkdir -p "$server_dist/releases/$VERSION"
-  cp "$server_source"/yundrone-ble-server-*.tar.gz "$server_dist/releases/$VERSION/"
+  mkdir -p "$release_dist/$VERSION"
+  cp "$server_source"/yundrone-ble-server-*.tar.gz "$release_dist/$VERSION/"
   python3 "$ROOT_DIR/scripts/release/generate_server_release_metadata.py" \
     --version "$VERSION" \
     --release-dir "$server_source" \
     --base-url "https://install.yundrone.cn/yundrone/ble-server" \
-    --output "$server_dist/latest.json"
-  cp "$server_dist/latest.json" "$server_dist/releases/$VERSION/release.json"
+    --output "$release_dist/latest.json"
+  cp "$release_dist/latest.json" "$release_dist/$VERSION/release.json"
+  cp "$release_dist/latest.json" "$server_dist/latest.json"
+}
+
+verify_staged_manifest() {
+  local manifest="$1"
+  local version_field="${2:-version}"
+  require_file "$manifest"
+  python3 "$ROOT_DIR/scripts/release/verify_distribution_manifest.py" \
+    --manifest-path "$manifest" \
+    --expected-version "$VERSION" \
+    --version-field "$version_field" \
+    --skip-asset-downloads
+}
+
+verify_staged_distribution() {
+  local platform
+  verify_staged_manifest "$DIST_DIR/yundrone/ble/launcher/installer/latest.json" installer_version
+  verify_staged_manifest "$DIST_DIR/yundrone/ble-server/installer/latest.json" installer_version
+  verify_staged_manifest "$DIST_DIR/yundrone/ble-client/releases/latest.json"
+  verify_staged_manifest "$DIST_DIR/yundrone/ble-client/releases/$VERSION/release.json"
+  verify_staged_manifest "$DIST_DIR/yundrone/ble-server/releases/latest.json"
+  verify_staged_manifest "$DIST_DIR/yundrone/ble-server/releases/$VERSION/release.json"
+  cmp "$DIST_DIR/yundrone/ble-server/releases/latest.json" \
+    "$DIST_DIR/yundrone/ble-server/latest.json"
+  for platform in linux-amd64 linux-arm64 macos-arm64; do
+    require_file "$DIST_DIR/yundrone/ble-client/releases/$VERSION/yundrone-ble-client-$platform.tar.gz"
+  done
+  for platform in linux-amd64 linux-arm64; do
+    require_file "$DIST_DIR/yundrone/ble-server/releases/$VERSION/yundrone-ble-server-$platform.tar.gz"
+  done
 }
 
 backup_remote_site() {
@@ -131,7 +162,7 @@ verify_live_distribution() {
     --expected-version "$VERSION"
 }
 
-main() {
+stage_distribution() {
   rm -rf "$DIST_DIR"
   mkdir -p "$DIST_DIR"
   stage_launcher
@@ -139,6 +170,11 @@ main() {
   stage_gum_tools
   stage_client_release
   stage_server_release
+  verify_staged_distribution
+}
+
+main() {
+  stage_distribution
   backup_remote_site
   upload_dist
   curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh >/dev/null
@@ -147,4 +183,6 @@ main() {
   echo "uploaded and verified version $VERSION at https://install.yundrone.cn"
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
