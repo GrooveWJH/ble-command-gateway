@@ -31,7 +31,7 @@ pub(crate) fn render_action_status(ui: &mut egui::Ui, model: &AppModel, slots: &
     let (fill, stroke, text) = action_style_and_text(ui, model.lang, feedback);
     let frame = egui::Frame::none()
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, stroke))
+        .stroke(egui::Stroke::new(1.0_f32, stroke))
         .inner_margin(egui::Margin::symmetric(8.0, 6.0))
         .rounding(egui::Rounding::same(6.0));
 

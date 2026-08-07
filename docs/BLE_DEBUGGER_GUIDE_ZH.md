@@ -7,7 +7,7 @@
 扫描页里可能同时出现系统展示名和 BLE 广播 `Local Name`。系统展示名可能是 `linux-board`，它不是业务身份。请进入设备详情，确认 `Local Name` 类似：
 
 ```text
-yundrone-lab1-k9x8
+yundrone-12abcd
 ```
 
 只要 `Local Name` 以当前前缀开头，例如默认 `yundrone-`，就可以连接。
@@ -229,7 +229,7 @@ UUID: Nordic UART Service
 
 重点看返回里的：
 
-- `data.device_name`: 对用户展示的公开 BLE 身份，例如 `yundrone-lab1-k9x8`。
+- `data.device_name`: 对用户展示的 MAC 派生 BLE 身份，例如 `yundrone-12abcd`。
 - `data.hostname`: 主机名。
 - `data.system`: Linux 内核与架构。
 - `data.user`: 应优先显示 SSH/部署用户，例如 `yundrone`。

@@ -1900,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "2026.2.3"
+version = "2026.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3080,7 +3080,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "platform_runtime"
-version = "2026.2.3"
+version = "2026.4.0"
 dependencies = [
  "anyhow",
  "tracing",
@@ -3173,7 +3173,7 @@ checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 
 [[package]]
 name = "protocol"
-version = "2026.2.3"
+version = "2026.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5284,7 +5284,7 @@ dependencies = [
 
 [[package]]
 name = "yundrone-ble-client"
-version = "2026.2.3"
+version = "2026.4.0"
 dependencies = [
  "anyhow",
  "btleplug",
@@ -5304,7 +5304,7 @@ dependencies = [
 
 [[package]]
 name = "yundrone-ble-server"
-version = "2026.2.3"
+version = "2026.4.0"
 dependencies = [
  "anyhow",
  "async-trait",

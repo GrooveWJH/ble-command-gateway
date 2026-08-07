@@ -28,12 +28,12 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 
 1. On the Linux target device, choose “Deploy / manage local BLE Server”.
 2. On your workstation, choose “Launch BLE Client CLI”, or open the GUI.
-3. Scan for a BLE local name starting with `yundrone-`, for example `yundrone-lab1-k9x8`.
+3. Scan for a BLE local name starting with `yundrone-`, for example `yundrone-12abcd`.
 4. Connect to the matching device.
 5. Run Wi-Fi scan, Wi-Fi provision, system status, or saved Wi-Fi profile actions.
 6. If something looks wrong, use the debug CLI before changing the server.
 
-The project uses one public BLE name per device. New installs generate a readable name like `yundrone-lab1-k9x8`: the first four characters are the installer alias and the last four are random. The name is persisted in `/var/lib/yundrone/ble-device-name`, so restarting or updating the server should not create a new identity and confuse mobile BLE caches. Existing legacy six-character names are still recognized.
+The project derives one public BLE name from the advertising controller address on every start. `DC:A6:32:12:AB:CD` becomes `yundrone-12abcd`, so cloned disks still receive hardware-specific identities without storing a name file. The server waits up to 60 seconds for a delayed Linux Bluetooth controller; if none becomes usable it logs `yundrone-null`, exits, and lets systemd retry. Existing legacy names are still recognized by clients.
 
 ## Server Deployment
 
@@ -51,7 +51,7 @@ If you only want the server installer, the compatibility entry remains available
 bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
 ```
 
-On new installs or when resetting the BLE name, the installer asks for a four-character device alias and shows the final name, for example `yundrone-lab1-k9x8`. Remember that name and choose it later in the Web Client, CLI, or mini program. Automation can pass `--name-alias lab1`.
+The installer shows the Bluetooth MAC, six-character SN, and final name, for example `yundrone-12abcd`. Remember that name and choose it later in the Web Client, CLI, or mini program. Replacing the Bluetooth controller changes the derived device name.
 
 Install runtime and build dependencies on Ubuntu or Debian:
 

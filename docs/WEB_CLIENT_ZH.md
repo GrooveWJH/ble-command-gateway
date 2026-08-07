@@ -31,7 +31,7 @@ https://tool.yundrone.cn/ble/
 
 1. 用桌面 Chrome / Edge 或 Android Chrome 打开页面。
 2. 确认目标设备已上电，并让设备靠近当前电脑或手机。
-3. 点击“连接设备”，在浏览器蓝牙选择器里选择安装器提示过的 `yundrone-` 开头设备，例如 `yundrone-lab1-k9x8`。
+3. 点击“连接设备”，在浏览器蓝牙选择器里选择安装器提示过的 `yundrone-` 开头设备，例如 `yundrone-12abcd`。
 4. 连接成功后页面会自动进入“基本信息”，读取 `system.status` 与 `system.capabilities`。
 5. 切到“Wi-Fi 配网”，点击“扫描 Wi-Fi”，等待 10 到 30 秒。
 6. 在扫描结果里选择目标 SSID，或直接手动输入隐藏网络 SSID。

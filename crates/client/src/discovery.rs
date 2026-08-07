@@ -95,32 +95,38 @@ mod tests {
     fn matches_configured_prefix_when_uart_service_is_present() {
         let mut properties = base_properties();
         let criteria = DiscoveryCriteria::for_prefix("yundrone");
-        properties.local_name = Some("yundrone-lab1-k9x8".to_string());
+        properties.local_name = Some("yundrone-12abcd".to_string());
         properties.services = vec![criteria.service_uuid];
 
         let matched = classify_properties(&properties, &criteria).unwrap();
 
         assert!(matched.matches_identity);
-        assert_eq!(
-            matched.candidate_name.as_deref(),
-            Some("yundrone-lab1-k9x8")
-        );
+        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-12abcd"));
     }
 
     #[test]
     fn matches_bracketed_full_name_when_uart_service_is_present() {
         let mut properties = base_properties();
         let criteria = DiscoveryCriteria::for_prefix("yundrone");
-        properties.local_name = Some("edge-gateway [yundrone-lab1-k9x8]".to_string());
+        properties.local_name = Some("edge-gateway [yundrone-12abcd]".to_string());
         properties.services = vec![criteria.service_uuid];
 
         let matched = classify_properties(&properties, &criteria).unwrap();
 
         assert!(matched.matches_identity);
-        assert_eq!(
-            matched.candidate_name.as_deref(),
-            Some("yundrone-lab1-k9x8")
-        );
+        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-12abcd"));
+    }
+
+    #[test]
+    fn accepts_null_diagnostic_identity() {
+        let mut properties = base_properties();
+        let criteria = DiscoveryCriteria::for_prefix("yundrone");
+        properties.local_name = Some("yundrone-null".to_string());
+
+        let matched = classify_properties(&properties, &criteria).unwrap();
+
+        assert!(matched.matches_identity);
+        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-null"));
     }
 
     #[test]

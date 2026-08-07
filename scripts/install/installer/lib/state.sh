@@ -16,33 +16,78 @@ install_source_ok() {
   fi
 }
 
+default_adapter_name() {
+  local hci
+  if [ -e "${BLUETOOTH_CLASS_DIR}/hci0" ]; then
+    printf '%s' "hci0"
+    return 0
+  fi
+
+  hci="$(
+    for candidate in "${BLUETOOTH_CLASS_DIR}"/hci*; do
+      [ -e "$candidate" ] || continue
+      basename "$candidate"
+    done | LC_ALL=C sort | head -n 1
+  )"
+  [ -n "$hci" ] || return 1
+  printf '%s' "$hci"
+}
+
+normalize_adapter_address() {
+  local compact
+  compact="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ':-')"
+  printf '%s' "$compact" | grep -Eq '^[0-9a-f]{12}$' || return 1
+  [ "$compact" != "000000000000" ] || return 1
+  [ "$compact" != "ffffffffffff" ] || return 1
+  printf '%s' "$compact"
+}
+
+default_adapter_address() {
+  local hci address first_mac
+  hci="$(default_adapter_name 2>/dev/null || true)"
+  if [ -n "$hci" ]; then
+    address="$(cat "${BLUETOOTH_CLASS_DIR}/${hci}/address" 2>/dev/null || true)"
+    if normalize_adapter_address "$address" >/dev/null; then
+      printf '%s' "$address"
+      return 0
+    fi
+    return 1
+  fi
+
+  if have bluetoothctl; then
+    first_mac="$(bluetoothctl list 2>/dev/null | awk 'NR==1 {print $2}')"
+    if normalize_adapter_address "$first_mac" >/dev/null; then
+      printf '%s' "$first_mac"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+identity_serial() {
+  local address compact
+  address="$(default_adapter_address 2>/dev/null || true)"
+  compact="$(normalize_adapter_address "$address" 2>/dev/null || true)"
+  if [ -z "$compact" ]; then
+    printf '%s' "null"
+    return 0
+  fi
+  printf '%s' "${compact#??????}"
+}
+
 adapter_display() {
   if [ -n "$ADAPTER" ]; then
     printf '%s' "$ADAPTER"
     return 0
   fi
 
-  local hci address first_mac first_name
-  for hci in /sys/class/bluetooth/hci*; do
-    [ -e "$hci" ] || continue
-    address="$(cat "$hci/address" 2>/dev/null || true)"
-    if [ -n "$address" ]; then
-      printf '%s (%s)' "$(basename "$hci")" "$address"
-      return 0
-    fi
-  done
-
-  if have bluetoothctl; then
-    first_mac="$(bluetoothctl list 2>/dev/null | awk 'NR==1 {print $2}')"
-    first_name="$(bluetoothctl list 2>/dev/null | cut -d' ' -f3- | head -n 1)"
-    if [ -n "$first_mac" ]; then
-      if [ -n "$first_name" ]; then
-        printf '自动检测 %s (%s)' "$first_mac" "$first_name"
-      else
-        printf '自动检测 %s' "$first_mac"
-      fi
-      return 0
-    fi
+  local hci address
+  hci="$(default_adapter_name 2>/dev/null || true)"
+  address="$(default_adapter_address 2>/dev/null || true)"
+  if [ -n "$address" ]; then
+    printf '%s (%s)' "${hci:-自动检测}" "$address"
+    return 0
   fi
 
   printf '%s' "未发现"
@@ -88,11 +133,7 @@ installed_version() {
 }
 
 identity_name() {
-  if [ -f "$IDENTITY_FILE" ]; then
-    tr -d '\r\n' <"$IDENTITY_FILE"
-  else
-    printf '%s' "未创建"
-  fi
+  printf '%s-%s' "$PREFIX" "$(identity_serial)"
 }
 
 is_binary_installed() {
@@ -146,6 +187,7 @@ $(gum style --foreground 39 --bold "当前状态")
 服务       ${service}
 版本       $(installed_version)
 BLE        $(identity_name)
+SN         $(identity_serial)
 架构       ${arch}
 蓝牙       $(adapter_short_display)
 EOF
@@ -167,6 +209,7 @@ EOF
   field_line "服务状态" "$(status_text "$service")"
   field_line "版本" "$(status_text "$(installed_version)")"
   field_line "BLE 名称" "$(status_text "$(identity_name)")"
+  field_line "设备 SN" "$(status_text "$(identity_serial)")"
   field_line "系统架构" "$(muted "$(uname -m)") $(muted "->") $(status_text "$arch")"
   field_line "蓝牙适配器" "$(status_text "$(adapter_display)")"
   field_line "安装目录" "$(path_text "$INSTALL_ROOT")"

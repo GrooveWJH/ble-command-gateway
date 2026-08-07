@@ -117,117 +117,23 @@ prepare_release_permissions() {
   fi
 }
 
-normalize_name_alias() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-}
-
-validate_name_alias() {
-  local alias
-  alias="$(normalize_name_alias "$1")"
-  if printf '%s' "$alias" | grep -Eq '^[a-z0-9]{4}$'; then
-    printf '%s' "$alias"
-    return 0
-  fi
-  return 1
-}
-
-identity_name_is_supported() {
-  local name suffix
-  name="$1"
-  case "$name" in
-    "${PREFIX}-"*)
-      suffix="${name#"${PREFIX}-"}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-  printf '%s' "$suffix" | grep -Eq '^([a-z0-9]{6}|[a-z0-9]{8}|[a-z0-9]{4}-[a-z0-9]{4})$'
-}
-
-persisted_identity_is_supported() {
-  local current
-  [ -s "$IDENTITY_FILE" ] || return 1
-  current="$(identity_name)"
-  identity_name_is_supported "$current"
-}
-
-random_base36_4() {
-  local random
-  if [ -r /dev/urandom ]; then
-    random="$(set +o pipefail; LC_ALL=C tr -dc '0-9a-z' </dev/urandom | head -c 4)"
-    if [ "${#random}" -eq 4 ]; then
-      printf '%s' "$random"
-      return 0
-    fi
-  fi
-  fallback_base36_4
-}
-
-fallback_base36_4() {
-  local alphabet output value index
-  alphabet="0123456789abcdefghijklmnopqrstuvwxyz"
-  output=""
-  value=$(( (RANDOM << 16) ^ RANDOM ^ $$ ))
-  while [ "${#output}" -lt 4 ]; do
-    index=$(( value % 36 ))
-    output="${output}${alphabet:$index:1}"
-    value=$(( value / 36 ))
-    if [ "$value" -eq 0 ]; then
-      value=$(( (RANDOM << 16) ^ RANDOM ^ $(date +%s 2>/dev/null || printf 0) ))
-    fi
-  done
-  printf '%s' "$output"
-}
-
-prompt_name_alias() {
-  local alias
-  if [ -n "$NAME_ALIAS" ]; then
-    validate_name_alias "$NAME_ALIAS" || fail "--name-alias 必须是 4 位小写字母或数字，例如 lab1"
-    return 0
-  fi
-
-  if ! tui_ready || [ "$ASSUME_YES" = "yes" ]; then
-    printf '%s' "node"
-    return 0
-  fi
-
-  while true; do
-    alias="$(gum input \
-      --prompt "BLE 别名 > " \
-      --placeholder "4 位字母数字，例如 lab1" \
-      --value "node")" || fail "已取消输入 BLE 别名"
-    if validate_name_alias "$alias" >/dev/null; then
-      validate_name_alias "$alias"
-      return 0
-    fi
-    tui_warn_card "别名必须是 4 位小写字母或数字。大写会自动转小写，例如 LAB1 会变成 lab1。"
-  done
-}
-
-plan_identity_name() {
-  local alias random
-  if [ "$RESET_NAME" != "yes" ] && persisted_identity_is_supported; then
-    identity_name
-    return 0
-  fi
-
-  alias="$(prompt_name_alias)"
-  random="$(random_base36_4)"
-  [ "${#random}" -eq 4 ] || fail "生成 BLE 名称随机码失败"
-  printf '%s-%s-%s' "$PREFIX" "$alias" "$random"
-}
-
-write_identity_name() {
-  local name="$1"
-  run_root mkdir -p "$STATE_DIR"
-  printf '%s\n' "$name" | run_root tee "$IDENTITY_FILE" >/dev/null
-  run_root chmod 755 "$STATE_DIR"
-  run_root chmod 644 "$IDENTITY_FILE"
+cleanup_legacy_identity_file() {
+  run_root rm -f "$LEGACY_IDENTITY_FILE"
 }
 
 render_identity_reminder() {
   local name="$1"
+  if [ "$name" = "${PREFIX}-null" ]; then
+    if tui_ready; then
+      tui_warn_card "暂未读取到蓝牙适配器地址
+
+服务启动后会等待最多 ${SERVICE_START_TIMEOUT} 秒，并自动生成 ${PREFIX}-<MAC 后六位>。"
+    else
+      printf '\n%s\n' "$(warn_text "暂未读取到蓝牙适配器地址。")"
+      printf '%s\n' "服务启动后会等待最多 ${SERVICE_START_TIMEOUT} 秒，并自动生成 ${PREFIX}-<MAC 后六位>。"
+    fi
+    return 0
+  fi
   if tui_ready; then
     tui_info_card "请记住这个 BLE 名称
 
@@ -248,7 +154,7 @@ install_or_update() {
   local arch adapter tmp tarball selected_version release_dir staging_dir planned_identity
   arch="$(detect_arch)"
   adapter="$(adapter_display)"
-  planned_identity="$(plan_identity_name)"
+  planned_identity="$(identity_name)"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
@@ -262,15 +168,8 @@ install_or_update() {
   field_line "蓝牙适配器" "$(accent "$adapter")"
   field_line "安装目录" "$(path_text "$INSTALL_ROOT")"
   field_line "systemd service" "$(accent "$SERVICE_NAME")"
-  if [ "$RESET_NAME" = "yes" ]; then
-    field_line "BLE 名称" "$(warn_text "重新生成")$(muted " -> ")$(accent "$planned_identity")"
-  elif persisted_identity_is_supported; then
-    field_line "BLE 名称" "$(good_text "保留")$(muted " -> ")$(accent "$planned_identity")"
-  elif [ -s "$IDENTITY_FILE" ]; then
-    field_line "BLE 名称" "$(warn_text "现有名称非法，将重建")$(muted " -> ")$(accent "$planned_identity")"
-  else
-    field_line "BLE 名称" "$(good_text "新建")$(muted " -> ")$(accent "$planned_identity")"
-  fi
+  field_line "设备 SN" "$(accent "$(identity_serial)")"
+  field_line "BLE 名称" "$(good_text "由蓝牙 MAC 自动派生")$(muted " -> ")$(accent "$planned_identity")"
   render_identity_reminder "$planned_identity"
   confirm_yes "是否继续安装？" || fail "已取消安装"
 
@@ -299,10 +198,7 @@ install_or_update() {
 
   tui_run_step "停止旧服务" stop_service_for_install
   tui_run_step "切换 release 目录" activate_release "$staging_dir" "$release_dir"
-
-  if [ "$RESET_NAME" = "yes" ] || ! persisted_identity_is_supported; then
-    tui_run_step "写入 BLE 名称" write_identity_name "$planned_identity"
-  fi
+  tui_run_step "清理旧 BLE 名称文件" cleanup_legacy_identity_file
 
   tui_run_step "写入 systemd service" write_service "$PREFIX" "$BACKEND"
   tui_run_step "刷新 systemd" run_root systemctl daemon-reload
@@ -310,6 +206,7 @@ install_or_update() {
   tui_run_step "启用开机自启" enable_service
   tui_run_step "启动 YunDrone BLE Server" start_or_restart_service
   tui_run_step "确认服务运行状态" wait_service_active
+  tui_run_step "等待蓝牙设备身份就绪" wait_identity_ready
 
   render_install_success "$selected_version"
   if confirm_no "是否查看最近服务日志？"; then
@@ -326,6 +223,7 @@ render_install_success() {
 
 版本：${selected_version}
 BLE 名称：$(identity_name)
+设备 SN：$(identity_serial)
 服务：${SERVICE_NAME}
 状态：运行中
 
@@ -337,6 +235,7 @@ BLE 名称：$(identity_name)
   section "安装完成"
   field_line "版本" "$(version_text "$selected_version")"
   field_line "BLE 名称" "$(accent "$(identity_name)")"
+  field_line "设备 SN" "$(accent "$(identity_serial)")"
   field_line "服务" "$(accent "$SERVICE_NAME")"
   field_line "状态" "$(good_text "运行中")"
   render_identity_reminder "$(identity_name)"
@@ -355,7 +254,7 @@ service：${SERVICE_NAME}
 程序目录：${INSTALL_ROOT}
 状态目录：${STATE_DIR}
 
-注意：这会删除持久化 BLE 名称，下次安装会生成新名字。" || fail "已取消卸载"
+设备名称始终由蓝牙 MAC 自动派生，不受卸载影响。" || fail "已取消卸载"
     else
       tui_confirm_danger "准备卸载
 
@@ -365,7 +264,8 @@ service：${SERVICE_NAME}
 
 将保留：
 状态目录：${STATE_DIR}
-BLE 名称：$(identity_name)" || fail "已取消卸载"
+
+设备名称始终由蓝牙 MAC 自动派生。" || fail "已取消卸载"
     fi
   else
   printf '%s\n' "$(warn_text "将删除：")"
@@ -375,7 +275,7 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
     field_line "状态目录" "$(danger_text "$STATE_DIR")$(bad_text "，也会删除")"
   else
     field_line "状态目录" "$(path_text "$STATE_DIR")$(good_text "，会保留")"
-    field_line "BLE 名称" "$(accent "$(identity_name)")$(good_text "，会保留")$(muted "，下次安装继续使用")"
+    field_line "BLE 名称" "$(accent "$(identity_name)")$(muted "，由蓝牙 MAC 自动派生")"
   fi
   confirm_yes "是否继续卸载？" || fail "已取消卸载"
   fi
@@ -385,6 +285,7 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
   run_root rm -f "$SERVICE_PATH"
   run_root systemctl daemon-reload
   run_root rm -rf "$INSTALL_ROOT"
+  cleanup_legacy_identity_file
   if [ "$PURGE" = "yes" ]; then
     run_root rm -rf "$STATE_DIR"
   fi
@@ -394,7 +295,7 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
       result="$(printf '卸载完成\n\n服务、程序文件和设备状态已删除。')"
       tui_warn_card "$result"
     else
-      result="$(printf '卸载完成\n\n服务和程序文件已删除。\nBLE 名称已保留，重新安装后会继续使用同一个设备名。')"
+      result="$(printf '卸载完成\n\n服务和程序文件已删除。\nBLE 名称由蓝牙 MAC 自动派生，无需保留名称文件。')"
       tui_success_card "$result"
     fi
     return 0
@@ -404,37 +305,7 @@ BLE 名称：$(identity_name)" || fail "已取消卸载"
   if [ "$PURGE" = "yes" ]; then
     printf '%s\n' "$(warn_text "设备状态也已删除。")"
   else
-    printf '%s\n' "$(good_text "BLE 名称已保留，重新安装后会继续使用同一个设备名。")"
-  fi
-}
-
-reset_name() {
-  validate_prefix
-  RESET_NAME="yes"
-  local planned_identity
-  planned_identity="$(plan_identity_name)"
-  if tui_ready; then
-    tui_confirm_danger "重置 BLE 名称
-
-将写入：${IDENTITY_FILE}
-新的 BLE 名称：${planned_identity}
-
-请记住这个名字，之后在网页、CLI 或小程序中选择它。" || fail "已取消重置"
-  else
-    field_line "新的 BLE 名称" "$(accent "$planned_identity")"
-    confirm_yes "是否写入 ${IDENTITY_FILE} 并重启服务？" || fail "已取消重置"
-  fi
-  ensure_sudo_step
-  write_identity_name "$planned_identity"
-  run_root systemctl restart "$SERVICE_NAME"
-  sleep 2
-  if tui_ready; then
-    tui_success_card "新的 BLE 名称：$(identity_name)
-
-请在网页、CLI 或小程序里选择这个名字。"
-  else
-    ok "新的 BLE 名称：$(identity_name)"
-    render_identity_reminder "$(identity_name)"
+    printf '%s\n' "$(good_text "BLE 名称由蓝牙 MAC 自动派生，无需保留名称文件。")"
   fi
 }
 

@@ -7,11 +7,11 @@
 在 Bluefruit Connect 这类调试工具里，同一个设备可能同时出现两个名字：
 
 - 列表标题：`linux-board`
-- 详情字段：`Local Name: yundrone-lab1-k9x8`
+- 详情字段：`Local Name: yundrone-12abcd`
 
 小程序不应该把列表标题当作业务身份。列表标题通常来自系统缓存、BlueZ adapter 的 `Name/Alias`，或连接后的 GATT 设备名。它可能显示为主机名，例如 `linux-board`。
 
-我们真正设计并控制的是广播数据里的 Local Name，也就是新安装默认的 `yundrone-<alias4>-<random4>`，例如 `yundrone-lab1-k9x8`。小程序发现设备时必须以这个字段为准。旧设备可能仍显示 `yundrone-<base36_6>`，也应继续兼容。
+我们真正设计并控制的是广播数据里的 Local Name，也就是从实际蓝牙控制器 MAC 后六位派生的 `yundrone-<mac6>`，例如 `yundrone-12abcd`。小程序发现设备时必须以这个字段为准。客户端应继续兼容旧设备名称。
 
 Linux server 启动后还会把 BlueZ adapter `Alias` 同步为同一个 `yundrone-*` 公开身份，并用 pretty hostname / `/etc/bluetooth/main.conf` 的 `yundrone` 作为启动兜底。这样可以降低调试工具列表标题显示硬件主机名的概率，但小程序的业务识别仍应以 `localName` 为准。
 
@@ -193,7 +193,7 @@ async function connectCandidate(candidate) {
 候选项建议展示：
 
 ```text
-yundrone-lab1-k9x8
+yundrone-12abcd
 RSSI -42 dBm · 刚刚发现
 ```
 
@@ -201,7 +201,7 @@ RSSI -42 dBm · 刚刚发现
 
 ```text
 系统展示名: linux-board
-Local Name: yundrone-lab1-k9x8
+Local Name: yundrone-12abcd
 deviceId: ...
 ```
 
@@ -223,7 +223,7 @@ deviceId: ...
 
 ### 4. 如果多个设备都叫 `yundrone-*` 怎么办？
 
-这是正常的。列表按 RSSI 排序，并显示完整 `localName`。当前命名里的 4 位别名方便用户识别设备，4 位随机码用于区分同名别名设备，例如 `yundrone-lab1-k9x8`。旧设备上的 6 位后缀也仍然可显示和连接。
+这是正常的。列表按 RSSI 排序，并显示完整 `localName`。当前名称直接使用蓝牙控制器 MAC 后六位，例如 `yundrone-12abcd`，因此批量复制系统盘不会复制设备身份。更换控制器会改变名称，旧名称仍可显示和连接。
 
 ### 5. 连接后还要验证服务吗？
 

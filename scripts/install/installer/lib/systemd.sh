@@ -80,6 +80,23 @@ wait_service_active() {
   fail "服务启动后未进入 active 状态"
 }
 
+wait_identity_ready() {
+  local waited=0
+  while [ "$waited" -lt "$SERVICE_START_TIMEOUT" ]; do
+    if [ "$(identity_serial)" != "null" ]; then
+      return 0
+    fi
+    if ! systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  print_service_diagnostics
+  fail "等待蓝牙适配器超时；当前诊断身份为 ${PREFIX}-null"
+}
+
 start_service_checked() {
   enable_service
   start_or_restart_service

@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { isStableYundroneName } from "./webBluetooth";
 
 describe("isStableYundroneName", () => {
-  it("accepts legacy and alias-based YunDrone names", () => {
+  it("accepts MAC-derived, diagnostic, and legacy YunDrone names", () => {
     for (const name of [
+      "yundrone-12abcd",
+      "yundrone-null",
+      "edge [yundrone-12abcd]",
       "yundrone-ytcwln",
       "yundrone-lab1-k9x8",
       "yundrone-lab1k9x8",

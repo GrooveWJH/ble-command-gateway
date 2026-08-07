@@ -1,3 +1,12 @@
+2026.4.0 - 2026-08-07
+
+- 将 BLE 公开身份改为每次启动时从默认蓝牙控制器 MAC 地址后六位自动派生，例如 `yundrone-12abcd`，解决批量复制系统盘造成设备名重复的问题。
+- 移除设备别名、随机码和名称文件持久化；安装器会清理旧 `/var/lib/yundrone/ble-device-name`，并显示蓝牙 MAC、SN 与最终设备名。
+- Server 在 Linux 蓝牙控制器延迟枚举时等待最多 60 秒；超时记录诊断身份 `yundrone-null` 后退出，由 systemd 自动重试。
+- Rust Client、GUI 与 Web Client 继续宽松识别历史名称，并明确支持新的 MAC 派生名称和 `yundrone-null` 诊断名称。
+- 加固公网分发流程，要求 client/server 五个平台包完整存在，并在上传后验证四份线上 manifest、资产 URL 和 SHA256。
+- 统一仓库、GitHub Release、launcher、server installer 及 client/server 分发版本为 `2026.4.0`。
+
 2026.3.0 - 2026-06-04
 
 - 发布统一 BLE Wi-Fi 工具入口与 Gum TUI 安装体验更新，刷新 launcher、server installer 与公网安装 manifest。

@@ -8,7 +8,8 @@ INSTALL_ROOT="/opt/yundrone/ble-command-gateway"
 SERVICE_NAME="yundrone-ble-command-gateway.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 STATE_DIR="/var/lib/yundrone"
-IDENTITY_FILE="${STATE_DIR}/ble-device-name"
+LEGACY_IDENTITY_FILE="${STATE_DIR}/ble-device-name"
+BLUETOOTH_CLASS_DIR="${YUNDRONE_BLUETOOTH_CLASS_DIR:-/sys/class/bluetooth}"
 DEFAULT_PREFIX="yundrone"
 DEFAULT_BACKEND="bluez-dbus"
 LOG_LINES=120
@@ -21,8 +22,6 @@ ADAPTER=""
 BACKEND="$DEFAULT_BACKEND"
 ASSUME_YES="no"
 PURGE="no"
-RESET_NAME="no"
-NAME_ALIAS="${YUNDRONE_DEVICE_ALIAS:-}"
 VERBOSE="${YUNDRONE_VERBOSE:-no}"
 
 # shellcheck source=/dev/null
@@ -55,22 +54,19 @@ YunDrone BLE Server 安装器
   menu         打开智能安装向导，默认动作
   install      安装或更新 YunDrone BLE Server
   update       等同 install
-  uninstall    卸载服务和程序文件，默认保留 BLE 名称
-  reinstall    卸载后重新安装，默认保留 BLE 名称
+  uninstall    卸载服务和程序文件
+  reinstall    卸载后重新安装
   status       显示安装状态、服务状态和 BLE 名称
   doctor       只做环境诊断，不安装
   logs         显示最近服务日志
-  reset-name   重置持久化 BLE 名称并重启服务
 
 选项:
   --prefix <name>       BLE 名前缀，默认: yundrone
   --version <version>   指定安装版本，默认: latest
   --adapter <hciX>      蓝牙适配器提示，默认自动检测
   --backend <name>      广播后端，默认: bluez-dbus
-  --name-alias <4chars> 新 BLE 名称的人类可读别名，例如 lab1
   --yes                 跳过确认，用于自动化
   --purge               卸载时同时删除 /var/lib/yundrone
-  --reset-name          安装/重装时重新生成 BLE 名称
   --verbose, -v         输出下载、缓存、校验和路径细节，便于开发调试
   -h, --help            显示帮助
 
@@ -78,7 +74,6 @@ YunDrone BLE Server 安装器
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
   bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh) -- server
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- install --yes
-  bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- reset-name --name-alias lab1
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- doctor
   bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh) -- uninstall
 EOF
@@ -91,7 +86,7 @@ parse_args() {
 
   if [ $# -gt 0 ]; then
     case "$1" in
-      menu|install|update|uninstall|reinstall|status|doctor|logs|reset-name)
+      menu|install|update|uninstall|reinstall|status|doctor|logs)
         COMMAND="$1"
         shift
         ;;
@@ -120,21 +115,12 @@ parse_args() {
         [ -n "$BACKEND" ] || fail "--backend 需要一个值"
         shift 2
         ;;
-      --name-alias)
-        NAME_ALIAS="${2:-}"
-        [ -n "$NAME_ALIAS" ] || fail "--name-alias 需要一个值"
-        shift 2
-        ;;
       --yes|-y)
         ASSUME_YES="yes"
         shift
         ;;
       --purge)
         PURGE="yes"
-        shift
-        ;;
-      --reset-name)
-        RESET_NAME="yes"
         shift
         ;;
       --verbose|-v)
@@ -167,7 +153,7 @@ main() {
   parse_args "$@"
   if use_tui; then
     case "$COMMAND" in
-      menu|install|update|uninstall|reinstall|logs|reset-name)
+      menu|install|update|uninstall|reinstall|logs)
         ensure_gum
         ;;
     esac
@@ -194,9 +180,6 @@ main() {
       ;;
     logs)
       show_logs
-      ;;
-    reset-name)
-      reset_name
       ;;
     *)
       fail "未知命令: $COMMAND"

@@ -28,12 +28,12 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 
 1. 在目标 Linux 设备上选择“部署 / 管理本机 BLE 被控端”。
 2. 在电脑上选择“启动 BLE 客户端 CLI”，或打开 GUI。
-3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-lab1-k9x8`。
+3. 扫描以 `yundrone-` 开头的 BLE local name，例如 `yundrone-12abcd`。
 4. 选择对应设备并连接。
 5. 连接后执行 Wi-Fi 扫描、Wi-Fi 配网、系统状态或已保存 Wi-Fi 管理。
 6. 如果设备难找、连接慢、服务列表不出现或响应像被截断，先跑 debug CLI。
 
-每台设备只使用一个公开 BLE 名字。新安装默认生成类似 `yundrone-lab1-k9x8` 的名字：前 4 位是安装时输入的别名，后 4 位是随机码。这个名字保存在 `/var/lib/yundrone/ble-device-name`，所以正常重启或更新被控端不会换名字，也不容易污染手机和调试工具的蓝牙缓存。已经部署过的旧 6 位名字仍然会被客户端识别。
+每台设备只使用一个公开 BLE 名字，并在每次启动时从实际广播用蓝牙控制器的 MAC 地址派生。`DC:A6:32:12:AB:CD` 会得到 `yundrone-12abcd`，因此批量复制硬盘不会复制设备身份，也不再保存名称文件。Linux 蓝牙控制器加载较慢时，server 会等待最多 60 秒；仍不可用则记录诊断身份 `yundrone-null`、退出并交由 systemd 重试。客户端仍会识别已经部署过的旧名称。
 
 ## 被控端部署
 
@@ -51,7 +51,7 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-wifi-tool.sh)
 bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
 ```
 
-新安装或重置 BLE 名称时，安装器会要求输入 4 位设备别名，并显示最终名称，例如 `yundrone-lab1-k9x8`。请记住这个名字，之后在 Web Client、CLI 或小程序的设备列表里选择它。自动化场景可使用 `--name-alias lab1`。
+安装器会显示蓝牙 MAC、后六位 SN 和最终名称，例如 `yundrone-12abcd`。请记住这个名字，之后在 Web Client、CLI 或小程序的设备列表里选择它。更换蓝牙控制器后，派生出的设备名也会随之变化。
 
 在 Ubuntu / Debian 系目标设备上安装运行和构建依赖：
 

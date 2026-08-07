@@ -1,14 +1,23 @@
 #[cfg(target_os = "linux")]
-use bluer::Adapter;
+use bluer::{Adapter, Address, Session};
+#[cfg(target_os = "linux")]
+use std::time::{Duration, Instant};
 #[cfg(target_os = "linux")]
 use uuid::Uuid;
+
+#[cfg(target_os = "linux")]
+const DEFAULT_ADAPTER_WAIT_SECS: u64 = 60;
+#[cfg(target_os = "linux")]
+const ADAPTER_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+#[cfg(target_os = "linux")]
+const ADAPTER_WAIT_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
 #[derive(Clone, Debug)]
 pub struct ServerRuntimeContext {
     pub advertising_backend: crate::advertising_backend::AdvertisingBackend,
     pub identity: crate::device_identity::DeviceIdentity,
-    pub identity_source: crate::device_name::DeviceNameSource,
+    pub adapter_address: Address,
     pub advertising_policy: crate::advertising::AdvertisingPolicy,
     pub service_uuid: Uuid,
     pub write_uuid: Uuid,
@@ -18,39 +27,88 @@ pub struct ServerRuntimeContext {
 #[cfg(target_os = "linux")]
 pub fn build_runtime_context(
     args: crate::config::ServerArgs,
-) -> anyhow::Result<ServerRuntimeContext> {
-    build_runtime_context_with_identity_path(
-        args,
-        std::path::Path::new(crate::device_name::DEFAULT_DEVICE_NAME_PATH),
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn build_runtime_context_with_identity_path(
-    args: crate::config::ServerArgs,
-    identity_path: &std::path::Path,
+    adapter_address: Address,
 ) -> anyhow::Result<ServerRuntimeContext> {
     let name_prefix = crate::config::device_prefix_from_args(&args)?;
-    let resolved_name =
-        crate::device_name::resolve_persisted_device_name(&name_prefix, identity_path).map_err(
-            |err| {
-                tracing::error!(
-                    path = %identity_path.display(),
-                    error = %err,
-                    "ble.identity.persist_failed"
-                );
-                anyhow::Error::new(err)
-            },
-        )?;
+    let identity_name =
+        crate::device_name::build_device_name_from_mac(&name_prefix, Some(adapter_address.0));
     Ok(ServerRuntimeContext {
         advertising_backend: crate::advertising_backend::AdvertisingBackend::from_env(),
-        identity: crate::device_identity::build_device_identity(&name_prefix, resolved_name.name),
-        identity_source: resolved_name.source,
+        identity: crate::device_identity::build_device_identity(&name_prefix, identity_name),
+        adapter_address,
         advertising_policy: crate::advertising::default_policy(),
         service_uuid: Uuid::parse_str("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")?,
         write_uuid: Uuid::parse_str("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")?,
         read_uuid: Uuid::parse_str("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")?,
     })
+}
+
+#[cfg(target_os = "linux")]
+pub async fn wait_for_default_adapter(
+    session: &Session,
+    name_prefix: &str,
+) -> anyhow::Result<(Adapter, Address)> {
+    let timeout = adapter_wait_timeout();
+    let started = Instant::now();
+    let mut next_log = started;
+
+    loop {
+        let last_error = match session.default_adapter().await {
+            Ok(adapter) => match adapter.address().await {
+                Ok(address) if crate::device_name::is_usable_mac_address(&address.0) => {
+                    tracing::info!(
+                        adapter_name = %adapter.name(),
+                        adapter_address = %address,
+                        waited_ms = started.elapsed().as_millis(),
+                        "ble.adapter.identity_ready"
+                    );
+                    return Ok((adapter, address));
+                }
+                Ok(address) => format!("adapter returned unusable address {address}"),
+                Err(err) => format!("adapter address unavailable: {err}"),
+            },
+            Err(err) => format!("adapter unavailable: {err}"),
+        };
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            let identity_name = crate::device_name::build_device_name_from_mac(name_prefix, None);
+            tracing::error!(
+                identity_name = %identity_name,
+                waited_secs = timeout.as_secs(),
+                error = %last_error,
+                "ble.adapter.wait_timeout"
+            );
+            anyhow::bail!(
+                "Bluetooth adapter unavailable after {}s; derived identity is {identity_name}: {last_error}",
+                timeout.as_secs()
+            );
+        }
+
+        let now = Instant::now();
+        if now >= next_log {
+            tracing::warn!(
+                identity_name = %crate::device_name::build_device_name_from_mac(name_prefix, None),
+                waited_ms = elapsed.as_millis(),
+                wait_limit_secs = timeout.as_secs(),
+                error = %last_error,
+                "ble.adapter.waiting"
+            );
+            next_log = now + ADAPTER_WAIT_LOG_INTERVAL;
+        }
+
+        tokio::time::sleep(ADAPTER_RETRY_INTERVAL.min(timeout.saturating_sub(elapsed))).await;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn adapter_wait_timeout() -> Duration {
+    let seconds = std::env::var("YUNDRONE_BLE_ADAPTER_WAIT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_ADAPTER_WAIT_SECS);
+    Duration::from_secs(seconds)
 }
 
 #[cfg(target_os = "linux")]
@@ -62,35 +120,25 @@ pub async fn log_advertising_environment(
 ) {
     let adapter_name = adapter.name();
 
-    match &context.identity_source {
-        crate::device_name::DeviceNameSource::File => {
-            tracing::info!(
-                path = crate::device_name::DEFAULT_DEVICE_NAME_PATH,
-                identity_name = %context.identity.name,
-                "ble.identity.loaded"
-            );
-        }
-        crate::device_name::DeviceNameSource::Generated { reason } => {
-            tracing::warn!(
-                path = crate::device_name::DEFAULT_DEVICE_NAME_PATH,
-                identity_name = %context.identity.name,
-                reason = %reason,
-                "ble.identity.recreated"
-            );
-        }
-    }
+    tracing::info!(
+        adapter_address = %context.adapter_address,
+        identity_name = %context.identity.name,
+        identity_source = "adapter-mac",
+        "ble.identity.derived"
+    );
 
     tracing::info!(
         adapter_name = %adapter_name,
         identity_name = %context.identity.name,
         identity_prefix = %context.identity.prefix,
+        adapter_address = %context.adapter_address,
         advertising_backend = context.advertising_backend.as_str(),
         "ble.server.starting"
     );
     crate::log_view::emit_block(&crate::log_view::startup_block(
         adapter_name,
         &context.identity.name,
-        context.identity_source.as_str(),
+        "adapter-mac",
         context.advertising_backend.as_str(),
     ));
     tracing::info!(
@@ -239,56 +287,18 @@ pub async fn start_advertising(
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "yundrone-runtime-{name}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-
-        fn identity_file(&self) -> PathBuf {
-            self.path.join("ble-device-name")
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
     #[test]
-    fn runtime_context_uses_persisted_identity_file() {
-        let dir = TestDir::new("context");
-        fs::write(dir.identity_file(), "yundrone-bw0uwj\n").unwrap();
-
-        let context = super::build_runtime_context_with_identity_path(
+    fn runtime_context_uses_adapter_mac_identity() {
+        let address = bluer::Address::new([0xdc, 0xa6, 0x32, 0x12, 0xab, 0xcd]);
+        let context = super::build_runtime_context(
             crate::config::ServerArgs {
                 name_prefix: "yundrone".to_string(),
             },
-            &dir.identity_file(),
+            address,
         )
         .unwrap();
 
-        assert_eq!(context.identity.name, "yundrone-bw0uwj");
-        assert_eq!(
-            context.identity_source,
-            crate::device_name::DeviceNameSource::File
-        );
+        assert_eq!(context.identity.name, "yundrone-12abcd");
+        assert_eq!(context.adapter_address, address);
     }
 }

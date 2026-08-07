@@ -55,7 +55,6 @@ healthy_menu() {
         "查看最近日志" \
         "重启服务" \
         "检查更新 / 更新" \
-        "重置 BLE 名称" \
         "运行环境诊断" \
         "卸载" \
         "退出" | tui_choose "维护操作")" || exit 0
@@ -63,7 +62,6 @@ healthy_menu() {
         查看最近日志) run_menu_action show_logs ;;
         重启服务) run_menu_action restart_service ;;
         "检查更新 / 更新") install_or_update; exit 0 ;;
-        "重置 BLE 名称") run_menu_action reset_name ;;
         运行环境诊断) run_menu_action doctor ;;
         卸载) uninstall; exit 0 ;;
         退出) exit 0 ;;
@@ -75,19 +73,17 @@ healthy_menu() {
     printf '  1) 查看最近日志\n'
     printf '  2) 重启服务\n'
     printf '  3) 检查更新 / 更新\n'
-    printf '  4) 卸载\n'
-    printf '  5) 重置 BLE 名称\n'
-    printf '  6) 运行环境诊断\n'
-    printf '  7) 退出\n'
+    printf '  4) 运行环境诊断\n'
+    printf '  5) 卸载\n'
+    printf '  6) 退出\n'
     read_choice_into choice
     case "$choice" in
       1) show_logs ;;
       2) restart_service ;;
       3) install_or_update; exit 0 ;;
-      4) uninstall; exit 0 ;;
-      5) reset_name ;;
-      6) doctor ;;
-      7|q|Q) exit 0 ;;
+      4) doctor ;;
+      5) uninstall; exit 0 ;;
+      6|q|Q) exit 0 ;;
       *) warn "无效选择" ;;
     esac
   done

@@ -23,7 +23,7 @@ bash <(curl -fsSL https://install.yundrone.cn/ble-server.sh)
 | `/yundrone/ble-server/installer/versions/<VERSION>/` | 被控端 installer 的版本化脚本文件。 |
 | `/yundrone/ble/tools/gum/latest.json` | gum TUI 二进制工具包清单。 |
 | `/yundrone/ble-client/releases/latest.json` | client CLI 裸二进制 release 清单。 |
-| `/yundrone/ble-server/latest.json` | server release 清单。 |
+| `/yundrone/ble-server/releases/latest.json` | server release 清单。 |
 | `/yundrone/ble-server/releases/<VERSION>/` | server tarball 和版本级 `release.json`。 |
 
 入口脚本本身很小。它们会读取 `latest.json`，下载对应版本的脚本目录，再执行 `main.sh`。
@@ -94,7 +94,7 @@ dist/ble-client/releases/<VERSION>/yundrone-ble-client-linux-arm64.tar.gz
 dist/ble-client/releases/<VERSION>/yundrone-ble-client-macos-arm64.tar.gz
 ```
 
-如果某类 tarball 缺失，上传脚本会打印 warning 并跳过对应 metadata。这样会导致新静态站点里缺少该 release 清单，所以正式发布前不要忽略这些 warning。
+上传脚本要求上述五个 tarball 全部存在。缺少任一文件都会立即停止，不会产生缺少 release metadata 的半成品发布。
 
 ## 执行上传
 
@@ -130,11 +130,11 @@ scripts/release/upload-ble-distribution-manual.sh
 2. 复制统一 launcher 和 server installer 到版本化目录。
 3. 生成 installer manifest。
 4. 准备 gum 工具包。如果本地没有 `dist/gum-tools/latest.json`，会从 Charmbracelet GitHub release 下载并重新打包。
-5. 复制 client/server tarball，并生成 `latest.json`。
-6. 把整个静态站点打成 tarball。
-7. 通过 `scp` 上传到远端 `/tmp/yundrone-install-site.tar.gz`。
-8. 在远端用 `sudo tar` 解压到静态根目录。
-9. 用 `curl` 验证两个入口脚本可访问。
+5. 校验并复制五个 client/server tarball，生成 `latest.json`。
+6. 在远端 `/tmp` 创建当前站点备份。
+7. 把整个静态站点打成 tarball，通过 `scp` 上传并覆盖解压。
+8. 验证两个入口脚本和四份 live manifest 的版本。
+9. 下载每个 manifest 声明的文件，逐项核对 SHA256。
 
 ## 验证
 
@@ -152,7 +152,7 @@ curl -fsSL https://install.yundrone.cn/yundrone/ble/launcher/installer/latest.js
 curl -fsSL https://install.yundrone.cn/yundrone/ble-server/installer/latest.json
 curl -fsSL https://install.yundrone.cn/yundrone/ble/tools/gum/latest.json
 curl -fsSL https://install.yundrone.cn/yundrone/ble-client/releases/latest.json
-curl -fsSL https://install.yundrone.cn/yundrone/ble-server/latest.json
+curl -fsSL https://install.yundrone.cn/yundrone/ble-server/releases/latest.json
 ```
 
 建议做一次非破坏性 smoke test：
@@ -187,7 +187,7 @@ ssh self-cloudserver \
 
 ### 只改了安装器脚本，需要重新构建 server/client 吗？
 
-如果远端要继续保留完整 release metadata，推荐仍准备当前版本的 client/server tarball 再上传。否则上传脚本会跳过缺失的 tarball metadata，可能让安装服务缺少 `latest.json`。
+需要。上传脚本把完整 client/server 资产视为正式发布的硬性条件，缺少当前版本任一 tarball 都会退出。
 
 ### `gum latest.json` 是哪里来的？
 

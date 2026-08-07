@@ -16,12 +16,14 @@ async fn main() -> anyhow::Result<()> {
     };
     server::logging::init_logging();
     let args = server::config::parse_args();
-    let runtime = server::runtime::build_runtime_context(args)?;
+    let name_prefix = server::config::device_prefix_from_args(&args)?;
 
     info!("Starting YunDrone BLE Command Gateway (Linux Server)...");
 
     let session = bluer::Session::new().await?;
-    let adapter = session.default_adapter().await?;
+    let (adapter, adapter_address) =
+        server::runtime::wait_for_default_adapter(&session, &name_prefix).await?;
+    let runtime = server::runtime::build_runtime_context(args, adapter_address)?;
     adapter.set_powered(true).await?;
     if let Err(err) =
         server::adapter_identity::apply_and_log_public_identity(&adapter, &runtime.identity.name)

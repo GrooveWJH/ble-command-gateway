@@ -87,7 +87,7 @@ Arguments: none.
 Response:
 
 - `code`: `OK`, `INTERNAL_ERROR`, or `TIMEOUT`
-- `data.device_name`: public BLE identity string, for example `yundrone-lab1-k9x8`
+- `data.device_name`: public BLE identity string derived from the adapter MAC, for example `yundrone-12abcd`
 - `data.hostname`: hostname string
 - `data.system`: `uname -srm` string
 - `data.user`: preferred operator user string
