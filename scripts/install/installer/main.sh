@@ -11,7 +11,7 @@ STATE_DIR="/var/lib/yundrone"
 LEGACY_IDENTITY_FILE="${STATE_DIR}/ble-device-name"
 BLUETOOTH_CLASS_DIR="${YUNDRONE_BLUETOOTH_CLASS_DIR:-/sys/class/bluetooth}"
 DEFAULT_PREFIX="yundrone"
-DEFAULT_BACKEND="bluez-dbus"
+DEFAULT_BACKEND="auto"
 LOG_LINES=120
 SERVICE_START_TIMEOUT=60
 
@@ -64,7 +64,7 @@ YunDrone BLE Server 安装器
   --prefix <name>       BLE 名前缀，默认: yundrone
   --version <version>   指定安装版本，默认: latest
   --adapter <hciX>      蓝牙适配器提示，默认自动检测
-  --backend <name>      广播后端，默认: bluez-dbus
+  --backend <name>      广播后端，默认: auto，可选 auto|bluez-dbus|legacy-hci
   --yes                 跳过确认，用于自动化
   --purge               卸载时同时删除 /var/lib/yundrone
   --verbose, -v         输出下载、缓存、校验和路径细节，便于开发调试
@@ -149,8 +149,22 @@ validate_prefix() {
   fi
 }
 
+validate_backend() {
+  case "${BACKEND,,}" in
+    auto|bluez-dbus|legacy-hci) BACKEND="${BACKEND,,}" ;;
+    *) fail "非法广播后端 '$BACKEND'：只能是 auto、bluez-dbus 或 legacy-hci" ;;
+  esac
+}
+
+validate_adapter() {
+  [ -z "$ADAPTER" ] && return 0
+  printf '%s' "$ADAPTER" | grep -Eq '^hci[0-9]+$' || fail "非法蓝牙适配器 '$ADAPTER'：格式应为 hci0、hci1 等"
+}
+
 main() {
   parse_args "$@"
+  validate_backend
+  validate_adapter
   if use_tui; then
     case "$COMMAND" in
       menu|install|update|uninstall|reinstall|logs)

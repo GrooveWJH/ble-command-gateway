@@ -44,7 +44,7 @@ normalize_adapter_address() {
 
 default_adapter_address() {
   local hci address first_mac
-  hci="$(default_adapter_name 2>/dev/null || true)"
+  hci="${ADAPTER:-$(default_adapter_name 2>/dev/null || true)}"
   if [ -n "$hci" ]; then
     address="$(cat "${BLUETOOTH_CLASS_DIR}/${hci}/address" 2>/dev/null || true)"
     if normalize_adapter_address "$address" >/dev/null; then

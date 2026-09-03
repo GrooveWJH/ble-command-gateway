@@ -65,6 +65,8 @@ cargo run -p yundrone-ble-client -- debug-ble \
 cat /tmp/yundrone-ble-debug.log
 ```
 
+`--target` 可以填写稳定前缀（例如 `yundrone`），也可以填写完整设备名（例如 `yundrone-cc591b`）。附近有多台网关时建议使用完整设备名，避免误连其他设备。
+
 健康输出应至少包含：
 
 ```text

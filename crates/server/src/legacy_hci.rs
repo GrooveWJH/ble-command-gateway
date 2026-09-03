@@ -5,11 +5,23 @@ use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 #[cfg(target_os = "linux")]
+use tokio::sync::oneshot;
+#[cfg(target_os = "linux")]
 use uuid::Uuid;
 
 #[cfg(target_os = "linux")]
 pub struct LegacyAdvertisingSession {
     adapter_name: String,
+    watchdog_stop: Option<oneshot::Sender<()>>,
+    watchdog_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_available() -> bool {
+    std::process::Command::new("hcitool")
+        .arg("--help")
+        .output()
+        .is_ok()
 }
 
 #[cfg(target_os = "linux")]
@@ -24,14 +36,41 @@ pub async fn start_legacy_advertising(
     set_legacy_adv_data(adapter_name, &build_primary_payload(identity_name)?)?;
     set_legacy_scan_response(adapter_name, &build_scan_response_payload(service_uuid)?)?;
     set_legacy_enabled(adapter_name, true)?;
+
+    // Some Orin/Realtek firmware stops legacy advertising after an incoming
+    // connection or a controller reset. Re-assert only the enable bit so the
+    // payload and interval remain untouched while the server stays running.
+    let (watchdog_stop, mut stop_rx) = oneshot::channel();
+    let watchdog_adapter = adapter_name.to_string();
+    let watchdog_task = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(2));
+        tick.tick().await;
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {
+                    let _ = set_legacy_enabled(&watchdog_adapter, true);
+                }
+                _ = &mut stop_rx => break,
+            }
+        }
+    });
+
     Ok(LegacyAdvertisingSession {
         adapter_name: adapter_name.to_string(),
+        watchdog_stop: Some(watchdog_stop),
+        watchdog_task: Some(watchdog_task),
     })
 }
 
 #[cfg(target_os = "linux")]
 impl LegacyAdvertisingSession {
-    pub async fn stop(self) -> anyhow::Result<()> {
+    pub async fn stop(mut self) -> anyhow::Result<()> {
+        if let Some(stop) = self.watchdog_stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(task) = self.watchdog_task.take() {
+            let _ = task.await;
+        }
         set_legacy_enabled(&self.adapter_name, false)
     }
 }

@@ -1,3 +1,12 @@
+2026.4.1 - 2026-09-03
+
+- 完成 Jetson Orin NX / BlueZ 5.53 / Realtek 蓝牙适配，自动选择 BlueZ D-Bus 或 legacy HCI 广播后端。
+- 在非 experimental BlueZ 环境下通过 legacy HCI 稳定下发 BLE 广播间隔、设备名和 Nordic UART Service 广播数据。
+- 增加 legacy HCI 广播看门狗，处理 Orin/Realtek 控制器在连接或重置后清除广播状态的问题。
+- 增加 `--adapter`、`YUNDRONE_BLE_ADAPTER`、`--backend` 和 `YUNDRONE_BLE_ADV_BACKEND` 配置入口，并补充 adapter/backend 能力诊断日志。
+- BLE client 的 `--target` 同时支持稳定前缀和完整设备名，便于在多台网关附近精确连接指定设备。
+- 统一 server 安装路径、systemd 模板、README 和部署文档到 `/opt/yundrone/ble-command-gateway/current`。
+
 2026.4.0 - 2026-08-07
 
 - 将 BLE 公开身份改为每次启动时从默认蓝牙控制器 MAC 地址后六位自动派生，例如 `yundrone-12abcd`，解决批量复制系统盘造成设备名重复的问题。

@@ -1,6 +1,6 @@
 doctor() {
   section "YunDrone BLE Server 环境诊断"
-  local arch os_status source_status required_ok warn_count state
+  local arch os_status source_status required_ok warn_count state bluez_version dbus_adv experimental recommended
   required_ok="yes"
   warn_count=0
   arch="$(safe_arch)"
@@ -32,6 +32,19 @@ doctor() {
   [ "$(networkmanager_state)" = "active" ] || warn_count=$((warn_count + 1))
   [ "$(adapter_display)" != "未发现" ] || required_ok="no"
 
+  bluez_version="未知"
+  if have bluetoothctl; then
+    bluez_version="$(bluetoothctl --version 2>/dev/null | awk 'NR==1 {print $2}' || true)"
+    [ -n "$bluez_version" ] || bluez_version="未知"
+  fi
+  dbus_adv="缺失"
+  if have busctl && busctl --system list 2>/dev/null | grep -q org.bluez; then
+    if busctl --system tree org.bluez 2>/dev/null | grep -q LEAdvertisingManager1; then dbus_adv="OK"; fi
+  fi
+  experimental="否"
+  if pgrep -a bluetoothd 2>/dev/null | grep -q -- --experimental; then experimental="是"; fi
+  if [ "$experimental" = "否" ] && have hcitool; then recommended="legacy-hci"; elif [ "$dbus_adv" = "OK" ]; then recommended="bluez-dbus"; else recommended="不可用"; fi
+
   if tui_ready; then
     tui_title "YunDrone BLE Server 环境诊断"
     {
@@ -46,6 +59,13 @@ doctor() {
       printf '必需项,sha256sum/shasum,%s\n' "$(if have sha256sum || have shasum; then echo OK; else echo 缺失; fi)"
       printf '必需项,bluetoothctl,%s\n' "$(tool_ok bluetoothctl)"
       printf '必需项,蓝牙适配器,%s\n' "$(adapter_display)"
+      printf '蓝牙能力,BlueZ 版本,%s\n' "$bluez_version"
+      printf '蓝牙能力,hcitool,%s\n' "$(tool_ok hcitool)"
+      printf '蓝牙能力,btmgmt,%s\n' "$(tool_ok btmgmt)"
+      printf '蓝牙能力,bluetoothctl,%s\n' "$(tool_ok bluetoothctl)"
+      printf '蓝牙能力,LEAdvertisingManager1,%s\n' "$dbus_adv"
+      printf '蓝牙能力,bluetoothd experimental,%s\n' "$experimental"
+      printf '蓝牙能力,推荐后端,%s\n' "$recommended"
       printf '必需项,安装源,%s\n' "$source_status"
       printf '推荐项,NetworkManager,%s\n' "$(networkmanager_state)"
       printf '推荐项,当前安装状态,%s\n' "$(state_label "$state")"
@@ -77,6 +97,12 @@ doctor() {
   field_line "sha256sum/shasum" "$(status_text "$(if have sha256sum || have shasum; then echo OK; else echo 缺失; fi)")"
   field_line "bluetoothctl" "$(status_text "$(tool_ok bluetoothctl)")"
   field_line "蓝牙适配器" "$(status_text "$(adapter_display)")"
+  field_line "BlueZ 版本" "$(status_text "$bluez_version")"
+  field_line "hcitool" "$(status_text "$(tool_ok hcitool)")"
+  field_line "btmgmt" "$(status_text "$(tool_ok btmgmt)")"
+  field_line "LEAdvertisingManager1" "$(status_text "$dbus_adv")"
+  field_line "bluetoothd experimental" "$(status_text "$experimental")"
+  field_line "推荐广播后端" "$(status_text "$recommended")"
   field_line "安装源" "$(status_text "$source_status")"
 
   subheading "推荐项"

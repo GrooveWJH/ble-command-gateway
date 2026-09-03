@@ -1,6 +1,7 @@
 write_service() {
   local prefix="$1"
   local backend="$2"
+  local adapter="${3:-}"
   local content
   content="$(cat <<EOF
 [Unit]
@@ -15,6 +16,7 @@ WorkingDirectory=${INSTALL_ROOT}/current
 Environment=YUNDRONE_BLE_ADV_BACKEND=${backend}
 Environment=YUNDRONE_LOG_COLOR=always
 Environment=YUNDRONE_DEVICE_PREFIX=${prefix}
+$(if [ -n "$adapter" ]; then printf 'Environment=YUNDRONE_BLE_ADAPTER=%s\n' "$adapter"; fi)
 ExecStartPre=${INSTALL_ROOT}/current/deploy/systemd/prepare-ble-adapter.sh
 ExecStart=${INSTALL_ROOT}/current/yundrone-ble-server
 Restart=on-failure

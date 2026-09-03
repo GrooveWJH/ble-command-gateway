@@ -147,7 +147,7 @@ async fn run_with_log(
     let notify_uuid = Uuid::parse_str(NOTIFY_UUID)?;
 
     log.line(">>> YunDrone BLE Debug CLI <<<");
-    log.line(format!("target prefix: {prefix}"));
+    log.line(format!("target: {prefix}"));
     log.line(format!("scan timeout: {timeout_secs}s"));
     log.line(format!("response timeout: {response_timeout_secs}s"));
 

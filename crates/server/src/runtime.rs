@@ -15,7 +15,9 @@ const ADAPTER_WAIT_LOG_INTERVAL: Duration = Duration::from_secs(5);
 #[cfg(target_os = "linux")]
 #[derive(Clone, Debug)]
 pub struct ServerRuntimeContext {
+    pub backend_preference: crate::advertising_backend::AdvertisingBackend,
     pub advertising_backend: crate::advertising_backend::AdvertisingBackend,
+    pub fallback_attempted: bool,
     pub identity: crate::device_identity::DeviceIdentity,
     pub adapter_address: Address,
     pub advertising_policy: crate::advertising::AdvertisingPolicy,
@@ -33,7 +35,9 @@ pub fn build_runtime_context(
     let identity_name =
         crate::device_name::build_device_name_from_mac(&name_prefix, Some(adapter_address.0));
     Ok(ServerRuntimeContext {
-        advertising_backend: crate::advertising_backend::AdvertisingBackend::from_env(),
+        backend_preference: args.backend,
+        advertising_backend: args.backend,
+        fallback_attempted: false,
         identity: crate::device_identity::build_device_identity(&name_prefix, identity_name),
         adapter_address,
         advertising_policy: crate::advertising::default_policy(),
@@ -48,17 +52,36 @@ pub async fn wait_for_default_adapter(
     session: &Session,
     name_prefix: &str,
 ) -> anyhow::Result<(Adapter, Address)> {
+    wait_for_adapter(session, None, name_prefix).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn wait_for_adapter(
+    session: &Session,
+    requested_name: Option<&str>,
+    name_prefix: &str,
+) -> anyhow::Result<(Adapter, Address)> {
     let timeout = adapter_wait_timeout();
     let started = Instant::now();
     let mut next_log = started;
 
     loop {
-        let last_error = match session.default_adapter().await {
+        let adapter_result = match requested_name {
+            Some(name) => session
+                .adapter(name)
+                .map_err(|err| format!("adapter {name} unavailable: {err}")),
+            None => session
+                .default_adapter()
+                .await
+                .map_err(|err| format!("adapter unavailable: {err}")),
+        };
+        let last_error = match adapter_result {
             Ok(adapter) => match adapter.address().await {
                 Ok(address) if crate::device_name::is_usable_mac_address(&address.0) => {
                     tracing::info!(
                         adapter_name = %adapter.name(),
                         adapter_address = %address,
+                        requested_adapter = ?requested_name,
                         waited_ms = started.elapsed().as_millis(),
                         "ble.adapter.identity_ready"
                     );
@@ -67,7 +90,7 @@ pub async fn wait_for_default_adapter(
                 Ok(address) => format!("adapter returned unusable address {address}"),
                 Err(err) => format!("adapter address unavailable: {err}"),
             },
-            Err(err) => format!("adapter unavailable: {err}"),
+            Err(err) => err,
         };
 
         let elapsed = started.elapsed();
@@ -153,6 +176,14 @@ pub async fn log_advertising_environment(
         platform_features = ?capabilities.platform_features,
         "ble.advertising.capabilities"
     );
+    tracing::info!(
+        adapter_name = %adapter_name,
+        bluez_dbus_available = capabilities.supported_instances.is_some(),
+        legacy_hci_available = crate::legacy_hci::is_available(),
+        experimental = environment.has_experimental,
+        bluetoothd = ?environment.command_line,
+        "ble.adapter.capabilities"
+    );
     tracing::warn!(
         adapter_name = %adapter_name,
         identity_name = %context.identity.name,
@@ -201,22 +232,59 @@ impl AdvertisingSession {
 pub async fn start_advertising(
     adapter: &Adapter,
     capabilities: &crate::advertising::AdvertisingCapabilitiesSnapshot,
-    context: &ServerRuntimeContext,
+    context: &mut ServerRuntimeContext,
     phase: crate::advertising::AdvertisingPhase,
 ) -> anyhow::Result<AdvertisingSession> {
     let config =
         crate::advertising::applied_config(&context.advertising_policy, phase, capabilities);
     let adapter_name = adapter.name();
     let session = match context.advertising_backend {
-        crate::advertising_backend::AdvertisingBackend::BluezDbus => AdvertisingSession::Bluez(
-            crate::advertising::advertise_phase(
+        crate::advertising_backend::AdvertisingBackend::BluezDbus => {
+            match crate::advertising::advertise_phase(
                 adapter,
                 &context.identity.name,
                 context.service_uuid,
                 config,
             )
-            .await?,
-        ),
+            .await
+            {
+                Ok(handle) => AdvertisingSession::Bluez(handle),
+                Err(err)
+                    if matches!(
+                        context.backend_preference,
+                        crate::advertising_backend::AdvertisingBackend::Auto
+                    ) && !context.fallback_attempted
+                        && crate::legacy_hci::is_available() =>
+                {
+                    context.fallback_attempted = true;
+                    tracing::warn!(
+                        adapter_name = %adapter_name,
+                        from = "bluez-dbus",
+                        to = "legacy-hci",
+                        error = %err,
+                        "ble.advertising.fallback"
+                    );
+                    context.advertising_backend =
+                        crate::advertising_backend::AdvertisingBackend::LegacyHci;
+                    AdvertisingSession::Legacy(
+                        crate::legacy_hci::start_legacy_advertising(
+                            adapter_name,
+                            &context.identity.name,
+                            context.service_uuid,
+                            config.interval,
+                        )
+                        .await?,
+                    )
+                }
+                Err(err) => {
+                    return Err(anyhow::anyhow!(
+                        "advertising backend {} failed: {}",
+                        context.advertising_backend.as_str(),
+                        err
+                    ))
+                }
+            }
+        }
         crate::advertising_backend::AdvertisingBackend::LegacyHci => AdvertisingSession::Legacy(
             crate::legacy_hci::start_legacy_advertising(
                 adapter_name,
@@ -226,6 +294,11 @@ pub async fn start_advertising(
             )
             .await?,
         ),
+        crate::advertising_backend::AdvertisingBackend::Auto => {
+            return Err(anyhow::anyhow!(
+                "advertising backend was not selected before start"
+            ));
+        }
     };
 
     if matches!(phase, crate::advertising::AdvertisingPhase::FastStart) {
@@ -293,6 +366,8 @@ mod tests {
         let context = super::build_runtime_context(
             crate::config::ServerArgs {
                 name_prefix: "yundrone".to_string(),
+                adapter: None,
+                backend: crate::advertising_backend::AdvertisingBackend::Auto,
             },
             address,
         )

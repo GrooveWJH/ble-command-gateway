@@ -100,7 +100,7 @@ sudo systemctl status yundrone-ble-command-gateway.service --no-pager
 sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-The service runs `/opt/ble-command-gateway/target/release/yundrone-ble-server` in production deployments. Full deployment details, BlueZ settings, pairing policy, advertising interval checks, and recovery steps live in [docs/systemd.md](./docs/systemd.md).
+The service runs `/opt/yundrone/ble-command-gateway/current/yundrone-ble-server` in production deployments. Set `YUNDRONE_BLE_ADV_BACKEND=auto` (or choose `bluez-dbus`/`legacy-hci`) and optionally `YUNDRONE_BLE_ADAPTER=hci0`. Full deployment details, BlueZ settings, pairing policy, advertising interval checks, and recovery steps live in [docs/systemd.md](./docs/systemd.md).
 
 ## Client And GUI
 
@@ -167,6 +167,8 @@ cargo run -p yundrone-ble-client -- debug-ble \
   --trace-qos \
   --output /tmp/yundrone-ble-debug.log
 ```
+
+`--target` accepts either a stable prefix such as `yundrone` or one exact device name such as `yundrone-cc591b`. Use the exact name when multiple gateways are nearby.
 
 With `--trace-chunks` and `--trace-qos`, the log shows:
 

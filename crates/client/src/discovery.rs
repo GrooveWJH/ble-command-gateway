@@ -60,6 +60,12 @@ fn extract_candidate_name(raw_name: &str, criteria: &DiscoveryCriteria) -> Optio
 }
 
 fn is_stable_identity(value: &str, prefix: &str) -> bool {
+    // A full device name is also a valid target; this lets callers disambiguate
+    // one gateway while retaining the existing prefix-based discovery behavior.
+    if value == prefix {
+        return true;
+    }
+
     let Some(suffix) = value
         .strip_prefix(prefix)
         .and_then(|rest| rest.strip_prefix('-'))
@@ -139,6 +145,18 @@ mod tests {
 
         assert!(matched.matches_identity);
         assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-ytcwln"));
+    }
+
+    #[test]
+    fn accepts_exact_device_name_as_target() {
+        let mut properties = base_properties();
+        let criteria = DiscoveryCriteria::for_prefix("yundrone-cc591b");
+        properties.local_name = Some("yundrone-cc591b".to_string());
+
+        let matched = classify_properties(&properties, &criteria).unwrap();
+
+        assert!(matched.matches_identity);
+        assert_eq!(matched.candidate_name.as_deref(), Some("yundrone-cc591b"));
     }
 
     #[test]

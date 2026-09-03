@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
 
     let session = bluer::Session::new().await?;
     let (adapter, adapter_address) =
-        server::runtime::wait_for_default_adapter(&session, &name_prefix).await?;
+        server::runtime::wait_for_adapter(&session, args.adapter.as_deref(), &name_prefix).await?;
     let runtime = server::runtime::build_runtime_context(args, adapter_address)?;
     adapter.set_powered(true).await?;
     if let Err(err) =
@@ -46,6 +46,31 @@ async fn main() -> anyhow::Result<()> {
     let _pairing_guard = server::adapter_pairing::spawn_pairing_guard(adapter.clone());
     let advertising_capabilities = server::advertising::probe_capabilities(&adapter).await;
     let bluetoothd_environment = server::bluetoothd::inspect_bluetoothd_environment().await;
+    let selection = server::advertising_backend::AdvertisingBackend::select(
+        runtime.backend_preference,
+        &advertising_capabilities,
+        &bluetoothd_environment,
+        server::legacy_hci::is_available(),
+    );
+    let (selected_backend, reason) = match selection {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::error!(
+                adapter_name = %adapter.name(),
+                error = %err,
+                "ble.adapter.preflight_failed"
+            );
+            return Err(err);
+        }
+    };
+    let mut runtime = runtime;
+    runtime.advertising_backend = selected_backend;
+    tracing::info!(
+        requested_backend = runtime.backend_preference.as_str(),
+        selected_backend = runtime.advertising_backend.as_str(),
+        reason,
+        "ble.advertising.backend_selected"
+    );
     server::runtime::log_advertising_environment(
         &adapter,
         &advertising_capabilities,
@@ -170,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
     let mut advertising_session = server::runtime::start_advertising(
         &adapter,
         &advertising_capabilities,
-        &runtime,
+        &mut runtime,
         server::advertising::AdvertisingPhase::FastStart,
     )
     .await?;
@@ -184,7 +209,7 @@ async fn main() -> anyhow::Result<()> {
             advertising_session = server::runtime::start_advertising(
                 &adapter,
                 &advertising_capabilities,
-                &runtime,
+                &mut runtime,
                 server::advertising::AdvertisingPhase::Steady,
             ).await?;
             tokio::signal::ctrl_c().await?;

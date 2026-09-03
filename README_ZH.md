@@ -100,7 +100,7 @@ sudo systemctl status yundrone-ble-command-gateway.service --no-pager
 sudo journalctl -u yundrone-ble-command-gateway.service -f -o cat
 ```
 
-生产部署时，systemd 服务运行 `/opt/ble-command-gateway/target/release/yundrone-ble-server`。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
+生产部署时，systemd 服务运行 `/opt/yundrone/ble-command-gateway/current/yundrone-ble-server`。默认使用 `YUNDRONE_BLE_ADV_BACKEND=auto`，也可选择 `bluez-dbus`/`legacy-hci`，并通过 `YUNDRONE_BLE_ADAPTER=hci0` 指定适配器。完整部署细节、BlueZ 设置、配对策略、广播 interval 验收和故障恢复请看 [docs/systemd.md](./docs/systemd.md)。
 
 ## 客户端和 GUI
 

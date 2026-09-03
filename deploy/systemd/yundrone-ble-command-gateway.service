@@ -6,13 +6,15 @@ Wants=bluetooth.service NetworkManager.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/ble-command-gateway
-Environment=YUNDRONE_BLE_ADV_BACKEND=bluez-dbus
+WorkingDirectory=/opt/yundrone/ble-command-gateway/current
+Environment=YUNDRONE_BLE_ADV_BACKEND=auto
 Environment=YUNDRONE_LOG_COLOR=always
 Environment=YUNDRONE_DEVICE_PREFIX=yundrone
-ExecStartPre=/opt/ble-command-gateway/deploy/systemd/prepare-ble-adapter.sh
+# Optional on multi-adapter hosts:
+# Environment=YUNDRONE_BLE_ADAPTER=hci0
+ExecStartPre=/opt/yundrone/ble-command-gateway/current/deploy/systemd/prepare-ble-adapter.sh
 ExecStartPre=-/usr/bin/bluetoothctl pairable off
-ExecStart=/opt/ble-command-gateway/target/release/yundrone-ble-server
+ExecStart=/opt/yundrone/ble-command-gateway/current/yundrone-ble-server
 Restart=on-failure
 RestartSec=5
 
